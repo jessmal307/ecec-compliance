@@ -24,3 +24,7 @@ export function ownerProfilePath(item) {
   if (item?.site_id) return paths.siteProfile(item.site_id)
   return paths.home
 }
+
+export function isSitesPath(pathname) {
+  return pathname === paths.sites || pathname.startsWith(`${paths.sites}/`)
+}

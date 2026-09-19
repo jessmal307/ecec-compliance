@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -33,7 +33,6 @@ const EMPTY_SITE_FORM = {
 
 export function Sites() {
   const { organizationId } = useAuth()
-  const [creating, setCreating] = useState(false)
   const [form, setForm] = useState(EMPTY_SITE_FORM)
   const [sites, setSites] = useState([])
   const [error, setError] = useState('')
@@ -42,6 +41,8 @@ export function Sites() {
   const [deletingId, setDeletingId] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [query, setQuery] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const creating = searchParams.get('new') === '1'
 
   function setFormField(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -86,7 +87,9 @@ export function Sites() {
 
   function resetForm() {
     setForm(EMPTY_SITE_FORM)
-    setCreating(false)
+    const next = new URLSearchParams(searchParams)
+    next.delete('new')
+    setSearchParams(next, { replace: true })
   }
 
   async function handleSubmit(event) {
@@ -160,7 +163,7 @@ export function Sites() {
             <Button
               type="button"
               onClick={() => {
-                setCreating(true)
+                setSearchParams({ new: '1' })
                 setError('')
               }}
               disabled={!organizationId}
