@@ -114,7 +114,7 @@ export function UrgentAttentionList({
           <li
             key={item.id}
             className={`border-l-4 pl-3 ${accent} ${
-              compact ? 'py-2 first:pt-0 last:pb-0' : 'flex flex-col gap-3 py-3 first:pt-0 last:pb-0'
+              compact ? 'min-h-11 py-2 first:pt-0 last:pb-0' : 'flex flex-col gap-3 py-3 first:pt-0 last:pb-0'
             }`}
           >
             <div
@@ -127,7 +127,7 @@ export function UrgentAttentionList({
               <div className="min-w-0">
                 <Link
                   to={ownerProfilePath(item)}
-                  className="block truncate font-medium text-card-foreground hover:underline"
+                  className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
                 >
                   {item.typeName}
                   <span className="font-normal text-muted-foreground">

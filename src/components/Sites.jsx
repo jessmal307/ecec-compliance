@@ -302,7 +302,7 @@ export function Sites() {
                     <Td slot="label">
                       <Link
                         to={paths.siteProfile(site.id)}
-                        className="font-medium text-card-foreground hover:underline"
+                        className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
                       >
                         {site.name}
                       </Link>

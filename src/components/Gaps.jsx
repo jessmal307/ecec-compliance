@@ -187,7 +187,7 @@ export function Gaps() {
                     <Td slot="label">
                       <Link
                         to={row.href}
-                        className="font-medium text-card-foreground hover:underline"
+                        className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
                       >
                         {row.name}
                       </Link>

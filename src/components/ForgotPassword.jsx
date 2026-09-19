@@ -78,11 +78,11 @@ export function ForgotPassword() {
           </FormActions>
         </form>
 
-        <p className="mt-4 text-center text-sm text-muted-foreground">
+        <p className="mt-4 text-center text-base text-muted-foreground md:text-sm">
           Remembered your password?{' '}
           <Link
             to={paths.home}
-            className="font-medium text-card-foreground underline-offset-4 hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
           >
             Log in
           </Link>

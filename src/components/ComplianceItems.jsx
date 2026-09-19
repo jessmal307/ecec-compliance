@@ -532,7 +532,7 @@ export function ComplianceItems() {
                       <Td slot="extra">
                         <Link
                           to={profilePath}
-                          className="text-card-foreground hover:underline"
+                          className="inline-flex min-h-11 items-center text-card-foreground underline underline-offset-2"
                         >
                           {item.ownerName}
                         </Link>

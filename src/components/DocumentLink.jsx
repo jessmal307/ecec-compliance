@@ -34,7 +34,7 @@ export function DocumentAttached({ path, disabled = false }) {
       <span aria-hidden>·</span>
       <button
         type="button"
-        className="font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+        className="min-h-11 font-medium text-foreground underline underline-offset-2 disabled:opacity-50"
         onClick={() => openSignedDocument(path, setBusy, setError)}
         disabled={disabled || busy}
       >

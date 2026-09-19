@@ -362,7 +362,7 @@ export function Overview() {
                         <li key={`${row.kind}-${row.id}`}>
                           <Link
                             to={row.href}
-                            className="block rounded-md px-1 py-2 hover:bg-muted/50"
+                            className="block min-h-11 rounded-md px-1 py-2"
                           >
                             <span className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                               <span className="min-w-0 truncate">
@@ -408,7 +408,7 @@ export function Overview() {
                             <div className="flex items-baseline justify-between gap-3">
                               <Link
                                 to={paths.siteProfile(site.id)}
-                                className="font-medium text-card-foreground hover:underline"
+                                className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
                               >
                                 {site.name}
                               </Link>

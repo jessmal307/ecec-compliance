@@ -63,7 +63,7 @@ export function GetStarted({ steps }) {
               <li key={step.key}>
                 <Link
                   to={step.to}
-                  className="flex items-start gap-3 py-3 first:pt-0 last:pb-0 hover:bg-muted/40"
+                  className="flex min-h-11 items-start gap-3 py-3 first:pt-0 last:pb-0"
                 >
                   <span
                     className={[
@@ -88,8 +88,8 @@ export function GetStarted({ steps }) {
                       <span
                         className={
                           done
-                            ? 'text-sm font-medium text-muted-foreground line-through'
-                            : 'text-sm font-medium text-card-foreground'
+                            ? 'text-base font-medium text-muted-foreground line-through md:text-sm'
+                            : 'text-base font-medium text-card-foreground md:text-sm'
                         }
                       >
                         {step.title}
@@ -98,7 +98,7 @@ export function GetStarted({ steps }) {
                         <span className="text-xs text-status-valid">Done</span>
                       ) : null}
                     </span>
-                    <span className="mt-0.5 block text-sm text-muted-foreground">
+                    <span className="mt-0.5 block text-base text-muted-foreground md:text-sm">
                       {step.description}
                     </span>
                   </span>

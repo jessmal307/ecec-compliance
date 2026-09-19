@@ -584,10 +584,10 @@ export function StaffProfile() {
                             }
                             disabled={savingInfo}
                             className={[
-                              'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                              'inline-flex min-h-11 items-center rounded-full border px-3 text-base font-medium transition-colors',
                               selected
                                 ? 'border-transparent bg-primary text-primary-foreground'
-                                : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+                                : 'border-border bg-background text-muted-foreground',
                             ].join(' ')}
                           >
                             {site.name}
@@ -683,7 +683,7 @@ export function StaffProfile() {
                               ) : (
                                 <button
                                   type="button"
-                                  className="text-left font-medium text-card-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                                  className="min-h-11 text-left font-medium text-card-foreground underline underline-offset-2 disabled:opacity-50"
                                   onClick={() => {
                                     if (showForm) resetForm()
                                     else if (item) startEdit(item)

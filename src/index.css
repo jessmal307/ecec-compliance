@@ -228,4 +228,13 @@ code {
   html {
     @apply font-sans;
   }
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='time'] {
+    appearance: auto;
+    -webkit-appearance: auto;
+    font-size: 1rem;
+    min-height: 2.75rem;
+    line-height: 1.25;
+  }
 }

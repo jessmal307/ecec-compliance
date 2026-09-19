@@ -14,7 +14,7 @@ function CategoryPill({ status, count }) {
 export function GapCategories({
   missing = 0,
   expired = 0,
-  className = 'flex flex-wrap items-center gap-2',
+  className = 'flex shrink-0 flex-wrap items-center gap-2',
 }) {
   return (
     <div className={className}>

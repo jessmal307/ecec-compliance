@@ -96,10 +96,10 @@ export function ResetPassword() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-base text-muted-foreground md:text-sm">
             <Link
               to={paths.forgotPassword}
-              className="font-medium text-card-foreground underline-offset-4 hover:underline"
+              className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
             >
               Forgot password?
             </Link>

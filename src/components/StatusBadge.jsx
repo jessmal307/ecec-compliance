@@ -18,10 +18,16 @@ const STYLES = {
 
 export function StatusBadge({ status }) {
   if (status === 'Not applicable' || status === 'Inactive') {
-    return <Badge variant="secondary">{status}</Badge>
+    return (
+      <Badge variant="secondary" className="max-w-none shrink-0">
+        {status}
+      </Badge>
+    )
   }
 
   return (
-    <Badge className={STYLES[status] ?? STYLES.Valid}>{status}</Badge>
+    <Badge className={`max-w-none shrink-0 ${STYLES[status] ?? STYLES.Valid}`}>
+      {status}
+    </Badge>
   )
 }

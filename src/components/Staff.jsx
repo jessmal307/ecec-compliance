@@ -295,7 +295,7 @@ export function Staff() {
                         <Td slot="label" className="py-1.5">
                           <Link
                             to={paths.staffProfile(member.id)}
-                            className="font-medium text-card-foreground hover:underline"
+                            className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
                           >
                             {member.name}
                           </Link>

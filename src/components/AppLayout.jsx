@@ -65,7 +65,7 @@ function isMorePath(pathname) {
 
 function navClassName(isActive) {
   return [
-    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium no-underline transition-colors',
+    'flex min-h-11 items-center gap-2.5 rounded-lg px-3 py-2 text-base font-medium no-underline transition-colors md:text-sm',
     isActive
       ? 'bg-sidebar-accent text-sidebar-accent-foreground'
       : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground',
@@ -74,7 +74,7 @@ function navClassName(isActive) {
 
 function tabClassName(isActive) {
   return [
-    'flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium no-underline transition-colors',
+    'flex min-h-11 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium no-underline transition-colors',
     isActive ? 'text-foreground' : 'text-muted-foreground',
   ].join(' ')
 }
@@ -227,7 +227,7 @@ export function AppLayout() {
             {user?.email ? (
               <Link
                 to={paths.settings}
-                className="hidden max-w-40 truncate text-xs text-muted-foreground hover:text-card-foreground hover:underline md:block md:max-w-56"
+                className="hidden max-w-40 truncate text-xs text-muted-foreground underline-offset-2 hover:text-card-foreground md:block md:max-w-56 md:hover:underline"
               >
                 {user.user_metadata?.display_name || user.email}
               </Link>
