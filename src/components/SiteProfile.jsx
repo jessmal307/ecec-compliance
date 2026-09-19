@@ -1,0 +1,889 @@
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  ComplianceItemForm,
+  EMPTY_COMPLIANCE_ITEM_VALUES,
+  MarkVerifiedButton,
+} from './ComplianceItemFields'
+import {
+  ConfirmDeleteDialog,
+  ITEM_DELETE_WARNING,
+  SITE_DELETE_WARNING,
+  itemDeleteTitle,
+  siteDeleteTitle,
+} from './ConfirmDeleteDialog'
+import { ProfileComplianceHeader } from './ProfileComplianceHeader'
+import { ProfileSkeleton } from './PageSkeletons'
+import { ProgressPill } from './ProgressPill'
+import { DocumentAttached } from './DocumentLink'
+import { StatusBadge } from './StatusBadge'
+import { Table, Td, Th, THead, Tr } from './ui/data-table'
+import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
+import { PageError, PageHeader, PageMuted } from './ui/page'
+import { useAuth } from '../hooks/useAuth'
+import { paths } from '../lib/paths'
+import { formatDate } from '../lib/format'
+import {
+  complianceStatus,
+  deleteComplianceItem,
+  formValuesFromItem,
+  hasRecheckInterval,
+  isSiteRequirementType,
+  isStaffRequirementType,
+  listRequirementTypes,
+  listSiteComplianceItems,
+  listStaffComplianceItemsAtSite,
+  markItemVerifiedToday,
+  todayIsoDate,
+  saveComplianceItem,
+  tracksVerification,
+} from '../lib/compliance'
+import {
+  addSiteRequirementExclusion,
+  isRequirementExcluded,
+  isSiteRequirementExcluded,
+  listStaffRequirementExclusionsAtSite,
+  listSiteRequirementExclusions,
+  removeSiteRequirementExclusion,
+} from '../lib/exclusions'
+import { countStaffGaps } from '../lib/gaps'
+import { summarizeProfileRequirements } from '../lib/profileCompliance'
+import { firstError } from '../lib/query'
+import { isActiveStaff, listStaffBySite } from '../lib/staff'
+import { deleteSite, getSite, updateSite } from '../lib/sites'
+
+function siteInfoFromSite(site) {
+  return {
+    name: site?.name ?? '',
+    address: site?.address ?? '',
+    serviceApprovalNumber: site?.service_approval_number ?? '',
+    phone: site?.phone ?? '',
+    nominatedSupervisor: site?.nominated_supervisor ?? '',
+  }
+}
+
+export function SiteProfile() {
+  const { siteId } = useParams()
+  const navigate = useNavigate()
+  const { organizationId } = useAuth()
+  const [site, setSite] = useState(null)
+  const [info, setInfo] = useState(siteInfoFromSite(null))
+  const [requirementTypes, setRequirementTypes] = useState([])
+  const [staffTypes, setStaffTypes] = useState([])
+  const [items, setItems] = useState([])
+  const [exclusions, setExclusions] = useState([])
+  const [siteStaff, setSiteStaff] = useState([])
+  const [staffItems, setStaffItems] = useState([])
+  const [staffExclusions, setStaffExclusions] = useState([])
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [savingInfo, setSavingInfo] = useState(false)
+  const [fillingTypeId, setFillingTypeId] = useState(null)
+  const [editingItemId, setEditingItemId] = useState(null)
+  const [togglingTypeId, setTogglingTypeId] = useState(null)
+  const [formValues, setFormValues] = useState(EMPTY_COMPLIANCE_ITEM_VALUES)
+  const [saving, setSaving] = useState(false)
+  const [verifyingId, setVerifyingId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
+  const [deletingSite, setDeletingSite] = useState(false)
+  const [pendingSiteDelete, setPendingSiteDelete] = useState(false)
+  const [pendingItemDelete, setPendingItemDelete] = useState(null)
+  const [tab, setTab] = useState('info')
+
+  useEffect(() => {
+    if (!organizationId || !siteId) return
+
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      setError('')
+
+      const [
+        siteResult,
+        typesResult,
+        itemsResult,
+        exclusionsResult,
+        staffResult,
+        staffItemsResult,
+        staffExclusionsResult,
+      ] = await Promise.all([
+        getSite(siteId),
+        listRequirementTypes(organizationId),
+        listSiteComplianceItems(organizationId, siteId),
+        listSiteRequirementExclusions([siteId]),
+        listStaffBySite(organizationId, siteId),
+        listStaffComplianceItemsAtSite(organizationId, siteId),
+        listStaffRequirementExclusionsAtSite(siteId),
+      ])
+      if (cancelled) return
+
+      const loadError = firstError(
+        siteResult,
+        typesResult,
+        itemsResult,
+        exclusionsResult,
+        staffResult,
+        staffItemsResult,
+        staffExclusionsResult,
+      )
+      if (loadError) {
+        setError(loadError.message)
+        setLoading(false)
+        return
+      }
+
+      setSite(siteResult.data)
+      setInfo(siteInfoFromSite(siteResult.data))
+      setRequirementTypes(typesResult.data.filter(isSiteRequirementType))
+      setStaffTypes(typesResult.data.filter(isStaffRequirementType))
+      setItems(itemsResult.data)
+      setExclusions(exclusionsResult.data)
+      setSiteStaff(staffResult.data)
+      setStaffItems(staffItemsResult.data)
+      setStaffExclusions(staffExclusionsResult.data)
+      setLoading(false)
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId, siteId])
+
+  const rows = useMemo(() => {
+    return requirementTypes.map((requirementType) => {
+      const item = items.find(
+        (entry) => entry.requirement_type_id === requirementType.id,
+      )
+      return { requirementType, item }
+    })
+  }, [requirementTypes, items])
+
+  const complianceSummary = useMemo(
+    () =>
+      summarizeProfileRequirements(rows, (typeId) =>
+        isSiteRequirementExcluded(exclusions, siteId, typeId),
+      ),
+    [rows, exclusions, siteId],
+  )
+
+  const staffRows = useMemo(() => {
+    return siteStaff
+      .map((member) => {
+        const active = isActiveStaff(member)
+        const requirementRows = staffTypes.map((requirementType) => ({
+          requirementType,
+          item: staffItems.find(
+            (entry) =>
+              entry.staff_id === member.id &&
+              entry.requirement_type_id === requirementType.id,
+          ),
+        }))
+        const progress = summarizeProfileRequirements(
+          requirementRows,
+          (typeId) => isRequirementExcluded(staffExclusions, member.id, typeId),
+        )
+        return {
+          member,
+          active,
+          progress,
+          gapCount: active
+            ? countStaffGaps(member, {
+                requirementTypes: staffTypes,
+                items: staffItems,
+                exclusions: staffExclusions,
+              })
+            : 0,
+        }
+      })
+      .sort(
+        (a, b) =>
+          Number(b.active) - Number(a.active) ||
+          b.gapCount - a.gapCount ||
+          a.member.name.localeCompare(b.member.name),
+      )
+  }, [siteStaff, staffTypes, staffItems, staffExclusions])
+
+  const staffWithGaps = staffRows.filter(
+    (row) => row.active && row.gapCount > 0,
+  ).length
+  const activeStaffCount = staffRows.filter((row) => row.active).length
+
+  function resetForm() {
+    setFillingTypeId(null)
+    setEditingItemId(null)
+    setFormValues(EMPTY_COMPLIANCE_ITEM_VALUES)
+  }
+
+  function startFillIn(requirementType) {
+    setEditingItemId(null)
+    setFillingTypeId(requirementType.id)
+    setFormValues({
+      ...EMPTY_COMPLIANCE_ITEM_VALUES,
+      label: requirementType.name,
+    })
+    setError('')
+  }
+
+  function startEdit(item) {
+    setFillingTypeId(null)
+    setEditingItemId(item.id)
+    setFormValues(formValuesFromItem(item))
+    setError('')
+  }
+
+  async function refreshItems() {
+    const { data, error: selectError } = await listSiteComplianceItems(
+      organizationId,
+      siteId,
+    )
+    if (selectError) {
+      return { error: selectError }
+    }
+    setItems(data)
+    return { error: null }
+  }
+
+  async function handleSaveInfo(event) {
+    event.preventDefault()
+    if (!siteId) return
+
+    setError('')
+    setSavingInfo(true)
+
+    const { data, error: saveError } = await updateSite(siteId, {
+      name: info.name.trim(),
+      address: info.address,
+      serviceApprovalNumber: info.serviceApprovalNumber,
+      phone: info.phone,
+      nominatedSupervisor: info.nominatedSupervisor,
+    })
+
+    if (saveError) {
+      setError(saveError.message)
+      setSavingInfo(false)
+      return
+    }
+
+    setSite(data)
+    setInfo(siteInfoFromSite(data))
+    setSavingInfo(false)
+  }
+
+  async function handleSave(event, requirementType) {
+    event.preventDefault()
+    if (!organizationId || !siteId) return
+
+    setError('')
+    setSaving(true)
+
+    const payload = {
+      requirementTypeId: requirementType.id,
+      label: formValues.label.trim(),
+      expiryDate: formValues.expiryDate,
+      referenceNumber: formValues.referenceNumber,
+      issuedDate: formValues.issuedDate,
+      issuer: formValues.issuer,
+      status: formValues.status,
+      lastVerifiedDate: tracksVerification(requirementType)
+        ? formValues.lastVerifiedDate
+        : null,
+    }
+
+    const { error: saveError } = await saveComplianceItem({
+      id: editingItemId,
+      documentFile: formValues.documentFile,
+      currentDocumentPath: formValues.documentUrl,
+      ...payload,
+      orgId: organizationId,
+      staffId: null,
+      siteId,
+    })
+
+    if (saveError) {
+      setError(saveError.message)
+      setSaving(false)
+      return
+    }
+
+    const { error: selectError } = await refreshItems()
+    if (selectError) {
+      setError(selectError.message)
+      setSaving(false)
+      return
+    }
+
+    resetForm()
+    setSaving(false)
+  }
+
+  async function handleDeleteItem() {
+    if (!pendingItemDelete) return
+
+    setError('')
+    setDeletingId(pendingItemDelete.id)
+
+    const { error: deleteError } = await deleteComplianceItem(pendingItemDelete.id)
+    if (deleteError) {
+      setError(deleteError.message)
+      setDeletingId(null)
+      return
+    }
+
+    if (editingItemId === pendingItemDelete.id) {
+      resetForm()
+    }
+
+    setPendingItemDelete(null)
+    const { error: selectError } = await refreshItems()
+    if (selectError) {
+      setError(selectError.message)
+    }
+    setDeletingId(null)
+  }
+
+  async function handleMarkVerified(item) {
+    setError('')
+    setVerifyingId(item.id)
+
+    const { error: saveError } = await markItemVerifiedToday(item.id)
+    if (saveError) {
+      setError(saveError.message)
+      setVerifyingId(null)
+      return
+    }
+
+    const { error: selectError } = await refreshItems()
+    if (selectError) {
+      setError(selectError.message)
+      setVerifyingId(null)
+      return
+    }
+
+    if (editingItemId === item.id) {
+      setFormValues((current) => ({
+        ...current,
+        lastVerifiedDate: todayIsoDate(),
+      }))
+    }
+
+    setVerifyingId(null)
+  }
+
+  async function refreshExclusions() {
+    const { data, error: selectError } = await listSiteRequirementExclusions([
+      siteId,
+    ])
+    if (selectError) {
+      return { error: selectError }
+    }
+    setExclusions(data)
+    return { error: null }
+  }
+
+  async function handleToggleNotApplicable(requirementType) {
+    if (!siteId) return
+
+    setError('')
+    setTogglingTypeId(requirementType.id)
+    resetForm()
+
+    const excluded = isSiteRequirementExcluded(
+      exclusions,
+      siteId,
+      requirementType.id,
+    )
+    const previous = exclusions
+    setExclusions((current) =>
+      excluded
+        ? current.filter(
+            (row) =>
+              !(
+                String(row.site_id) === String(siteId) &&
+                String(row.requirement_type_id) === String(requirementType.id)
+              ),
+          )
+        : [
+            ...current,
+            { site_id: siteId, requirement_type_id: requirementType.id },
+          ],
+    )
+
+    const { error: toggleError } = excluded
+      ? await removeSiteRequirementExclusion(siteId, requirementType.id)
+      : await addSiteRequirementExclusion(siteId, requirementType.id)
+
+    if (toggleError) {
+      setExclusions(previous)
+      setError(toggleError.message)
+      setTogglingTypeId(null)
+      return
+    }
+
+    const { error: selectError } = await refreshExclusions()
+    if (selectError) {
+      setError(selectError.message)
+    }
+    setTogglingTypeId(null)
+  }
+
+  async function handleDeleteSite() {
+    if (!siteId) return
+
+    setError('')
+    setDeletingSite(true)
+
+    const { error: deleteError } = await deleteSite(siteId)
+    if (deleteError) {
+      setError(deleteError.message)
+      setDeletingSite(false)
+      return
+    }
+
+    navigate(paths.sites, { replace: true })
+  }
+
+  function setInfoField(field, value) {
+    setInfo((current) => ({ ...current, [field]: value }))
+  }
+
+  const infoBusy = savingInfo || loading
+
+  return (
+    <section className="flex w-full min-w-0 flex-col gap-6 text-left">
+      <PageHeader
+        title={site?.name ?? 'Site profile'}
+        description="Site details and every site-level requirement type for your organization."
+        actions={
+          <>
+            <Button asChild variant="outline" size="sm">
+              <Link to={paths.sites}>Back to sites</Link>
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => setPendingSiteDelete(true)}
+              disabled={loading || deletingSite}
+            >
+              {deletingSite ? 'Deleting…' : 'Delete site'}
+            </Button>
+          </>
+        }
+      />
+
+      <PageError>{error}</PageError>
+
+      {loading ? (
+        <ProfileSkeleton tabs={3} />
+      ) : (
+        <div className="flex flex-col gap-4">
+          <ProfileComplianceHeader
+            summary={complianceSummary}
+            onReviewUrgent={() => {
+              const urgent = complianceSummary.mostUrgent
+              if (!urgent) return
+              setTab('requirements')
+              if (urgent.item) startEdit(urgent.item)
+              else startFillIn(urgent.requirementType)
+              window.setTimeout(() => {
+                document
+                  .getElementById(`requirement-${urgent.requirementType.id}`)
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }, 50)
+            }}
+          />
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList>
+              <TabsTrigger value="info">Site Information</TabsTrigger>
+              <TabsTrigger value="requirements">Requirements</TabsTrigger>
+              <TabsTrigger value="staff">Staff</TabsTrigger>
+            </TabsList>
+            <TabsContent value="info">
+          <Card>
+            <CardHeader>
+              <CardTitle>Site information</CardTitle>
+              <CardDescription>Service details and contact.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="space-y-5" onSubmit={handleSaveInfo}>
+                <FormSection title="Details">
+                  <FieldGrid>
+                    <Field label="Name">
+                      <Input
+                        type="text"
+                        name="name"
+                        value={info.name}
+                        onChange={(event) =>
+                          setInfoField('name', event.target.value)
+                        }
+                        required
+                        disabled={infoBusy}
+                      />
+                    </Field>
+                    <Field label="Address">
+                      <Input
+                        type="text"
+                        name="address"
+                        value={info.address}
+                        onChange={(event) =>
+                          setInfoField('address', event.target.value)
+                        }
+                        disabled={infoBusy}
+                      />
+                    </Field>
+                  </FieldGrid>
+                </FormSection>
+
+                <FormSection title="Contact">
+                  <FieldGrid>
+                    <Field label="Phone">
+                      <Input
+                        type="tel"
+                        name="phone"
+                        value={info.phone}
+                        onChange={(event) =>
+                          setInfoField('phone', event.target.value)
+                        }
+                        disabled={infoBusy}
+                      />
+                    </Field>
+                    <Field label="Nominated supervisor">
+                      <Input
+                        type="text"
+                        name="nominated_supervisor"
+                        value={info.nominatedSupervisor}
+                        onChange={(event) =>
+                          setInfoField('nominatedSupervisor', event.target.value)
+                        }
+                        disabled={infoBusy}
+                      />
+                    </Field>
+                    <Field
+                      label="Service approval number"
+                      className="col-span-full"
+                    >
+                      <Input
+                        type="text"
+                        name="service_approval_number"
+                        value={info.serviceApprovalNumber}
+                        onChange={(event) =>
+                          setInfoField('serviceApprovalNumber', event.target.value)
+                        }
+                        disabled={infoBusy}
+                      />
+                    </Field>
+                  </FieldGrid>
+                </FormSection>
+
+                <FormActions>
+                  <Button type="submit" disabled={infoBusy}>
+                    {savingInfo ? 'Saving…' : 'Save'}
+                  </Button>
+                </FormActions>
+              </form>
+            </CardContent>
+          </Card>
+            </TabsContent>
+            <TabsContent value="requirements">
+          <Card>
+            <CardHeader>
+              <CardTitle>Requirements</CardTitle>
+              <CardDescription>
+                Coloured status is calculated from expiry dates.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="px-0">
+              {rows.length === 0 ? (
+                <PageMuted>No site-level requirement types yet.</PageMuted>
+              ) : (
+                <Table>
+                  <THead>
+                    <Th>Requirement</Th>
+                    <Th>Expiry</Th>
+                    <Th>Status</Th>
+                    <Th className="text-right">Actions</Th>
+                  </THead>
+                  <tbody>
+                    {rows.map(({ requirementType, item }) => {
+                      const excluded = isSiteRequirementExcluded(
+                        exclusions,
+                        siteId,
+                        requirementType.id,
+                      )
+                      const missing = !excluded && !item
+                      const itemStatus = excluded
+                        ? 'Not applicable'
+                        : missing
+                          ? 'Missing'
+                          : complianceStatus(item.expiry_date)
+                      const isEditing = Boolean(item) && editingItemId === item.id
+                      const isFilling =
+                        missing && fillingTypeId === requirementType.id
+                      const showForm = isEditing || isFilling
+                      const busy =
+                        saving ||
+                        togglingTypeId === requirementType.id ||
+                        verifyingId === item?.id ||
+                        deletingId === item?.id
+
+                      return (
+                        <Fragment key={requirementType.id}>
+                          <Tr
+                            id={`requirement-${requirementType.id}`}
+                            className={
+                              missing
+                                ? 'bg-status-expired-muted hover:bg-status-expired/10'
+                                : 'hover:bg-muted/40'
+                            }
+                          >
+                            <Td>
+                              {excluded ? (
+                                <p className="font-medium text-card-foreground">
+                                  {requirementType.name}
+                                </p>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="text-left font-medium text-card-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                                  onClick={() => {
+                                    if (showForm) resetForm()
+                                    else if (item) startEdit(item)
+                                    else startFillIn(requirementType)
+                                  }}
+                                  disabled={busy}
+                                  aria-expanded={showForm}
+                                >
+                                  {requirementType.name}
+                                </button>
+                              )}
+                              {item?.label && item.label !== requirementType.name ? (
+                                <p className="text-xs text-muted-foreground">
+                                  {item.label}
+                                </p>
+                              ) : null}
+                              <DocumentAttached
+                                path={item?.document_url}
+                                disabled={busy}
+                              />
+                            </Td>
+                            <Td className="tabular-nums text-muted-foreground">
+                              {excluded || missing
+                                ? '—'
+                                : formatDate(item.expiry_date)}
+                            </Td>
+                            <Td>
+                              <StatusBadge status={itemStatus} />
+                            </Td>
+                            <Td>
+                              <div className="flex flex-wrap justify-end gap-2">
+                                {excluded ? null : missing ? (
+                                  showForm ? null : (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => startFillIn(requirementType)}
+                                      disabled={busy}
+                                    >
+                                      Fill in
+                                    </Button>
+                                  )
+                                ) : (
+                                  <>
+                                    {hasRecheckInterval(requirementType) ? (
+                                      <MarkVerifiedButton
+                                        onClick={() => handleMarkVerified(item)}
+                                        disabled={busy}
+                                        saving={verifyingId === item.id}
+                                      />
+                                    ) : null}
+                                    <Button
+                                      type="button"
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() =>
+                                        setPendingItemDelete({
+                                          ...item,
+                                          typeName:
+                                            item.typeName ?? requirementType.name,
+                                        })
+                                      }
+                                      disabled={busy}
+                                    >
+                                      {deletingId === item.id
+                                        ? 'Deleting…'
+                                        : 'Delete'}
+                                    </Button>
+                                  </>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    handleToggleNotApplicable(requirementType)
+                                  }
+                                  disabled={busy}
+                                >
+                                  {togglingTypeId === requirementType.id
+                                    ? 'Saving…'
+                                    : excluded
+                                      ? 'Mark as applicable'
+                                      : 'Not applicable'}
+                                </Button>
+                              </div>
+                            </Td>
+                          </Tr>
+                          {showForm ? (
+                            <Tr>
+                              <Td colSpan={4} className="bg-muted/30">
+                                <ComplianceItemForm
+                                  onSubmit={(event) =>
+                                    handleSave(event, requirementType)
+                                  }
+                                  onCancel={resetForm}
+                                  saving={saving}
+                                  values={formValues}
+                                  onChange={setFormValues}
+                                  showLastVerified={tracksVerification(
+                                    requirementType,
+                                  )}
+                                  validityMonths={requirementType.validity_months}
+                                  disabled={saving}
+                                  documentContext={
+                                    item
+                                      ? {
+                                          itemId: item.id,
+                                          orgId: item.org_id ?? organizationId,
+                                        }
+                                      : null
+                                  }
+                                  onDocumentChange={() => refreshItems()}
+                                />
+                              </Td>
+                            </Tr>
+                          ) : null}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+            </TabsContent>
+            <TabsContent value="staff">
+          <Card>
+            <CardHeader>
+              <CardTitle>Staff</CardTitle>
+              <CardDescription>
+                {siteStaff.length === 0
+                  ? 'No staff are assigned to this site yet.'
+                  : activeStaffCount === 0
+                    ? 'Assigned staff are inactive, so their requirements are not tracked.'
+                    : staffWithGaps === 0
+                      ? 'No compliance gaps among assigned staff.'
+                      : `${staffWithGaps} of ${activeStaffCount} active staff have compliance gaps.`}
+              </CardDescription>
+              <CardAction>
+                <span className="text-sm tabular-nums text-muted-foreground">
+                  {siteStaff.length}
+                </span>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="px-0">
+              {siteStaff.length === 0 ? (
+                <PageMuted>Assign people from a staff profile or New staff.</PageMuted>
+              ) : (
+                <Table>
+                  <THead>
+                    <Th>Name</Th>
+                    <Th>Role</Th>
+                    <Th>Status</Th>
+                    <Th>Progress</Th>
+                    <Th className="text-right">Gaps</Th>
+                  </THead>
+                  <tbody>
+                    {staffRows.map(({ member, active, progress, gapCount }) => (
+                      <Tr key={member.id} className="hover:bg-muted/40">
+                        <Td>
+                          <Link
+                            to={paths.staffProfile(member.id)}
+                            className="font-medium text-card-foreground hover:underline"
+                          >
+                            {member.name}
+                          </Link>
+                        </Td>
+                        <Td className="text-muted-foreground">{member.role}</Td>
+                        <Td>
+                          <StatusBadge status={active ? 'Active' : 'Inactive'} />
+                        </Td>
+                        <Td>
+                          <ProgressPill
+                            completed={progress?.completed ?? 0}
+                            total={progress?.applicableCount ?? 0}
+                            inactive={!active}
+                          />
+                        </Td>
+                        <Td className="text-right tabular-nums">
+                          {!active ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : gapCount === 0 ? (
+                            <span className="text-muted-foreground">No gaps</span>
+                          ) : (
+                            <span className="text-status-expired">
+                              {gapCount} {gapCount === 1 ? 'gap' : 'gaps'}
+                            </span>
+                          )}
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+      )}
+
+      <ConfirmDeleteDialog
+        open={pendingSiteDelete}
+        onOpenChange={setPendingSiteDelete}
+        title={siteDeleteTitle(site?.name ?? 'this site')}
+        description={SITE_DELETE_WARNING}
+        confirming={deletingSite}
+        onConfirm={handleDeleteSite}
+      />
+      <ConfirmDeleteDialog
+        open={Boolean(pendingItemDelete)}
+        onOpenChange={(open) => {
+          if (!open) setPendingItemDelete(null)
+        }}
+        title={
+          pendingItemDelete
+            ? itemDeleteTitle(pendingItemDelete)
+            : 'Delete item?'
+        }
+        description={ITEM_DELETE_WARNING}
+        confirming={Boolean(
+          pendingItemDelete && deletingId === pendingItemDelete.id,
+        )}
+        onConfirm={handleDeleteItem}
+      />
+    </section>
+  )
+}

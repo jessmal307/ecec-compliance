@@ -1,0 +1,114 @@
+import { cn } from '@/lib/utils'
+import { datePickerMax, MIN_REASONABLE_DATE } from '@/lib/dates'
+
+export const controlClassName =
+  'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-card-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-status-expired aria-invalid:focus-visible:ring-status-expired/30'
+
+export function Field({ label, hint, error, className, children }) {
+  return (
+    <div
+      className={cn(
+        'flex flex-col gap-1.5 text-sm font-medium text-card-foreground',
+        className,
+      )}
+    >
+      <span>{label}</span>
+      {children}
+      {hint ? (
+        <span className="text-xs font-normal text-muted-foreground">{hint}</span>
+      ) : null}
+      {error ? (
+        <span className="text-xs font-normal text-status-expired" role="alert">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+export function Input({ className, ...props }) {
+  return <input className={cn(controlClassName, className)} {...props} />
+}
+
+export function DateInput({
+  allowFuture = true,
+  min = MIN_REASONABLE_DATE,
+  max = datePickerMax({ allowFuture }),
+  ...props
+}) {
+  return <Input type="date" min={min} max={max} {...props} />
+}
+
+export function Textarea({ className, ...props }) {
+  return (
+    <textarea
+      className={cn(
+        controlClassName,
+        'h-auto min-h-24 py-2',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+export function Select({ className, ...props }) {
+  return (
+    <select
+      className={cn(controlClassName, 'appearance-auto', className)}
+      {...props}
+    />
+  )
+}
+
+export function FieldGrid({ children, className }) {
+  return (
+    <div className={cn('grid grid-cols-1 gap-4 lg:grid-cols-2', className)}>
+      {children}
+    </div>
+  )
+}
+
+export function FormSection({ title, description, children }) {
+  return (
+    <div className="space-y-3 border-t border-border pt-5 first:border-t-0 first:pt-0">
+      {title ? (
+        <div>
+          <h3 className="text-sm font-medium text-card-foreground">{title}</h3>
+          {description ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {children}
+    </div>
+  )
+}
+
+export function FormActions({ children }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-border pt-5">
+      {children}
+    </div>
+  )
+}
+
+export function ChoiceRow({ children, disabled }) {
+  return (
+    <div
+      className="flex flex-wrap gap-4 text-sm font-normal text-card-foreground"
+      aria-disabled={disabled || undefined}
+    >
+      {children}
+    </div>
+  )
+}
+
+export function Choice({ children, ...props }) {
+  return (
+    <label className="inline-flex items-center gap-2 font-normal">
+      <input className="size-4 accent-foreground" {...props} />
+      {children}
+    </label>
+  )
+}
