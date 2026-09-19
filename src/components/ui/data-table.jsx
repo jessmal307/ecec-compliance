@@ -23,7 +23,7 @@ export function Table({ children, className }) {
     <div className="w-full min-w-0 max-w-full max-md:overflow-visible max-md:px-4 max-md:pb-4 md:overflow-x-auto md:overscroll-x-contain md:[-webkit-overflow-scrolling:touch]">
       <table
         className={cn(
-          'w-full text-left text-sm max-md:block max-md:w-full max-md:min-w-0 max-md:[&>tbody]:block md:min-w-[36rem]',
+          'w-full text-left text-sm max-md:block max-md:w-full max-md:min-w-0 max-md:[&>tbody]:block md:min-w-0',
           className,
         )}
       >

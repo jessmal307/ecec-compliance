@@ -34,7 +34,6 @@ import {
   Input,
   Textarea,
 } from './ui/form'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
 import { paths } from '../lib/paths'
@@ -86,7 +85,6 @@ export function StaffProfile() {
   const [items, setItems] = useState([])
   const [exclusions, setExclusions] = useState([])
   const [sites, setSites] = useState([])
-  const [tab, setTab] = useState('info')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [savingInfo, setSavingInfo] = useState(false)
@@ -436,7 +434,7 @@ export function StaffProfile() {
       <PageError>{error}</PageError>
 
       {loading ? (
-        <ProfileSkeleton tabs={2} />
+        <ProfileSkeleton />
       ) : (
         <div className="flex flex-col gap-4">
           {active ? (
@@ -445,7 +443,6 @@ export function StaffProfile() {
               onReviewUrgent={() => {
                 const urgent = complianceSummary.mostUrgent
                 if (!urgent) return
-                setTab('requirements')
                 if (urgent.item) startEdit(urgent.item)
                 else startFillIn(urgent.requirementType)
                 window.setTimeout(() => {
@@ -458,12 +455,8 @@ export function StaffProfile() {
               }}
             />
           ) : null}
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList>
-              <TabsTrigger value="info">Personal Information</TabsTrigger>
-              <TabsTrigger value="requirements">Requirements</TabsTrigger>
-            </TabsList>
-            <TabsContent value="info">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
+            <div className="min-w-0">
           <Card>
             <CardHeader>
               <CardTitle>Personal information</CardTitle>
@@ -626,8 +619,8 @@ export function StaffProfile() {
               </form>
             </CardContent>
           </Card>
-            </TabsContent>
-            <TabsContent value="requirements">
+            </div>
+            <div className="min-w-0">
           <Card>
             <CardHeader>
               <CardTitle>Requirements</CardTitle>
@@ -815,8 +808,8 @@ export function StaffProfile() {
               )}
             </CardContent>
           </Card>
-            </TabsContent>
-          </Tabs>
+            </div>
+          </div>
         </div>
       )}
 

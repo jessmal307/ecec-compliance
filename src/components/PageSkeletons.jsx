@@ -125,7 +125,7 @@ export function ListTableSkeleton({ rows = 5, columns = 5 }) {
   )
 }
 
-export function ProfileSkeleton({ tabs = 2 }) {
+export function ProfileSkeleton({ showStaff = false }) {
   return (
     <div
       className="flex flex-col gap-4"
@@ -146,28 +146,57 @@ export function ProfileSkeleton({ tabs = 2 }) {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {Array.from({ length: tabs }, (_, index) => (
-          <Line key={index} className="h-8 w-36 rounded-lg" />
-        ))}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <Line className="h-4 w-40" />
-          <Line className="h-3 w-56" />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
+        <Card>
+          <CardHeader>
+            <Line className="h-4 w-40" />
+            <Line className="h-3 w-56" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="space-y-2">
+                  <Line className="h-3 w-20" />
+                  <Line className="h-8 w-full rounded-lg" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <Line className="h-4 w-36" />
+            <Line className="h-3 w-48" />
+          </CardHeader>
+          <CardContent className="space-y-3">
             {Array.from({ length: 4 }, (_, index) => (
-              <div key={index} className="space-y-2">
-                <Line className="h-3 w-20" />
-                <Line className="h-8 w-full rounded-lg" />
+              <div key={index} className="space-y-3 rounded-xl border border-border p-4 md:space-y-0 md:rounded-none md:border-0 md:p-0">
+                <div className="flex items-center justify-between gap-3">
+                  <Line className="h-4 w-2/5" />
+                  <Line className="h-5 w-16 rounded-full" />
+                </div>
+                <Line className="h-3 w-24 md:hidden" />
               </div>
             ))}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+        {showStaff ? (
+          <Card className="md:col-span-2">
+            <CardHeader>
+              <Line className="h-4 w-24" />
+              <Line className="h-3 w-64" />
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {Array.from({ length: 3 }, (_, index) => (
+                <div key={index} className="flex items-center justify-between gap-3">
+                  <Line className="h-4 w-1/3" />
+                  <Line className="h-5 w-16 rounded-full" />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
     </div>
   )
 }
