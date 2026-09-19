@@ -46,6 +46,7 @@ function pageTitle(pathname) {
   if (pathname === paths.attention) return 'Needs attention'
   if (pathname === paths.settings) return 'Account'
   if (pathname === paths.privacy) return 'Privacy & Data Handling'
+  if (pathname === paths.terms) return 'Terms of Service'
   return 'ECEC'
 }
 
@@ -62,7 +63,8 @@ function isMorePath(pathname) {
     !isOverviewPath(pathname) &&
     !isStaffPath(pathname) &&
     !isSitesPath(pathname) &&
-    pathname !== paths.privacy
+    pathname !== paths.privacy &&
+    pathname !== paths.terms
   )
 }
 
@@ -174,7 +176,7 @@ function BottomTabBar({
 
       {sitesOpen ? (
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 max-h-[min(24rem,calc(100svh-8rem))] overflow-y-auto border-t border-border bg-card px-2 py-2 shadow-lg md:hidden">
-          <SitesNavLinks onNavigate={onCloseMenus} showAllSites />
+          <SitesNavLinks onNavigate={onCloseMenus} />
         </div>
       ) : null}
 

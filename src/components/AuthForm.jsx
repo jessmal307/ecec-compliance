@@ -20,6 +20,7 @@ export function AuthForm() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [acceptedLegal, setAcceptedLegal] = useState(false)
 
   const isSignUp = mode === 'signup'
 
@@ -27,6 +28,12 @@ export function AuthForm() {
     event.preventDefault()
     setError('')
     setMessage('')
+
+    if (isSignUp && !acceptedLegal) {
+      setError('Please agree to the Privacy Policy and Terms of Service.')
+      return
+    }
+
     setSubmitting(true)
 
     try {
@@ -61,6 +68,7 @@ export function AuthForm() {
     setMode(isSignUp ? 'login' : 'signup')
     setError('')
     setMessage('')
+    setAcceptedLegal(false)
   }
 
   return (
@@ -118,20 +126,52 @@ export function AuthForm() {
           <PageSuccess>{message}</PageSuccess>
 
           {isSignUp ? (
-            <p className="text-center text-base text-muted-foreground md:text-sm">
-              Read the{' '}
-              <Link
-                to={paths.privacy}
-                className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
-              >
-                Privacy
-              </Link>{' '}
-              policy before creating an account.
-            </p>
+            <div className="flex min-h-11 items-start gap-2.5 text-base font-normal md:text-sm">
+              <input
+                id="accepted-legal"
+                type="checkbox"
+                name="acceptedLegal"
+                className="mt-0.5 size-5 shrink-0 accent-foreground"
+                checked={acceptedLegal}
+                onChange={(event) => setAcceptedLegal(event.target.checked)}
+                required
+                disabled={submitting}
+                aria-label="I agree to the Privacy Policy and Terms of Service"
+              />
+              <span className="text-muted-foreground">
+                <label htmlFor="accepted-legal" className="cursor-pointer">
+                  I agree to the{' '}
+                </label>
+                <Link
+                  to={paths.privacy}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-card-foreground underline underline-offset-4"
+                >
+                  Privacy Policy
+                </Link>
+                <label htmlFor="accepted-legal" className="cursor-pointer">
+                  {' '}
+                  and{' '}
+                </label>
+                <Link
+                  to={paths.terms}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-card-foreground underline underline-offset-4"
+                >
+                  Terms of Service
+                </Link>
+              </span>
+            </div>
           ) : null}
 
           <FormActions>
-            <Button type="submit" className="w-full" disabled={submitting}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={submitting || (isSignUp && !acceptedLegal)}
+            >
               {submitting ? 'Please wait…' : isSignUp ? 'Sign up' : 'Log in'}
             </Button>
           </FormActions>

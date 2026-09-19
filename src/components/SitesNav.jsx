@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { Building2, ChevronDown, Plus } from 'lucide-react'
+import { Building2, ChevronDown, List, Plus } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { isSitesPath, paths } from '../lib/paths'
 import { listSites } from '../lib/sites'
@@ -59,27 +59,14 @@ function useOrgSites() {
   return { sites, error, loading, organizationId }
 }
 
-export function SitesNavLinks({ onNavigate, showAllSites = false }) {
+export function SitesNavLinks({ onNavigate }) {
   const { pathname, search } = useLocation()
   const { sites, error, loading } = useOrgSites()
   const adding = pathname === paths.sites && isNewSiteSearch(search)
+  const showingAll = pathname === paths.sites && !adding
 
   return (
     <div className="flex flex-col gap-0.5">
-      {showAllSites ? (
-        <NavLink
-          to={{ pathname: paths.sites, search: '' }}
-          end
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            childNavClassName(isActive && !isNewSiteSearch(search))
-          }
-        >
-          <Building2 className="size-4 shrink-0" />
-          All sites
-        </NavLink>
-      ) : null}
-
       {loading && sites.length === 0 ? (
         <p className="px-2.5 py-2 text-xs text-muted-foreground">Loading sites…</p>
       ) : null}
@@ -107,21 +94,32 @@ export function SitesNavLinks({ onNavigate, showAllSites = false }) {
       ) : null}
 
       <NavLink
+        to={{ pathname: paths.sites, search: '' }}
+        end
+        onClick={onNavigate}
+        className={childNavClassName(showingAll)}
+      >
+        <List className="size-4 shrink-0" />
+        Show all
+      </NavLink>
+
+      <NavLink
         to={{ pathname: paths.sites, search: '?new=1' }}
         onClick={onNavigate}
         className={childNavClassName(adding)}
       >
         <Plus className="size-4 shrink-0" />
-        Add a site
+        Add site
       </NavLink>
     </div>
   )
 }
 
 export function SitesSidebarItem({ onNavigate, navClassName }) {
-  const { pathname, search } = useLocation()
+  const { pathname } = useLocation()
   const [expanded, setExpanded] = useState(() => isSitesPath(pathname))
   const [seenPath, setSeenPath] = useState(pathname)
+  const sectionActive = isSitesPath(pathname)
 
   if (pathname !== seenPath) {
     setSeenPath(pathname)
@@ -130,30 +128,18 @@ export function SitesSidebarItem({ onNavigate, navClassName }) {
 
   return (
     <div>
-      <div className="flex items-center gap-0.5">
-        <NavLink
-          to={{ pathname: paths.sites, search: '' }}
-          end
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            `${navClassName(isActive && !isNewSiteSearch(search))} min-w-0 flex-1`
-          }
-        >
-          <Building2 className="size-4 shrink-0" />
-          <span className="truncate">Sites</span>
-        </NavLink>
-        <button
-          type="button"
-          className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
-          aria-expanded={expanded}
-          aria-label={expanded ? 'Collapse sites' : 'Expand sites'}
-          onClick={() => setExpanded((open) => !open)}
-        >
-          <ChevronDown
-            className={`size-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          />
-        </button>
-      </div>
+      <button
+        type="button"
+        className={`${navClassName(sectionActive)} w-full cursor-pointer`}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <Building2 className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-left">Sites</span>
+        <ChevronDown
+          className={`size-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
+        />
+      </button>
       {expanded ? (
         <div className="mt-0.5 ml-4 border-l border-sidebar-border pl-2">
           <SitesNavLinks onNavigate={onNavigate} />
