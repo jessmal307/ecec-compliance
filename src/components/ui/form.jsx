@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { datePickerMax, MIN_REASONABLE_DATE } from '@/lib/dates'
 
@@ -28,6 +30,35 @@ export function Field({ label, hint, error, className, children }) {
 
 export function Input({ className, ...props }) {
   return <input className={cn(controlClassName, className)} {...props} />
+}
+
+export function PasswordInput({ className, disabled, ...props }) {
+  const [visible, setVisible] = useState(false)
+
+  return (
+    <div className="relative">
+      <Input
+        type={visible ? 'text' : 'password'}
+        className={cn('pr-9', className)}
+        disabled={disabled}
+        {...props}
+      />
+      <button
+        type="button"
+        className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+        onClick={() => setVisible((current) => !current)}
+        disabled={disabled}
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-pressed={visible}
+      >
+        {visible ? (
+          <EyeOff className="size-3.5" aria-hidden />
+        ) : (
+          <Eye className="size-3.5" aria-hidden />
+        )}
+      </button>
+    </div>
+  )
 }
 
 export function DateInput({

@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Field, FormActions, FormSection, Input } from './ui/form'
+import { Field, FormActions, FormSection, PasswordInput, Input } from './ui/form'
 import { PageError, PageSuccess } from './ui/page'
 import { paths } from '../lib/paths'
 import { supabase } from '../lib/supabase'
@@ -91,8 +91,7 @@ export function AuthForm() {
                 />
               </Field>
               <Field label="Password">
-                <Input
-                  type="password"
+                <PasswordInput
                   name="password"
                   autoComplete={isSignUp ? 'new-password' : 'current-password'}
                   minLength={6}
