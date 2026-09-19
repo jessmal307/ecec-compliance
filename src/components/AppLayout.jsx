@@ -44,6 +44,7 @@ function pageTitle(pathname) {
   if (pathname === paths.gaps) return 'Compliance gaps'
   if (pathname === paths.attention) return 'Needs attention'
   if (pathname === paths.settings) return 'Account'
+  if (pathname === paths.privacy) return 'Privacy & Data Handling'
   return 'ECEC'
 }
 
@@ -60,7 +61,12 @@ function isOverviewPath(pathname) {
 }
 
 function isMorePath(pathname) {
-  return !isOverviewPath(pathname) && !isStaffPath(pathname) && !isSitesPath(pathname)
+  return (
+    !isOverviewPath(pathname) &&
+    !isStaffPath(pathname) &&
+    !isSitesPath(pathname) &&
+    pathname !== paths.privacy
+  )
 }
 
 function navClassName(isActive) {

@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, Link } from 'react-router-dom'
 import { AccountSettings } from './components/AccountSettings'
 import { AppLayout } from './components/AppLayout'
 import { Attention } from './components/Attention'
@@ -15,6 +15,7 @@ import { Sites } from './components/Sites'
 import { NewStaff } from './components/NewStaff'
 import { Staff } from './components/Staff'
 import { StaffProfile } from './components/StaffProfile'
+import { Privacy } from './components/Privacy'
 import { ThemeToggle } from './components/ThemeToggle'
 import { AuthProvider } from './context/AuthProvider'
 import { useAuth } from './hooks/useAuth'
@@ -29,6 +30,14 @@ function GuestShell({ children }) {
         <ThemeToggle />
       </div>
       {children}
+      <p className="absolute inset-x-0 bottom-4 text-center">
+        <Link
+          to={paths.privacy}
+          className="inline-flex min-h-11 items-center text-sm text-muted-foreground underline underline-offset-4"
+        >
+          Privacy
+        </Link>
+      </p>
     </div>
   )
 }
@@ -69,10 +78,19 @@ function AppShell() {
           <Route path={paths.gaps} element={<Gaps />} />
           <Route path={paths.attention} element={<Attention />} />
           <Route path={paths.settings} element={<AccountSettings />} />
+          <Route path={paths.privacy} element={<Privacy />} />
           <Route path="*" element={<Navigate to={paths.home} replace />} />
         </Route>
       ) : (
         <>
+          <Route
+            path={paths.privacy}
+            element={
+              <GuestShell>
+                <Privacy />
+              </GuestShell>
+            }
+          />
           <Route
             path={paths.forgotPassword}
             element={

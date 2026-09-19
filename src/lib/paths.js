@@ -12,6 +12,7 @@ export const paths = {
   settings: '/settings',
   forgotPassword: '/forgot-password',
   resetPassword: '/reset-password',
+  privacy: '/privacy',
 }
 
 export function authRedirectUrl(path) {

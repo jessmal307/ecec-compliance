@@ -117,6 +117,19 @@ export function AuthForm() {
           <PageError>{error}</PageError>
           <PageSuccess>{message}</PageSuccess>
 
+          {isSignUp ? (
+            <p className="text-center text-base text-muted-foreground md:text-sm">
+              Read the{' '}
+              <Link
+                to={paths.privacy}
+                className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
+              >
+                Privacy
+              </Link>{' '}
+              policy before creating an account.
+            </p>
+          ) : null}
+
           <FormActions>
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? 'Please wait…' : isSignUp ? 'Sign up' : 'Log in'}

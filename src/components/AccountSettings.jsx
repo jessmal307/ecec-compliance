@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,6 +13,7 @@ import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
 import { PageError, PageHeader, PageMuted, PageSuccess } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
 import { getOrganization, updateOrganization } from '../lib/organizations'
+import { paths } from '../lib/paths'
 import { supabase } from '../lib/supabase'
 
 function displayNameFromUser(user) {
@@ -375,6 +377,15 @@ export function AccountSettings() {
           </Card>
         </div>
       )}
+
+      <p className="text-center">
+        <Link
+          to={paths.privacy}
+          className="inline-flex min-h-11 items-center text-sm text-muted-foreground underline underline-offset-4"
+        >
+          Privacy
+        </Link>
+      </p>
     </section>
   )
 }
