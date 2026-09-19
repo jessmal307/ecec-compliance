@@ -3,14 +3,13 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Building2,
   ClipboardCheck,
+  Ellipsis,
   LayoutDashboard,
   ListChecks,
   LogOut,
-  Menu,
   Settings,
   ShieldCheck,
   Users,
-  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from './ThemeToggle'
@@ -25,6 +24,13 @@ const pages = [
   { to: paths.requirements, label: 'Requirements', icon: ListChecks },
   { to: paths.settings, label: 'Account', icon: Settings },
 ]
+
+const morePages = pages.filter(
+  (item) =>
+    item.to !== paths.home &&
+    item.to !== paths.staff &&
+    item.to !== paths.sites,
+)
 
 function pageTitle(pathname) {
   if (pathname === paths.home) return 'Overview'
@@ -41,6 +47,38 @@ function pageTitle(pathname) {
   return 'ECEC'
 }
 
+function isStaffPath(pathname) {
+  return pathname === paths.staff || pathname.startsWith(`${paths.staff}/`)
+}
+
+function isSitesPath(pathname) {
+  return pathname === paths.sites || pathname.startsWith(`${paths.sites}/`)
+}
+
+function isOverviewPath(pathname) {
+  return pathname === paths.home
+}
+
+function isMorePath(pathname) {
+  return !isOverviewPath(pathname) && !isStaffPath(pathname) && !isSitesPath(pathname)
+}
+
+function navClassName(isActive) {
+  return [
+    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium no-underline transition-colors',
+    isActive
+      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+      : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground',
+  ].join(' ')
+}
+
+function tabClassName(isActive) {
+  return [
+    'flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium no-underline transition-colors',
+    isActive ? 'text-foreground' : 'text-muted-foreground',
+  ].join(' ')
+}
+
 function SidebarNav({ onNavigate }) {
   return (
     <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
@@ -52,14 +90,7 @@ function SidebarNav({ onNavigate }) {
             to={item.to}
             end={item.end}
             onClick={onNavigate}
-            className={({ isActive }) =>
-              [
-                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium no-underline transition-colors',
-                isActive
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground',
-              ].join(' ')
-            }
+            className={({ isActive }) => navClassName(isActive)}
           >
             <Icon className="size-4 shrink-0" />
             {item.label}
@@ -91,66 +122,112 @@ function SidebarBrand() {
   )
 }
 
-export function AppLayout() {
-  const { signOut, user } = useAuth()
-  const { pathname } = useLocation()
-  const [mobileOpen, setMobileOpen] = useState(false)
-
-  useEffect(() => {
-    setMobileOpen(false)
-  }, [pathname])
-
-  useEffect(() => {
-    const previous = document.body.style.overflow
-    document.body.style.overflow = mobileOpen ? 'hidden' : previous
-    return () => {
-      document.body.style.overflow = previous
-    }
-  }, [mobileOpen])
-
+function BottomTabBar({ pathname, moreOpen, onToggleMore, onCloseMore }) {
   return (
-    <div className="app-shell flex min-h-svh w-full max-w-full overflow-x-hidden bg-background text-left">
-      {mobileOpen ? (
+    <>
+      {moreOpen ? (
         <button
           type="button"
-          className="fixed inset-0 z-30 bg-foreground/20 lg:hidden"
-          aria-label="Close navigation"
-          onClick={() => setMobileOpen(false)}
+          className="fixed inset-0 z-30 bg-foreground/20 md:hidden"
+          aria-label="Close more menu"
+          onClick={onCloseMore}
         />
       ) : null}
 
-      <aside
-        className={[
-          'fixed inset-y-0 left-0 z-40 flex w-[min(16rem,85vw)] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-lg lg:static lg:z-0 lg:w-60 lg:shadow-none',
-          mobileOpen ? 'flex' : 'hidden lg:flex',
-        ].join(' ')}
+      {moreOpen ? (
+        <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-border bg-card px-2 py-2 shadow-lg md:hidden">
+          {morePages.map((item) => {
+            const Icon = item.icon
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={onCloseMore}
+                className={({ isActive }) => navClassName(isActive)}
+              >
+                <Icon className="size-4 shrink-0" />
+                {item.label}
+              </NavLink>
+            )
+          })}
+        </div>
+      ) : null}
+
+      <nav
+        className="fixed inset-x-0 bottom-0 z-50 grid min-h-14 grid-cols-4 border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden"
+        aria-label="Main"
       >
+        <NavLink
+          to={paths.home}
+          end
+          onClick={onCloseMore}
+          className={tabClassName(isOverviewPath(pathname))}
+        >
+          <LayoutDashboard className="size-5" />
+          Overview
+        </NavLink>
+        <NavLink
+          to={paths.staff}
+          onClick={onCloseMore}
+          className={tabClassName(isStaffPath(pathname))}
+        >
+          <Users className="size-5" />
+          Staff
+        </NavLink>
+        <NavLink
+          to={paths.sites}
+          onClick={onCloseMore}
+          className={tabClassName(isSitesPath(pathname))}
+        >
+          <Building2 className="size-5" />
+          Sites
+        </NavLink>
+        <button
+          type="button"
+          className={tabClassName(isMorePath(pathname) || moreOpen)}
+          aria-expanded={moreOpen}
+          aria-label="More"
+          onClick={onToggleMore}
+        >
+          <Ellipsis className="size-5" />
+          More
+        </button>
+      </nav>
+    </>
+  )
+}
+
+export function AppLayout() {
+  const { signOut, user } = useAuth()
+  const { pathname } = useLocation()
+  const [moreForPath, setMoreForPath] = useState(null)
+  const moreOpen = moreForPath === pathname
+
+  useEffect(() => {
+    const previous = document.body.style.overflow
+    document.body.style.overflow = moreOpen ? 'hidden' : previous
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [moreOpen])
+
+  return (
+    <div className="app-shell flex min-h-svh w-full max-w-full overflow-x-hidden bg-background text-left">
+      <aside className="hidden w-[210px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
         <SidebarBrand />
-        <SidebarNav onNavigate={() => setMobileOpen(false)} />
+        <SidebarNav />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
-        <header className="sticky top-0 z-20 flex h-14 min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-3 sm:px-4 lg:px-6">
-          <div className="flex min-w-0 items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="lg:hidden"
-              onClick={() => setMobileOpen((open) => !open)}
-              aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
-            >
-              {mobileOpen ? <X /> : <Menu />}
-            </Button>
-            <p className="truncate text-sm font-semibold tracking-tight text-card-foreground">
-              {pageTitle(pathname)}
-            </p>
-          </div>
+        <header className="sticky top-0 z-20 flex h-14 min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
+          <p className="truncate text-sm font-semibold tracking-tight text-card-foreground">
+            {pageTitle(pathname)}
+          </p>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
             {user?.email ? (
               <Link
                 to={paths.settings}
-                className="hidden max-w-40 truncate text-xs text-muted-foreground hover:text-card-foreground hover:underline lg:block lg:max-w-56"
+                className="hidden max-w-40 truncate text-xs text-muted-foreground hover:text-card-foreground hover:underline md:block md:max-w-56"
               >
                 {user.user_metadata?.display_name || user.email}
               </Link>
@@ -163,12 +240,21 @@ export function AppLayout() {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-          <div className="mx-auto w-full min-w-0 max-w-7xl p-3 sm:p-4 lg:p-6">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+          <div className="mx-auto w-full min-w-0 max-w-7xl px-4 py-4 md:p-6">
             <Outlet />
           </div>
         </main>
       </div>
+
+      <BottomTabBar
+        pathname={pathname}
+        moreOpen={moreOpen}
+        onToggleMore={() =>
+          setMoreForPath((current) => (current === pathname ? null : pathname))
+        }
+        onCloseMore={() => setMoreForPath(null)}
+      />
     </div>
   )
 }
