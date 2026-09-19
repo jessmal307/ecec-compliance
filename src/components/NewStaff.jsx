@@ -432,7 +432,7 @@ export function NewStaff() {
                     return (
                       <Fragment key={requirementType.id}>
                         <Tr className="hover:bg-muted/40">
-                          <Td>
+                          <Td slot="label">
                             <p className="font-medium text-card-foreground">
                               {requirementType.name}
                             </p>
@@ -446,10 +446,14 @@ export function NewStaff() {
                               </p>
                             )}
                           </Td>
-                          <Td className="tabular-nums text-muted-foreground">
+                          <Td
+                            slot="expiry"
+                            label="Expiry"
+                            className="tabular-nums text-muted-foreground"
+                          >
                             {draft ? formatDate(draft.expiryDate) : '—'}
                           </Td>
-                          <Td>
+                          <Td slot="status">
                             <StatusBadge
                               status={
                                 draft
@@ -458,8 +462,8 @@ export function NewStaff() {
                               }
                             />
                           </Td>
-                          <Td className="text-right">
-                            <div className="flex flex-wrap justify-end gap-2">
+                          <Td slot="action" className="text-right">
+                            <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
                               {isFilling ? null : (
                                 <Button
                                   type="button"
@@ -486,8 +490,8 @@ export function NewStaff() {
                           </Td>
                         </Tr>
                         {isFilling ? (
-                          <Tr>
-                            <Td colSpan={4} className="bg-muted/30">
+                          <Tr slot="expand">
+                            <Td slot="expand" colSpan={4} className="bg-muted/30 max-md:bg-transparent">
                               <div className="space-y-5">
                                 <ComplianceItemFields
                                   values={draftValues}

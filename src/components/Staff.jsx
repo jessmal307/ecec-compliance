@@ -278,10 +278,11 @@ export function Staff() {
                   return (
                     <Fragment key={member.id}>
                       {showGroup ? (
-                        <Tr>
+                        <Tr slot="group">
                           <Td
+                            slot="group"
                             colSpan={5}
-                            className="bg-muted/50 py-1.5 text-xs font-medium text-muted-foreground"
+                            className="bg-muted/50 py-1.5 text-xs font-medium text-muted-foreground max-md:bg-transparent max-md:py-0"
                           >
                             {groupKey}
                             <span className="ml-1.5 tabular-nums font-normal">
@@ -291,21 +292,25 @@ export function Staff() {
                         </Tr>
                       ) : null}
                       <Tr className="hover:bg-muted/40">
-                        <Td className="py-1.5">
+                        <Td slot="label" className="py-1.5">
                           <Link
                             to={paths.staffProfile(member.id)}
                             className="font-medium text-card-foreground hover:underline"
                           >
                             {member.name}
                           </Link>
+                          <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
+                            {member.role}
+                            {sitesLabel(member) ? ` · ${sitesLabel(member)}` : ''}
+                          </p>
                         </Td>
-                        <Td className="py-1.5 text-muted-foreground">
+                        <Td slot="extra" className="py-1.5 text-muted-foreground">
                           {member.role}
                         </Td>
-                        <Td className="py-1.5">
+                        <Td slot="status" className="py-1.5">
                           <StatusBadge status={inactive ? 'Inactive' : 'Active'} />
                         </Td>
-                        <Td className="py-1.5">
+                        <Td slot="meta" className="py-1.5">
                           <ProgressPill
                             completed={progress?.completed ?? 0}
                             total={progress?.applicableCount ?? 0}
@@ -313,6 +318,7 @@ export function Staff() {
                           />
                         </Td>
                         <Td
+                          slot="extra"
                           className="max-w-40 truncate py-1.5 text-muted-foreground"
                           title={
                             member.sites.length === 0
@@ -321,6 +327,11 @@ export function Staff() {
                           }
                         >
                           {sitesLabel(member)}
+                        </Td>
+                        <Td slot="action" className="py-1.5 md:hidden">
+                          <Button asChild size="sm">
+                            <Link to={paths.staffProfile(member.id)}>View</Link>
+                          </Button>
                         </Td>
                       </Tr>
                     </Fragment>

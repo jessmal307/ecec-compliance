@@ -184,25 +184,36 @@ export function Gaps() {
               <tbody>
                 {gaps.map((row) => (
                   <Tr key={`${row.kind}-${row.id}`} className="hover:bg-muted/40">
-                    <Td>
+                    <Td slot="label">
                       <Link
                         to={row.href}
                         className="font-medium text-card-foreground hover:underline"
                       >
                         {row.name}
                       </Link>
+                      <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
+                        {row.kind === 'staff' ? 'Staff' : 'Site'}
+                        {row.detail ? ` · ${row.detail}` : ''}
+                      </p>
                       {row.detail ? (
-                        <p className="text-xs text-muted-foreground">{row.detail}</p>
+                        <p className="hidden text-xs text-muted-foreground md:block">
+                          {row.detail}
+                        </p>
                       ) : null}
                     </Td>
-                    <Td className="text-muted-foreground">
+                    <Td slot="extra" className="text-muted-foreground">
                       {row.kind === 'staff' ? 'Staff' : 'Site'}
                     </Td>
-                    <Td>
+                    <Td slot="meta">
                       <GapCategories
                         missing={row.missing.length}
                         expired={row.expired.length}
                       />
+                    </Td>
+                    <Td slot="action" className="md:hidden">
+                      <Button asChild size="sm">
+                        <Link to={row.href}>View</Link>
+                      </Button>
                     </Td>
                   </Tr>
                 ))}

@@ -90,13 +90,16 @@ export function Requirements() {
               <tbody>
                 {types.map((type) => (
                   <Tr key={type.id} className="hover:bg-muted/40">
-                    <Td className="font-medium text-card-foreground">
+                    <Td slot="label" className="font-medium text-card-foreground">
                       {type.name}
+                      <p className="mt-0.5 text-xs font-normal text-muted-foreground md:hidden">
+                        {type.applies_to === 'site' ? 'Site' : 'Staff'}
+                      </p>
                     </Td>
-                    <Td className="text-muted-foreground">
+                    <Td slot="extra" className="text-muted-foreground">
                       {type.applies_to === 'site' ? 'Site' : 'Staff'}
                     </Td>
-                    <Td>
+                    <Td slot="status">
                       {type.mandatory ? (
                         <Badge className="border-transparent bg-status-valid text-status-valid-foreground">
                           Mandatory
@@ -105,17 +108,21 @@ export function Requirements() {
                         <Badge variant="secondary">Optional</Badge>
                       )}
                     </Td>
-                    <Td className="text-muted-foreground">
+                    <Td
+                      slot="expiry"
+                      label="Validity"
+                      className="text-muted-foreground"
+                    >
                       {type.validity_months
                         ? `${type.validity_months} months`
                         : '—'}
                     </Td>
-                    <Td className="text-muted-foreground">
+                    <Td slot="extra" className="text-muted-foreground">
                       {type.renewal_lead_days
                         ? `${type.renewal_lead_days} days`
                         : '—'}
                     </Td>
-                    <Td className="text-muted-foreground">
+                    <Td slot="extra" className="text-muted-foreground">
                       {type.recheck_interval_days
                         ? `${type.recheck_interval_days} days`
                         : '—'}

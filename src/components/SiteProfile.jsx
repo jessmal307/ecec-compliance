@@ -649,7 +649,7 @@ export function SiteProfile() {
                                 : 'hover:bg-muted/40'
                             }
                           >
-                            <Td>
+                            <Td slot="label">
                               {excluded ? (
                                 <p className="font-medium text-card-foreground">
                                   {requirementType.name}
@@ -679,16 +679,20 @@ export function SiteProfile() {
                                 disabled={busy}
                               />
                             </Td>
-                            <Td className="tabular-nums text-muted-foreground">
+                            <Td
+                              slot="expiry"
+                              label="Expiry"
+                              className="tabular-nums text-muted-foreground"
+                            >
                               {excluded || missing
                                 ? '—'
                                 : formatDate(item.expiry_date)}
                             </Td>
-                            <Td>
+                            <Td slot="status">
                               <StatusBadge status={itemStatus} />
                             </Td>
-                            <Td>
-                              <div className="flex flex-wrap justify-end gap-2">
+                            <Td slot="action">
+                              <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
                                 {excluded ? null : missing ? (
                                   showForm ? null : (
                                     <Button
@@ -702,6 +706,18 @@ export function SiteProfile() {
                                   )
                                 ) : (
                                   <>
+                                    {showForm ? null : (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="md:hidden"
+                                        onClick={() => startEdit(item)}
+                                        disabled={busy}
+                                      >
+                                        Edit
+                                      </Button>
+                                    )}
                                     {hasRecheckInterval(requirementType) ? (
                                       <MarkVerifiedButton
                                         onClick={() => handleMarkVerified(item)}
@@ -747,8 +763,8 @@ export function SiteProfile() {
                             </Td>
                           </Tr>
                           {showForm ? (
-                            <Tr>
-                              <Td colSpan={4} className="bg-muted/30">
+                            <Tr slot="expand">
+                              <Td slot="expand" colSpan={4} className="bg-muted/30 max-md:bg-transparent">
                                 <ComplianceItemForm
                                   onSubmit={(event) =>
                                     handleSave(event, requirementType)
@@ -818,26 +834,31 @@ export function SiteProfile() {
                   <tbody>
                     {staffRows.map(({ member, active, progress, gapCount }) => (
                       <Tr key={member.id} className="hover:bg-muted/40">
-                        <Td>
+                        <Td slot="label">
                           <Link
                             to={paths.staffProfile(member.id)}
                             className="font-medium text-card-foreground hover:underline"
                           >
                             {member.name}
                           </Link>
+                          <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
+                            {member.role}
+                          </p>
                         </Td>
-                        <Td className="text-muted-foreground">{member.role}</Td>
-                        <Td>
+                        <Td slot="extra" className="text-muted-foreground">
+                          {member.role}
+                        </Td>
+                        <Td slot="status">
                           <StatusBadge status={active ? 'Active' : 'Inactive'} />
                         </Td>
-                        <Td>
+                        <Td slot="meta">
                           <ProgressPill
                             completed={progress?.completed ?? 0}
                             total={progress?.applicableCount ?? 0}
                             inactive={!active}
                           />
                         </Td>
-                        <Td className="text-right tabular-nums">
+                        <Td slot="extra" className="text-right tabular-nums">
                           {!active ? (
                             <span className="text-muted-foreground">—</span>
                           ) : gapCount === 0 ? (
@@ -847,6 +868,11 @@ export function SiteProfile() {
                               {gapCount} {gapCount === 1 ? 'gap' : 'gaps'}
                             </span>
                           )}
+                        </Td>
+                        <Td slot="action" className="md:hidden">
+                          <Button asChild size="sm">
+                            <Link to={paths.staffProfile(member.id)}>View</Link>
+                          </Button>
                         </Td>
                       </Tr>
                     ))}

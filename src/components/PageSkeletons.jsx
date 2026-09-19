@@ -90,19 +90,36 @@ export function DashboardSkeleton() {
 export function ListTableSkeleton({ rows = 5, columns = 5 }) {
   return (
     <div className="px-4 pb-2" aria-busy="true" aria-label="Loading list">
-      <div className="flex gap-3 border-y border-border bg-muted/40 px-0 py-2">
-        {Array.from({ length: columns }, (_, index) => (
-          <Line key={index} className="h-3 flex-1" />
-        ))}
-      </div>
-      <div className="divide-y divide-border">
-        {Array.from({ length: rows }, (_, index) => (
-          <div key={index} className="flex items-center gap-3 py-3">
-            {Array.from({ length: columns }, (_, column) => (
-              <Line key={column} className="h-4 flex-1" />
-            ))}
+      <div className="flex flex-col gap-3 md:hidden">
+        {Array.from({ length: Math.min(rows, 4) }, (_, index) => (
+          <div
+            key={index}
+            className="space-y-3 rounded-xl border border-border p-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <Line className="h-4 w-2/5" />
+              <Line className="h-5 w-16 rounded-full" />
+            </div>
+            <Line className="h-3 w-24" />
+            <Line className="h-8 w-20 rounded-lg" />
           </div>
         ))}
+      </div>
+      <div className="hidden md:block">
+        <div className="flex gap-3 border-y border-border bg-muted/40 px-0 py-2">
+          {Array.from({ length: columns }, (_, index) => (
+            <Line key={index} className="h-3 flex-1" />
+          ))}
+        </div>
+        <div className="divide-y divide-border">
+          {Array.from({ length: rows }, (_, index) => (
+            <div key={index} className="flex items-center gap-3 py-3">
+              {Array.from({ length: columns }, (_, column) => (
+                <Line key={column} className="h-4 flex-1" />
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

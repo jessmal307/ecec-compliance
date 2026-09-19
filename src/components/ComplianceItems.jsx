@@ -516,15 +516,20 @@ export function ComplianceItems() {
                     : paths.siteProfile(item.site_id)
                   return (
                     <Tr key={item.id} className="hover:bg-muted/40">
-                      <Td>
+                      <Td slot="label">
                         <p className="font-medium text-card-foreground">
                           {item.typeName}
                         </p>
                         {item.label && item.label !== item.typeName ? (
                           <p className="text-xs text-muted-foreground">{item.label}</p>
                         ) : null}
+                        <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
+                          {item.ownerName}
+                          {' · '}
+                          {item.ownerKind === 'staff' ? 'Staff' : 'Site'}
+                        </p>
                       </Td>
-                      <Td>
+                      <Td slot="extra">
                         <Link
                           to={profilePath}
                           className="text-card-foreground hover:underline"
@@ -535,19 +540,23 @@ export function ComplianceItems() {
                           {item.ownerKind === 'staff' ? 'Staff' : 'Site'}
                         </p>
                       </Td>
-                      <Td className="tabular-nums text-muted-foreground">
+                      <Td
+                        slot="expiry"
+                        label="Expiry"
+                        className="tabular-nums text-muted-foreground"
+                      >
                         {formatDate(item.expiry_date)}
                       </Td>
-                      <Td className="tabular-nums text-muted-foreground">
+                      <Td slot="extra" className="tabular-nums text-muted-foreground">
                         {hasRecheckInterval(item)
                           ? formatDate(item.last_verified_date)
                           : '—'}
                       </Td>
-                      <Td>
+                      <Td slot="status">
                         <StatusBadge status={status} />
                       </Td>
-                      <Td>
-                        <div className="flex flex-wrap justify-end gap-2">
+                      <Td slot="action">
+                        <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
                           <Button
                             type="button"
                             variant="outline"

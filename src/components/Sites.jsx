@@ -299,31 +299,43 @@ export function Sites() {
               <tbody>
                 {filteredSites.map((site) => (
                   <Tr key={site.id} className="hover:bg-muted/40">
-                    <Td>
+                    <Td slot="label">
                       <Link
                         to={paths.siteProfile(site.id)}
                         className="font-medium text-card-foreground hover:underline"
                       >
                         {site.name}
                       </Link>
+                      {site.address ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
+                          {site.address}
+                        </p>
+                      ) : null}
                     </Td>
-                    <Td className="text-muted-foreground">
+                    <Td slot="extra" className="text-muted-foreground">
                       {site.address || '—'}
                     </Td>
-                    <Td className="text-muted-foreground">{site.phone || '—'}</Td>
-                    <Td className="text-muted-foreground">
+                    <Td slot="extra" className="text-muted-foreground">
+                      {site.phone || '—'}
+                    </Td>
+                    <Td slot="extra" className="text-muted-foreground">
                       {site.nominated_supervisor || '—'}
                     </Td>
-                    <Td className="text-right">
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => setPendingDelete(site)}
-                        disabled={deletingId === site.id}
-                      >
-                        {deletingId === site.id ? 'Deleting…' : 'Delete'}
-                      </Button>
+                    <Td slot="action" className="text-right">
+                      <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
+                        <Button asChild size="sm" className="md:hidden">
+                          <Link to={paths.siteProfile(site.id)}>View</Link>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => setPendingDelete(site)}
+                          disabled={deletingId === site.id}
+                        >
+                          {deletingId === site.id ? 'Deleting…' : 'Delete'}
+                        </Button>
+                      </div>
                     </Td>
                   </Tr>
                 ))}

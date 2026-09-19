@@ -682,7 +682,7 @@ export function StaffProfile() {
                                 : 'hover:bg-muted/40'
                             }
                           >
-                            <Td>
+                            <Td slot="label">
                               {excluded ? (
                                 <p className="font-medium text-card-foreground">
                                   {requirementType.name}
@@ -712,16 +712,20 @@ export function StaffProfile() {
                                 disabled={busy}
                               />
                             </Td>
-                            <Td className="tabular-nums text-muted-foreground">
+                            <Td
+                              slot="expiry"
+                              label="Expiry"
+                              className="tabular-nums text-muted-foreground"
+                            >
                               {excluded || missing
                                 ? '—'
                                 : formatDate(item.expiry_date)}
                             </Td>
-                            <Td>
+                            <Td slot="status">
                               <StatusBadge status={itemStatus} />
                             </Td>
-                            <Td>
-                              <div className="flex flex-wrap justify-end gap-2">
+                            <Td slot="action">
+                              <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
                                 {excluded ? null : missing ? (
                                   showForm ? null : (
                                     <Button
@@ -735,6 +739,18 @@ export function StaffProfile() {
                                   )
                                 ) : (
                                   <>
+                                    {showForm ? null : (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="md:hidden"
+                                        onClick={() => startEdit(item)}
+                                        disabled={busy}
+                                      >
+                                        Edit
+                                      </Button>
+                                    )}
                                     {hasRecheckInterval(requirementType) ? (
                                       <MarkVerifiedButton
                                         onClick={() => handleMarkVerified(item)}
@@ -763,8 +779,8 @@ export function StaffProfile() {
                             </Td>
                           </Tr>
                           {showForm ? (
-                            <Tr>
-                              <Td colSpan={4} className="bg-muted/30">
+                            <Tr slot="expand">
+                              <Td slot="expand" colSpan={4} className="bg-muted/30 max-md:bg-transparent">
                                 <ComplianceItemForm
                                   onSubmit={(event) =>
                                     handleSave(event, requirementType)
