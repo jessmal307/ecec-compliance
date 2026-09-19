@@ -157,7 +157,7 @@ export function Sites() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Sites"
-        description="Open a site to view its profile. Add a site with New site."
+        description="Open a site to view its profile. Use New site to create one."
         actions={
           creating ? null : (
             <Button

@@ -37,6 +37,17 @@ type PendingAlert = {
   recheckDays?: number
 }
 
+type StaffSite = {
+  id: string
+  name: string
+}
+
+type DigestSection = {
+  key: string
+  name: string
+  entries: PendingAlert[]
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -139,12 +150,6 @@ function kindLabel(kind: AlertKind): string {
   return 'Renewal due'
 }
 
-function kindRank(kind: AlertKind): number {
-  if (kind === 'expired') return 0
-  if (kind === 'recheck') return 1
-  return 2
-}
-
 function ownerName(item: ComplianceItemRow): string {
   return item.staff?.name ?? item.sites?.name ?? 'Unknown'
 }
@@ -172,58 +177,82 @@ function itemDetail(entry: PendingAlert): string {
 
 function sortEntries(entries: PendingAlert[]): PendingAlert[] {
   return [...entries].sort((a, b) => {
-    const rankDiff = kindRank(a.kind) - kindRank(b.kind)
-    if (rankDiff !== 0) return rankDiff
-    return requirementName(a.item).localeCompare(requirementName(b.item))
+    const aExpired = a.kind === 'expired' ? 0 : 1
+    const bExpired = b.kind === 'expired' ? 0 : 1
+    if (aExpired !== bExpired) return aExpired - bExpired
+    const dateDiff = a.item.expiry_date.localeCompare(b.item.expiry_date)
+    if (dateDiff !== 0) return dateDiff
+    const requirementDiff = requirementName(a.item).localeCompare(requirementName(b.item))
+    if (requirementDiff !== 0) return requirementDiff
+    return ownerName(a.item).localeCompare(ownerName(b.item))
   })
 }
 
-function groupDigestEntries(entries: PendingAlert[]) {
-  const staff = new Map<string, PendingAlert[]>()
-  const sites = new Map<string, PendingAlert[]>()
+function groupEntriesBySite(
+  entries: PendingAlert[],
+  sitesByStaffId: Map<string, StaffSite[]>,
+): DigestSection[] {
+  const sections = new Map<string, DigestSection>()
 
-  for (const entry of entries) {
-    const groups = entry.item.staff_id ? staff : sites
-    const name = ownerName(entry.item)
-    const current = groups.get(name) ?? []
-    current.push(entry)
-    groups.set(name, current)
+  function addToSection(key: string, name: string, entry: PendingAlert) {
+    const current = sections.get(key) ?? { key, name, entries: [] }
+    current.entries.push(entry)
+    sections.set(key, current)
   }
 
-  return { staff, sites }
+  for (const entry of entries) {
+    if (entry.item.site_id) {
+      addToSection(entry.item.site_id, entry.item.sites?.name ?? 'Unknown', entry)
+      continue
+    }
+
+    const assigned = entry.item.staff_id
+      ? (sitesByStaffId.get(entry.item.staff_id) ?? [])
+      : []
+    if (assigned.length === 0) {
+      addToSection('unassigned', 'Unassigned staff', entry)
+      continue
+    }
+
+    for (const site of assigned) {
+      addToSection(site.id, site.name, entry)
+    }
+  }
+
+  const named = [...sections.values()]
+    .filter((section) => section.key !== 'unassigned')
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const unassigned = sections.get('unassigned')
+  return unassigned ? [...named, unassigned] : named
 }
 
-function renderOwnerSection(title: string, groups: Map<string, PendingAlert[]>): string {
-  if (groups.size === 0) return ''
+function renderEntry(entry: PendingAlert): string {
+  const status = escapeHtml(kindLabel(entry.kind))
+  const requirement = escapeHtml(requirementName(entry.item))
+  const detail = escapeHtml(itemDetail(entry))
+  const staffName = entry.item.staff_id
+    ? `${escapeHtml(ownerName(entry.item))} — `
+    : ''
+  return `<li><strong>${status}:</strong> ${staffName}${requirement} — ${detail}</li>`
+}
 
-  const blocks = [...groups.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, entries]) => {
-      const rows = sortEntries(entries)
-        .map((entry) => {
-          const requirement = escapeHtml(requirementName(entry.item))
-          const status = escapeHtml(kindLabel(entry.kind))
-          const detail = escapeHtml(itemDetail(entry))
-          return `<li><strong>${status}:</strong> ${requirement} — ${detail}</li>`
-        })
-        .join('')
-
-      return `<h3>${escapeHtml(name)}</h3><ul>${rows}</ul>`
+function digestHtml(
+  orgName: string,
+  entries: PendingAlert[],
+  sitesByStaffId: Map<string, StaffSite[]>,
+): string {
+  const count = entries.length
+  const itemWord = count === 1 ? 'item' : 'items'
+  const sections = groupEntriesBySite(entries, sitesByStaffId)
+    .map((section) => {
+      const rows = sortEntries(section.entries).map(renderEntry).join('')
+      return `<h2>${escapeHtml(section.name)}</h2><ul>${rows}</ul>`
     })
     .join('')
 
-  return `<h2>${escapeHtml(title)}</h2>${blocks}`
-}
-
-function digestHtml(orgName: string, entries: PendingAlert[]): string {
-  const { staff, sites } = groupDigestEntries(entries)
-  const count = entries.length
-  const itemWord = count === 1 ? 'item' : 'items'
-
   return `
     <p>${escapeHtml(String(count))} compliance ${itemWord} newly need attention for ${escapeHtml(orgName)}.</p>
-    ${renderOwnerSection('Staff', staff)}
-    ${renderOwnerSection('Sites', sites)}
+    ${sections}
   `
 }
 
@@ -411,6 +440,37 @@ Deno.serve(async () => {
     return json(summary)
   }
 
+  const staffIds = [
+    ...new Set(
+      pending
+        .map((entry) => entry.item.staff_id)
+        .filter((staffId): staffId is string => Boolean(staffId)),
+    ),
+  ]
+  const sitesByStaffId = new Map<string, StaffSite[]>()
+
+  if (staffIds.length > 0) {
+    const { data: staffSites, error: staffSitesError } = await supabase
+      .from('staff_sites')
+      .select('staff_id, site_id, sites ( name )')
+      .in('staff_id', staffIds)
+
+    if (staffSitesError) {
+      return json({ error: `Failed to load staff sites: ${staffSitesError.message}` }, 500)
+    }
+
+    for (const row of (staffSites ?? []) as {
+      staff_id: string
+      site_id: string
+      sites: { name: string } | null
+    }[]) {
+      const assigned = sitesByStaffId.get(row.staff_id) ?? []
+      if (assigned.some((site) => site.id === row.site_id)) continue
+      assigned.push({ id: row.site_id, name: row.sites?.name ?? 'Unknown' })
+      sitesByStaffId.set(row.staff_id, assigned)
+    }
+  }
+
   const orgIds = [...new Set(pending.map((entry) => entry.item.org_id))]
   const { data: organizations, error: orgsError } = await supabase
     .from('organizations')
@@ -455,7 +515,7 @@ Deno.serve(async () => {
       from: fromEmail,
       to,
       subject,
-      html: digestHtml(org.name, entries),
+      html: digestHtml(org.name, entries, sitesByStaffId),
     })
 
     if (sendError) {

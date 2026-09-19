@@ -52,7 +52,7 @@ export function LegalDocument({ title, updated, contactEmail, sections, session 
         }
       />
 
-      <Card className="w-full max-w-3xl">
+      <Card className="mx-auto w-full max-w-3xl">
         <CardContent className="space-y-6 pt-(--card-spacing)">
           {sections.map((section) => (
             <section key={section.heading} className="space-y-2">

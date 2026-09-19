@@ -14,7 +14,7 @@ export function Field({ label, hint, error, className, children }) {
         className,
       )}
     >
-      <span>{label}</span>
+      {label ? <span>{label}</span> : null}
       {children}
       {hint ? (
         <span className="text-xs font-normal text-muted-foreground">{hint}</span>
@@ -147,9 +147,9 @@ export function ChoiceRow({ children, disabled }) {
   )
 }
 
-export function Choice({ children, ...props }) {
+export function Choice({ children, className, ...props }) {
   return (
-    <label className="inline-flex min-h-11 items-center gap-2 font-normal">
+    <label className={cn('inline-flex min-h-11 items-center gap-2 font-normal', className)}>
       <input className="size-5 shrink-0 accent-foreground" {...props} />
       {children}
     </label>

@@ -397,12 +397,6 @@ export function complianceStatus(expiryDate) {
   return 'Valid'
 }
 
-export function complianceStatusClass(status) {
-  if (status === 'Expired') return 'status-expired'
-  if (status === 'Expiring soon') return 'status-soon'
-  return 'status-valid'
-}
-
 function itemWriteFields({
   requirementTypeId,
   label,

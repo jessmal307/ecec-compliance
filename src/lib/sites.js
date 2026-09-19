@@ -3,6 +3,12 @@ import { supabase } from './supabase'
 const SITE_FIELDS =
   'id, name, address, service_approval_number, phone, nominated_supervisor, org_id, created_at'
 
+export const SITES_CHANGED_EVENT = 'ecec:sites-changed'
+
+function notifySitesChanged() {
+  window.dispatchEvent(new Event(SITES_CHANGED_EVENT))
+}
+
 function emptyToNull(value) {
   const trimmed = typeof value === 'string' ? value.trim() : value
   return trimmed ? trimmed : null
@@ -74,6 +80,7 @@ export async function createSite({
     return { data: null, error }
   }
 
+  notifySitesChanged()
   return { data: mapSite(data), error: null }
 }
 
@@ -111,5 +118,6 @@ export async function deleteSite(id) {
     return { error }
   }
 
+  notifySitesChanged()
   return { error: null }
 }

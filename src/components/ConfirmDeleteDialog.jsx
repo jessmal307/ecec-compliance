@@ -66,7 +66,6 @@ export function ConfirmDeleteDialog({
           <AlertDialogCancel disabled={confirming}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            className="bg-destructive text-white hover:bg-destructive/90"
             disabled={confirming}
             onClick={(event) => {
               event.preventDefault()

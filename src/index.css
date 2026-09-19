@@ -60,7 +60,6 @@
   --text: var(--muted-foreground);
   --text-h: var(--card-foreground);
   --bg: var(--card);
-  --page-bg: var(--background);
   --code-bg: var(--muted);
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;

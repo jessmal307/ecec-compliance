@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { Building2, ChevronDown, List, Plus } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { isSitesPath, paths } from '../lib/paths'
-import { listSites } from '../lib/sites'
+import { listSites, SITES_CHANGED_EVENT } from '../lib/sites'
 
 function isNewSiteSearch(search) {
   return new URLSearchParams(search).get('new') === '1'
@@ -11,7 +11,7 @@ function isNewSiteSearch(search) {
 
 function childNavClassName(isActive) {
   return [
-    'flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-1.5 text-base no-underline transition-colors md:min-h-9 md:text-sm',
+    'flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-1.5 text-base no-underline transition-colors md:text-sm',
     isActive
       ? 'bg-sidebar-accent text-sidebar-accent-foreground'
       : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground',
@@ -24,6 +24,18 @@ function useOrgSites() {
   const [sites, setSites] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [revision, setRevision] = useState(0)
+
+  useEffect(() => {
+    function onSitesChanged() {
+      setRevision((current) => current + 1)
+    }
+
+    window.addEventListener(SITES_CHANGED_EVENT, onSitesChanged)
+    return () => {
+      window.removeEventListener(SITES_CHANGED_EVENT, onSitesChanged)
+    }
+  }, [])
 
   useEffect(() => {
     if (!organizationId) {
@@ -54,7 +66,7 @@ function useOrgSites() {
     return () => {
       cancelled = true
     }
-  }, [organizationId, pathname, search])
+  }, [organizationId, pathname, search, revision])
 
   return { sites, error, loading, organizationId }
 }
@@ -100,7 +112,7 @@ export function SitesNavLinks({ onNavigate }) {
         className={childNavClassName(showingAll)}
       >
         <List className="size-4 shrink-0" />
-        Show all
+        All sites
       </NavLink>
 
       <NavLink
@@ -109,7 +121,7 @@ export function SitesNavLinks({ onNavigate }) {
         className={childNavClassName(adding)}
       >
         <Plus className="size-4 shrink-0" />
-        Add site
+        New site
       </NavLink>
     </div>
   )

@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Field, FormActions, FormSection, PasswordInput, Input } from './ui/form'
+import { Field, FormActions, FormSection, PasswordInput, Input, Choice } from './ui/form'
 import { PageError, PageSuccess } from './ui/page'
 import { paths } from '../lib/paths'
 import { supabase } from '../lib/supabase'
@@ -21,6 +21,7 @@ export function AuthForm() {
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [acceptedLegal, setAcceptedLegal] = useState(false)
+  const [consentError, setConsentError] = useState('')
 
   const isSignUp = mode === 'signup'
 
@@ -28,9 +29,10 @@ export function AuthForm() {
     event.preventDefault()
     setError('')
     setMessage('')
+    setConsentError('')
 
     if (isSignUp && !acceptedLegal) {
-      setError('Please agree to the Privacy Policy and Terms of Service.')
+      setConsentError('Please agree to the Privacy Policy and Terms of Service.')
       return
     }
 
@@ -69,6 +71,7 @@ export function AuthForm() {
     setError('')
     setMessage('')
     setAcceptedLegal(false)
+    setConsentError('')
   }
 
   return (
@@ -126,44 +129,43 @@ export function AuthForm() {
           <PageSuccess>{message}</PageSuccess>
 
           {isSignUp ? (
-            <div className="flex min-h-11 items-start gap-2.5 text-base font-normal md:text-sm">
-              <input
-                id="accepted-legal"
+            <Field error={consentError} className="font-normal">
+              <Choice
                 type="checkbox"
                 name="acceptedLegal"
-                className="mt-0.5 size-5 shrink-0 accent-foreground"
+                className="items-start"
                 checked={acceptedLegal}
-                onChange={(event) => setAcceptedLegal(event.target.checked)}
+                onChange={(event) => {
+                  setAcceptedLegal(event.target.checked)
+                  if (event.target.checked) setConsentError('')
+                }}
                 required
                 disabled={submitting}
+                aria-invalid={Boolean(consentError) || undefined}
                 aria-label="I agree to the Privacy Policy and Terms of Service"
-              />
-              <span className="text-muted-foreground">
-                <label htmlFor="accepted-legal" className="cursor-pointer">
+              >
+                <span className="text-muted-foreground">
                   I agree to the{' '}
-                </label>
-                <Link
-                  to={paths.privacy}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-card-foreground underline underline-offset-4"
-                >
-                  Privacy Policy
-                </Link>
-                <label htmlFor="accepted-legal" className="cursor-pointer">
-                  {' '}
+                  <Link
+                    to={paths.privacy}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-card-foreground underline underline-offset-4"
+                  >
+                    Privacy Policy
+                  </Link>{' '}
                   and{' '}
-                </label>
-                <Link
-                  to={paths.terms}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-card-foreground underline underline-offset-4"
-                >
-                  Terms of Service
-                </Link>
-              </span>
-            </div>
+                  <Link
+                    to={paths.terms}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-card-foreground underline underline-offset-4"
+                  >
+                    Terms of Service
+                  </Link>
+                </span>
+              </Choice>
+            </Field>
           ) : null}
 
           <FormActions>

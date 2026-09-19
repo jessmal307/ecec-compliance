@@ -11,28 +11,11 @@ import {
   recheckDueDate,
 } from '../lib/compliance'
 import { ownerProfilePath } from '../lib/paths'
-
-function formatExpiry(expiryDate) {
-  const expiry = new Date(`${expiryDate}T00:00:00`)
-  if (Number.isNaN(expiry.getTime())) return expiryDate
-
-  return expiry.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
-function daysUntil(isoDate) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const date = new Date(`${isoDate}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return 0
-  return Math.round((date.getTime() - today.getTime()) / 86_400_000)
-}
+import { daysUntil, formatDate } from '../lib/format'
 
 function relativeExpiry(expiryDate) {
   const days = daysUntil(expiryDate)
+  if (days == null) return ''
   if (days < 0) {
     const overdue = Math.abs(days)
     return `${overdue} day${overdue === 1 ? '' : 's'} overdue`
@@ -43,6 +26,7 @@ function relativeExpiry(expiryDate) {
 
 function relativeRecheck(dueDate) {
   const days = daysUntil(dueDate)
+  if (days == null) return ''
   if (days < 0) {
     const overdue = Math.abs(days)
     return `${overdue} day${overdue === 1 ? '' : 's'} overdue`
@@ -55,10 +39,10 @@ function attentionMeta(item, status, dueDate) {
   if (status === 'Missing') return 'No record · Recheck due'
   if (status === 'Recheck due') {
     return item.last_verified_date && dueDate
-      ? `Recheck due ${formatExpiry(dueDate)} · ${relativeRecheck(dueDate)}`
+      ? `Recheck due ${formatDate(dueDate)} · ${relativeRecheck(dueDate)}`
       : 'Not verified · Recheck due'
   }
-  return `Expires ${formatExpiry(item.expiry_date)} · ${relativeExpiry(item.expiry_date)}`
+  return `Expires ${formatDate(item.expiry_date)} · ${relativeExpiry(item.expiry_date)}`
 }
 
 export function UrgentAttentionList({
