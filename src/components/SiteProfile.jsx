@@ -57,7 +57,10 @@ import {
   removeSiteRequirementExclusion,
 } from '../lib/exclusions'
 import { countStaffGaps } from '../lib/gaps'
-import { summarizeProfileRequirements } from '../lib/profileCompliance'
+import {
+  buildStaffRequirementRows,
+  summarizeProfileRequirements,
+} from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { isActiveStaff, listStaffBySite } from '../lib/staff'
 import { deleteSite, getSite, updateSite } from '../lib/sites'
@@ -183,16 +186,13 @@ export function SiteProfile() {
     return siteStaff
       .map((member) => {
         const active = isActiveStaff(member)
-        const requirementRows = staffTypes.map((requirementType) => ({
-          requirementType,
-          item: staffItems.find(
-            (entry) =>
-              entry.staff_id === member.id &&
-              entry.requirement_type_id === requirementType.id,
-          ),
-        }))
+        const { rows: requirementRows, extraRows } = buildStaffRequirementRows(
+          staffTypes,
+          staffItems,
+          member.id,
+        )
         const progress = summarizeProfileRequirements(
-          requirementRows,
+          [...requirementRows, ...extraRows],
           (typeId) => isRequirementExcluded(staffExclusions, member.id, typeId),
         )
         return {

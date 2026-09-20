@@ -31,6 +31,7 @@ import {
   complianceStatus,
   saveComplianceItem,
   isStaffRequirementType,
+  isOtherRequirementType,
   listRequirementTypes,
   resolveRecheckDays,
 } from '../lib/compliance'
@@ -100,7 +101,11 @@ export function NewStaff() {
       }
 
       setSites(sitesResult.data)
-      setRequirementTypes(typesResult.data.filter(isStaffRequirementType))
+      setRequirementTypes(
+        typesResult.data
+          .filter(isStaffRequirementType)
+          .filter((type) => !isOtherRequirementType(type)),
+      )
       setLoading(false)
     }
 

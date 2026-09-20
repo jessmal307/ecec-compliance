@@ -33,7 +33,10 @@ import {
   listStaffRequirementExclusionsForOrg,
   sameId,
 } from '../lib/exclusions'
-import { summarizeProfileRequirements } from '../lib/profileCompliance'
+import {
+  buildStaffRequirementRows,
+  summarizeProfileRequirements,
+} from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { isActiveStaff, listStaff } from '../lib/staff'
 import { listSites } from '../lib/sites'
@@ -125,16 +128,14 @@ export function Staff() {
   const progressByStaffId = useMemo(() => {
     return new Map(
       staff.map((member) => {
-        const rows = requirementTypes.map((requirementType) => ({
-          requirementType,
-          item: items.find(
-            (entry) =>
-              entry.staff_id === member.id &&
-              entry.requirement_type_id === requirementType.id,
-          ),
-        }))
-        const summary = summarizeProfileRequirements(rows, (typeId) =>
-          isRequirementExcluded(exclusions, member.id, typeId),
+        const { rows, extraRows } = buildStaffRequirementRows(
+          requirementTypes,
+          items,
+          member.id,
+        )
+        const summary = summarizeProfileRequirements(
+          [...rows, ...extraRows],
+          (typeId) => isRequirementExcluded(exclusions, member.id, typeId),
         )
         return [member.id, summary]
       }),

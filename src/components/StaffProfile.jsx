@@ -15,7 +15,9 @@ import {
 } from './ComplianceItemFields'
 import {
   ConfirmDeleteDialog,
+  ITEM_DELETE_WARNING,
   STAFF_DELETE_WARNING,
+  itemDeleteTitle,
   staffDeleteTitle,
 } from './ConfirmDeleteDialog'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
@@ -42,6 +44,7 @@ import { formatDate } from '../lib/format'
 import { validateIsoDate } from '../lib/dates'
 import {
   complianceStatus,
+  deleteComplianceItem,
   saveComplianceItem,
   formValuesFromItem,
   hasRecheckInterval,
@@ -58,7 +61,10 @@ import {
   listStaffRequirementExclusions,
   removeStaffRequirementExclusion,
 } from '../lib/exclusions'
-import { summarizeProfileRequirements } from '../lib/profileCompliance'
+import {
+  buildStaffRequirementRows,
+  summarizeProfileRequirements,
+} from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { listSites } from '../lib/sites'
 import { deleteStaff, getStaff, isActiveStaff, updateStaff } from '../lib/staff'
@@ -98,6 +104,8 @@ export function StaffProfile() {
   const [verifyingId, setVerifyingId] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
+  const [pendingItemDelete, setPendingItemDelete] = useState(null)
   const [profileTab, setProfileTab] = useState('details')
 
   useEffect(() => {
@@ -153,21 +161,17 @@ export function StaffProfile() {
     }
   }, [organizationId, staffId])
 
-  const rows = useMemo(() => {
-    return requirementTypes.map((requirementType) => {
-      const item = items.find(
-        (entry) => entry.requirement_type_id === requirementType.id,
-      )
-      return { requirementType, item }
-    })
-  }, [requirementTypes, items])
+  const { otherType, rows, extraRows } = useMemo(
+    () => buildStaffRequirementRows(requirementTypes, items, staffId),
+    [requirementTypes, items, staffId],
+  )
 
   const complianceSummary = useMemo(
     () =>
-      summarizeProfileRequirements(rows, (typeId) =>
+      summarizeProfileRequirements([...rows, ...extraRows], (typeId) =>
         isRequirementExcluded(exclusions, staffId, typeId),
       ),
-    [rows, exclusions, staffId],
+    [rows, extraRows, exclusions, staffId],
   )
 
   function resetForm() {
@@ -300,6 +304,31 @@ export function StaffProfile() {
 
     resetForm()
     setSaving(false)
+  }
+
+  async function handleDeleteItem() {
+    if (!pendingItemDelete) return
+
+    setError('')
+    setDeletingId(pendingItemDelete.id)
+
+    const { error: deleteError } = await deleteComplianceItem(pendingItemDelete.id)
+    if (deleteError) {
+      setError(deleteError.message)
+      setDeletingId(null)
+      return
+    }
+
+    if (editingItemId === pendingItemDelete.id) {
+      resetForm()
+    }
+
+    setPendingItemDelete(null)
+    const { error: selectError } = await refreshItems()
+    if (selectError) {
+      setError(selectError.message)
+    }
+    setDeletingId(null)
   }
 
   async function handleMarkVerified(item) {
@@ -449,10 +478,13 @@ export function StaffProfile() {
                 if (urgent.item) startEdit(urgent.item)
                 else startFillIn(urgent.requirementType)
                 window.setTimeout(() => {
+                  const id = urgent.item
+                    ? extraRows.some((row) => row.item.id === urgent.item.id)
+                      ? `requirement-extra-${urgent.item.id}`
+                      : `requirement-${urgent.requirementType.id}`
+                    : `requirement-${urgent.requirementType.id}`
                   document
-                    .getElementById(
-                      `requirement-${urgent.requirementType.id}`,
-                    )
+                    .getElementById(id)
                     ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
                 }, 50)
               }}
@@ -464,7 +496,7 @@ export function StaffProfile() {
               <TabsTrigger value="requirements">
                 Requirements
                 <span className="ml-1.5 tabular-nums text-muted-foreground">
-                  {rows.length}
+                  {rows.length + extraRows.length}
                 </span>
               </TabsTrigger>
             </TabsList>
@@ -645,7 +677,9 @@ export function StaffProfile() {
                 <PageMuted>
                   Inactive staff are excluded from compliance tracking.
                 </PageMuted>
-              ) : rows.length === 0 ? (
+              ) : (
+                <>
+              {rows.length === 0 && extraRows.length === 0 ? (
                 <PageMuted>No requirement types yet.</PageMuted>
               ) : (
                 <Table>
@@ -815,8 +849,147 @@ export function StaffProfile() {
                         </Fragment>
                       )
                     })}
+                    {extraRows.map(({ requirementType, item }) => {
+                      const isEditing = editingItemId === item.id
+                      const busy =
+                        saving ||
+                        verifyingId === item.id ||
+                        deletingId === item.id
+
+                      return (
+                        <Fragment key={item.id}>
+                          <Tr
+                            id={`requirement-extra-${item.id}`}
+                            className="hover:bg-muted/40"
+                          >
+                            <Td slot="label">
+                              <button
+                                type="button"
+                                className="min-h-11 text-left font-medium text-card-foreground underline underline-offset-2 disabled:opacity-50"
+                                onClick={() => {
+                                  if (isEditing) resetForm()
+                                  else startEdit(item)
+                                }}
+                                disabled={busy}
+                                aria-expanded={isEditing}
+                              >
+                                {item.label || requirementType.name}
+                              </button>
+                              <DocumentAttached
+                                path={item.document_url}
+                                disabled={busy}
+                              />
+                            </Td>
+                            <Td
+                              slot="expiry"
+                              label="Expiry"
+                              className="tabular-nums text-muted-foreground"
+                            >
+                              {formatDate(item.expiry_date)}
+                            </Td>
+                            <Td slot="status">
+                              <StatusBadge
+                                status={complianceStatus(item.expiry_date)}
+                              />
+                            </Td>
+                            <Td slot="action">
+                              <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
+                                {isEditing ? null : (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="md:hidden"
+                                    onClick={() => startEdit(item)}
+                                    disabled={busy}
+                                  >
+                                    Edit
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() =>
+                                    setPendingItemDelete({
+                                      ...item,
+                                      typeName:
+                                        item.label || requirementType.name,
+                                    })
+                                  }
+                                  disabled={busy}
+                                >
+                                  {deletingId === item.id
+                                    ? 'Deleting…'
+                                    : 'Delete'}
+                                </Button>
+                              </div>
+                            </Td>
+                          </Tr>
+                          {isEditing ? (
+                            <Tr slot="expand">
+                              <Td
+                                slot="expand"
+                                colSpan={4}
+                                className="bg-muted/30 max-md:bg-transparent"
+                              >
+                                <ComplianceItemForm
+                                  onSubmit={(event) =>
+                                    handleSave(event, requirementType)
+                                  }
+                                  onCancel={resetForm}
+                                  saving={saving}
+                                  values={formValues}
+                                  onChange={setFormValues}
+                                  showLastVerified={false}
+                                  validityMonths={requirementType.validity_months}
+                                  disabled={saving}
+                                  documentContext={{
+                                    itemId: item.id,
+                                    orgId: item.org_id ?? organizationId,
+                                  }}
+                                  onDocumentChange={() => refreshItems()}
+                                />
+                              </Td>
+                            </Tr>
+                          ) : null}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </Table>
+              )}
+              {otherType ? (
+                <div className="border-t border-border px-4 py-5">
+                  <div className="mb-4">
+                    <h3 className="text-sm font-medium text-card-foreground">
+                      Add other certificate or qualification
+                    </h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Use this for extra records that are not in the list above.
+                      Name it in Label.
+                    </p>
+                  </div>
+                  {fillingTypeId || editingItemId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Save or cancel the open form to add another record.
+                    </p>
+                  ) : (
+                    <ComplianceItemForm
+                      submitLabel="Add"
+                      onSubmit={(event) => handleSave(event, otherType)}
+                      onCancel={resetForm}
+                      saving={saving}
+                      values={formValues}
+                      onChange={setFormValues}
+                      showLastVerified={false}
+                      validityMonths={otherType.validity_months}
+                      disabled={saving}
+                    />
+                  )}
+                </div>
+              ) : null}
+                </>
               )}
             </CardContent>
           </Card>
@@ -832,6 +1005,22 @@ export function StaffProfile() {
         description={STAFF_DELETE_WARNING}
         confirming={deleting}
         onConfirm={handleDeleteStaff}
+      />
+      <ConfirmDeleteDialog
+        open={Boolean(pendingItemDelete)}
+        onOpenChange={(open) => {
+          if (!open) setPendingItemDelete(null)
+        }}
+        title={
+          pendingItemDelete
+            ? itemDeleteTitle(pendingItemDelete)
+            : 'Delete item?'
+        }
+        description={ITEM_DELETE_WARNING}
+        confirming={Boolean(
+          pendingItemDelete && deletingId === pendingItemDelete.id,
+        )}
+        onConfirm={handleDeleteItem}
       />
     </section>
   )

@@ -1,4 +1,4 @@
-import { complianceStatus } from './compliance'
+import { complianceStatus, isOtherRequirementType } from './compliance'
 
 const URGENCY_RANK = {
   Expired: 0,
@@ -20,6 +20,35 @@ function compareUrgent(a, b) {
   }
 
   return (a.item?.expiry_date ?? '').localeCompare(b.item?.expiry_date ?? '')
+}
+
+export function buildStaffRequirementRows(requirementTypes, items, staffId) {
+  const forStaff = (entry) =>
+    staffId == null || String(entry.staff_id) === String(staffId)
+
+  const otherType = requirementTypes.find(isOtherRequirementType) ?? null
+  const rows = requirementTypes
+    .filter((type) => !isOtherRequirementType(type))
+    .map((requirementType) => ({
+      requirementType,
+      item: items.find(
+        (entry) =>
+          forStaff(entry) &&
+          String(entry.requirement_type_id) === String(requirementType.id),
+      ),
+    }))
+
+  const extraRows = otherType
+    ? items
+        .filter(
+          (entry) =>
+            forStaff(entry) &&
+            String(entry.requirement_type_id) === String(otherType.id),
+        )
+        .map((item) => ({ requirementType: otherType, item }))
+    : []
+
+  return { otherType, rows, extraRows }
 }
 
 export function summarizeProfileRequirements(rows, isExcluded) {

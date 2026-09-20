@@ -146,7 +146,10 @@ export function ProfileComplianceHeader({ summary, onReviewUrgent }) {
             <div className="mt-1 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="font-medium text-card-foreground">
-                  {mostUrgent.requirementType.name}
+                  {mostUrgent.item?.label &&
+                  mostUrgent.item.label !== mostUrgent.requirementType.name
+                    ? mostUrgent.item.label
+                    : mostUrgent.requirementType.name}
                 </p>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {urgentDetail(mostUrgent)}

@@ -222,6 +222,10 @@ export function isStaffRequirementType(requirementType) {
   return requirementType?.applies_to !== 'site'
 }
 
+export function isOtherRequirementType(requirementType) {
+  return String(requirementType?.name ?? '').trim().toLowerCase() === 'other'
+}
+
 export function suggestedExpiryFromIssuedDate(issuedDate, validityMonths) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(issuedDate ?? '')
   const months = Number(validityMonths)
