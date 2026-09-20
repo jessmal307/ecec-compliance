@@ -29,6 +29,7 @@ import { StatusBadge } from './StatusBadge'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
 import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
 import { PageError, PageHeader, PageMuted } from './ui/page'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { useAuth } from '../hooks/useAuth'
 import { paths } from '../lib/paths'
 import { formatDate } from '../lib/format'
@@ -97,6 +98,7 @@ export function SiteProfile() {
   const [deletingSite, setDeletingSite] = useState(false)
   const [pendingSiteDelete, setPendingSiteDelete] = useState(false)
   const [pendingItemDelete, setPendingItemDelete] = useState(null)
+  const [profileTab, setProfileTab] = useState('details')
 
   useEffect(() => {
     if (!organizationId || !siteId) return
@@ -493,6 +495,7 @@ export function SiteProfile() {
             onReviewUrgent={() => {
               const urgent = complianceSummary.mostUrgent
               if (!urgent) return
+              setProfileTab('requirements')
               if (urgent.item) startEdit(urgent.item)
               else startFillIn(urgent.requirementType)
               window.setTimeout(() => {
@@ -502,8 +505,23 @@ export function SiteProfile() {
               }, 50)
             }}
           />
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
-            <div className="min-w-0">
+          <Tabs value={profileTab} onValueChange={setProfileTab}>
+            <TabsList>
+              <TabsTrigger value="details">Site information</TabsTrigger>
+              <TabsTrigger value="requirements">
+                Requirements
+                <span className="ml-1.5 tabular-nums text-muted-foreground">
+                  {rows.length}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger value="staff">
+                Staff
+                <span className="ml-1.5 tabular-nums text-muted-foreground">
+                  {siteStaff.length}
+                </span>
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="details">
           <Card>
             <CardHeader>
               <CardTitle>Site information</CardTitle>
@@ -588,8 +606,8 @@ export function SiteProfile() {
               </form>
             </CardContent>
           </Card>
-            </div>
-            <div className="min-w-0">
+            </TabsContent>
+            <TabsContent value="requirements">
           <Card>
             <CardHeader>
               <CardTitle>Requirements</CardTitle>
@@ -791,8 +809,8 @@ export function SiteProfile() {
               )}
             </CardContent>
           </Card>
-            </div>
-            <div className="min-w-0 md:col-span-2">
+            </TabsContent>
+            <TabsContent value="staff">
           <Card>
             <CardHeader>
               <CardTitle>Staff</CardTitle>
@@ -873,8 +891,8 @@ export function SiteProfile() {
               )}
             </CardContent>
           </Card>
-            </div>
-          </div>
+            </TabsContent>
+          </Tabs>
         </div>
       )}
 
