@@ -61,6 +61,22 @@ function missingOwnersHint(staffOwners, siteOwners) {
   return `Across ${parts.join(' and ')}`
 }
 
+function siteSummaryLine({ itemCount, staffCount, missing }) {
+  if (itemCount === 0 && missing === 0) return '—'
+
+  const parts = []
+  if (itemCount > 0) {
+    parts.push(`${itemCount} entered`)
+    parts.push(countLabel(staffCount, 'staff member', 'staff'))
+  } else if (staffCount > 0) {
+    parts.push(countLabel(staffCount, 'staff member', 'staff'))
+  }
+  if (missing > 0) {
+    parts.push(`${countLabel(missing, 'item', 'items')} to add`)
+  }
+  return parts.join(' · ')
+}
+
 function progressClass(percent) {
   if (percent >= 90) {
     return 'h-2 [&_[data-slot=progress-indicator]]:bg-status-valid'
@@ -167,12 +183,14 @@ export function Overview() {
     const expiringCount = visibleItems.filter(
       (item) => complianceStatus(item.expiry_date) === 'Expiring soon',
     ).length
-    const inDateCount = visibleItems.filter(
+    const trackedCount = visibleItems.length
+    const currentCount = visibleItems.filter(
       (item) => complianceStatus(item.expiry_date) !== 'Expired',
     ).length
-    const expectedCount = visibleItems.length + missingCount
     const compliancePercent =
-      expectedCount === 0 ? 100 : Math.round((inDateCount / expectedCount) * 100)
+      trackedCount === 0
+        ? null
+        : Math.round((currentCount / trackedCount) * 100)
 
     const { items: urgentItems } = buildUrgentItems({
       visibleItems,
@@ -193,27 +211,27 @@ export function Overview() {
           !isSiteRequirementExcluded(siteExclusions, site.id, type.id) &&
           !siteItems.some((item) => item.requirement_type_id === type.id),
       ).length
-      const siteInDate = siteItems.filter(
+      const siteCurrent = siteItems.filter(
         (item) => complianceStatus(item.expiry_date) !== 'Expired',
       ).length
-      const siteExpected = siteItems.length + siteMissing
+      const siteTracked = siteItems.length
       const percent =
-        siteItems.length === 0
+        siteTracked === 0
           ? null
-          : Math.round((siteInDate / siteExpected) * 100)
+          : Math.round((siteCurrent / siteTracked) * 100)
 
       return {
         site,
         percent,
-        expected: siteExpected,
-        itemCount: siteItems.length,
+        missing: siteMissing,
+        itemCount: siteTracked,
         staffCount: staffAtSite.length,
       }
     })
 
     return {
       compliancePercent,
-      expectedCount,
+      trackedCount,
       expiredCount,
       expiringCount,
       missingCount,
@@ -235,11 +253,16 @@ export function Overview() {
   const stats = [
     {
       label: 'Overall compliance',
-      value: `${dashboard.compliancePercent}%`,
+      value:
+        dashboard.compliancePercent == null
+          ? '—'
+          : `${dashboard.compliancePercent}%`,
       hint:
-        dashboard.expectedCount === 0
+        dashboard.trackedCount === 0
           ? 'No checks recorded yet'
-          : `${dashboard.expectedCount} checks including gaps`,
+          : `Of ${dashboard.trackedCount} entered ${
+              dashboard.trackedCount === 1 ? 'check' : 'checks'
+            }`,
       icon: ShieldCheck,
     },
     {
@@ -255,13 +278,17 @@ export function Overview() {
       icon: Clock,
     },
     {
-      label: 'Missing',
+      label: 'Items to add',
       value: dashboard.missingCount,
-      hint: missingOwnersHint(
-        dashboard.missingStaffOwners,
-        dashboard.missingSiteOwners,
-      ),
+      hint:
+        dashboard.missingCount === 0
+          ? 'All required records are entered'
+          : missingOwnersHint(
+              dashboard.missingStaffOwners,
+              dashboard.missingSiteOwners,
+            ),
       icon: UserRoundX,
+      href: dashboard.missingCount > 0 ? paths.gaps : null,
     },
   ]
 
@@ -290,8 +317,8 @@ export function Overview() {
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 xl:gap-4">
             {stats.map((stat) => {
               const Icon = stat.icon
-              return (
-                <Card key={stat.label}>
+              const body = (
+                <>
                   <CardHeader>
                     <CardDescription>{stat.label}</CardDescription>
                     <CardTitle className="text-3xl font-semibold tabular-nums tracking-tight">
@@ -304,9 +331,25 @@ export function Overview() {
                     </CardAction>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-xs text-muted-foreground">{stat.hint}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {stat.href ? `${stat.hint}. Add them` : stat.hint}
+                    </p>
                   </CardContent>
-                </Card>
+                </>
+              )
+
+              return stat.href ? (
+                <Link
+                  key={stat.label}
+                  to={stat.href}
+                  className="min-w-0 no-underline"
+                >
+                  <Card className="h-full transition-colors hover:bg-muted/30">
+                    {body}
+                  </Card>
+                </Link>
+              ) : (
+                <Card key={stat.label}>{body}</Card>
               )
             })}
           </div>
@@ -392,7 +435,8 @@ export function Overview() {
                 <CardHeader>
                   <CardTitle>By site</CardTitle>
                   <CardDescription>
-                    In-date checks versus expired and missing items at each site.
+                    Of entered checks, how many are still in date. Missing
+                    records are listed separately.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -403,7 +447,13 @@ export function Overview() {
                   ) : (
                     <ul className="space-y-4">
                       {dashboard.siteRows.map(
-                        ({ site, percent, expected, itemCount, staffCount }) => (
+                        ({
+                          site,
+                          percent,
+                          missing,
+                          itemCount,
+                          staffCount,
+                        }) => (
                           <li key={site.id} className="space-y-2">
                             <div className="flex items-baseline justify-between gap-3">
                               <Link
@@ -420,7 +470,7 @@ export function Overview() {
                                       : 'text-sm tabular-nums text-card-foreground'
                                   }
                                 >
-                                  {percent === null ? 'No data' : `${percent}%`}
+                                  {percent === null ? '—' : `${percent}%`}
                                 </p>
                                 <Button asChild variant="outline" size="sm">
                                   <Link to={paths.siteProfile(site.id)}>Profile</Link>
@@ -436,9 +486,11 @@ export function Overview() {
                               }
                             />
                             <p className="text-xs text-muted-foreground">
-                              {itemCount === 0
-                                ? 'No data'
-                                : `${expected} checks · ${staffCount} staff`}
+                              {siteSummaryLine({
+                                itemCount,
+                                staffCount,
+                                missing,
+                              })}
                             </p>
                           </li>
                         ),
