@@ -15,9 +15,13 @@ import {
 } from './ComplianceItemFields'
 import {
   ConfirmDeleteDialog,
-  ITEM_DELETE_WARNING,
+  ITEM_ARCHIVE_WARNING,
+  PERMANENT_DELETE_PHRASE,
+  STAFF_ARCHIVE_WARNING,
   STAFF_DELETE_WARNING,
-  itemDeleteTitle,
+  itemArchiveTitle,
+  itemArchiveWarning,
+  staffArchiveTitle,
   staffDeleteTitle,
 } from './ConfirmDeleteDialog'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
@@ -44,7 +48,7 @@ import { formatDate } from '../lib/format'
 import { validateIsoDate } from '../lib/dates'
 import {
   complianceStatus,
-  deleteComplianceItem,
+  archiveComplianceItem,
   saveComplianceItem,
   formValuesFromItem,
   hasRecheckInterval,
@@ -67,7 +71,8 @@ import {
 } from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { listSites } from '../lib/sites'
-import { deleteStaff, getStaff, isActiveStaff, updateStaff } from '../lib/staff'
+import { deleteStaff, archiveStaff, restoreStaff, getStaff, isActiveStaff, updateStaff } from '../lib/staff'
+import { isArchived } from '../lib/archive'
 
 function staffInfoFromMember(member) {
   return {
@@ -103,9 +108,11 @@ export function StaffProfile() {
   const [saving, setSaving] = useState(false)
   const [verifyingId, setVerifyingId] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [pendingDelete, setPendingDelete] = useState(false)
+  const [pendingArchive, setPendingArchive] = useState(false)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
-  const [pendingItemDelete, setPendingItemDelete] = useState(null)
+  const [pendingItemArchive, setPendingItemArchive] = useState(null)
+  const [restoring, setRestoring] = useState(false)
   const [profileTab, setProfileTab] = useState('details')
 
   useEffect(() => {
@@ -306,24 +313,26 @@ export function StaffProfile() {
     setSaving(false)
   }
 
-  async function handleDeleteItem() {
-    if (!pendingItemDelete) return
+  async function handleArchiveItem() {
+    if (!pendingItemArchive) return
 
     setError('')
-    setDeletingId(pendingItemDelete.id)
+    setDeletingId(pendingItemArchive.id)
 
-    const { error: deleteError } = await deleteComplianceItem(pendingItemDelete.id)
-    if (deleteError) {
-      setError(deleteError.message)
+    const { error: archiveError } = await archiveComplianceItem(
+      pendingItemArchive.id,
+    )
+    if (archiveError) {
+      setError(archiveError.message)
       setDeletingId(null)
       return
     }
 
-    if (editingItemId === pendingItemDelete.id) {
+    if (editingItemId === pendingItemArchive.id) {
       resetForm()
     }
 
-    setPendingItemDelete(null)
+    setPendingItemArchive(null)
     const { error: selectError } = await refreshItems()
     if (selectError) {
       setError(selectError.message)
@@ -412,6 +421,44 @@ export function StaffProfile() {
     setTogglingTypeId(null)
   }
 
+  async function handleArchiveStaff() {
+    if (!staffId) return
+
+    setError('')
+    setDeleting(true)
+
+    const { error: archiveError } = await archiveStaff(staffId)
+    if (archiveError) {
+      setError(archiveError.message)
+      setDeleting(false)
+      return
+    }
+
+    navigate(paths.staff, { replace: true })
+  }
+
+  async function handleRestoreStaff() {
+    if (!staffId) return
+
+    setError('')
+    setRestoring(true)
+    const { error: restoreError } = await restoreStaff(staffId)
+    if (restoreError) {
+      setError(restoreError.message)
+      setRestoring(false)
+      return
+    }
+
+    const { data, error: selectError } = await getStaff(staffId)
+    if (selectError) {
+      setError(selectError.message)
+      setRestoring(false)
+      return
+    }
+    setMember(data)
+    setRestoring(false)
+  }
+
   async function handleDeleteStaff() {
     if (!staffId) return
 
@@ -430,6 +477,7 @@ export function StaffProfile() {
 
   const active = isActiveStaff(member)
   const memberName = member?.name ?? 'this staff member'
+  const memberArchived = isArchived(member)
 
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
@@ -437,11 +485,13 @@ export function StaffProfile() {
         title={member?.name ?? 'Staff profile'}
         description={
           member
-            ? `${member.role}. ${
-                active
-                  ? 'Every requirement type for your organization, with this person’s status.'
-                  : 'This staff member is inactive, so their requirements are not tracked.'
-              }`
+            ? memberArchived
+              ? `${member.role}. This person is archived, so they are hidden from lists, dashboards, and alerts.`
+              : `${member.role}. ${
+                  active
+                    ? 'Every requirement type for your organization, with this person’s status.'
+                    : 'This staff member is inactive, so their requirements are not tracked.'
+                }`
             : 'Staff details and requirements.'
         }
         actions={
@@ -449,15 +499,37 @@ export function StaffProfile() {
             <Button asChild variant="outline" size="sm">
               <Link to={paths.staff}>Back to staff</Link>
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() => setPendingDelete(true)}
-              disabled={loading || deleting}
-            >
-              {deleting ? 'Deleting…' : 'Delete staff'}
-            </Button>
+            {memberArchived ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleRestoreStaff}
+                  disabled={loading || restoring || deleting}
+                >
+                  {restoring ? 'Restoring…' : 'Restore'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setPendingPermanentDelete(true)}
+                  disabled={loading || restoring || deleting}
+                >
+                  Delete permanently
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPendingArchive(true)}
+                disabled={loading || deleting}
+              >
+                Archive staff
+              </Button>
+            )}
           </>
         }
       />
@@ -468,7 +540,7 @@ export function StaffProfile() {
         <ProfileSkeleton />
       ) : (
         <div className="flex flex-col gap-4">
-          {active ? (
+          {active && !memberArchived ? (
             <ProfileComplianceHeader
               summary={complianceSummary}
               onReviewUrgent={() => {
@@ -908,10 +980,10 @@ export function StaffProfile() {
                                 )}
                                 <Button
                                   type="button"
-                                  variant="destructive"
+                                  variant="outline"
                                   size="sm"
                                   onClick={() =>
-                                    setPendingItemDelete({
+                                    setPendingItemArchive({
                                       ...item,
                                       typeName:
                                         item.label || requirementType.name,
@@ -920,8 +992,8 @@ export function StaffProfile() {
                                   disabled={busy}
                                 >
                                   {deletingId === item.id
-                                    ? 'Deleting…'
-                                    : 'Delete'}
+                                    ? 'Archiving…'
+                                    : 'Archive'}
                                 </Button>
                               </div>
                             </Td>
@@ -999,28 +1071,49 @@ export function StaffProfile() {
       )}
 
       <ConfirmDeleteDialog
-        open={pendingDelete}
-        onOpenChange={setPendingDelete}
+        open={pendingArchive}
+        onOpenChange={setPendingArchive}
+        title={staffArchiveTitle(memberName)}
+        description={STAFF_ARCHIVE_WARNING}
+        confirming={deleting}
+        onConfirm={handleArchiveStaff}
+        confirmLabel="Archive"
+        confirmingLabel="Archiving…"
+        variant="default"
+      />
+      <ConfirmDeleteDialog
+        open={pendingPermanentDelete}
+        onOpenChange={setPendingPermanentDelete}
         title={staffDeleteTitle(memberName)}
         description={STAFF_DELETE_WARNING}
         confirming={deleting}
         onConfirm={handleDeleteStaff}
+        confirmLabel="Delete permanently"
+        confirmingLabel="Deleting…"
+        confirmPhrase={PERMANENT_DELETE_PHRASE}
       />
       <ConfirmDeleteDialog
-        open={Boolean(pendingItemDelete)}
+        open={Boolean(pendingItemArchive)}
         onOpenChange={(open) => {
-          if (!open) setPendingItemDelete(null)
+          if (!open) setPendingItemArchive(null)
         }}
         title={
-          pendingItemDelete
-            ? itemDeleteTitle(pendingItemDelete)
-            : 'Delete item?'
+          pendingItemArchive
+            ? itemArchiveTitle(pendingItemArchive)
+            : 'Archive item?'
         }
-        description={ITEM_DELETE_WARNING}
+        description={
+          pendingItemArchive
+            ? itemArchiveWarning(pendingItemArchive)
+            : ITEM_ARCHIVE_WARNING
+        }
         confirming={Boolean(
-          pendingItemDelete && deletingId === pendingItemDelete.id,
+          pendingItemArchive && deletingId === pendingItemArchive.id,
         )}
-        onConfirm={handleDeleteItem}
+        onConfirm={handleArchiveItem}
+        confirmLabel="Archive"
+        confirmingLabel="Archiving…"
+        variant="default"
       />
     </section>
   )

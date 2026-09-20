@@ -16,9 +16,13 @@ import {
 } from './ComplianceItemFields'
 import {
   ConfirmDeleteDialog,
-  ITEM_DELETE_WARNING,
+  ITEM_ARCHIVE_WARNING,
+  PERMANENT_DELETE_PHRASE,
+  SITE_ARCHIVE_WARNING,
   SITE_DELETE_WARNING,
-  itemDeleteTitle,
+  itemArchiveTitle,
+  itemArchiveWarning,
+  siteArchiveTitle,
   siteDeleteTitle,
 } from './ConfirmDeleteDialog'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
@@ -35,7 +39,7 @@ import { paths } from '../lib/paths'
 import { formatDate } from '../lib/format'
 import {
   complianceStatus,
-  deleteComplianceItem,
+  archiveComplianceItem,
   formValuesFromItem,
   hasRecheckInterval,
   isSiteRequirementType,
@@ -63,7 +67,8 @@ import {
 } from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { isActiveStaff, listStaffBySite } from '../lib/staff'
-import { deleteSite, getSite, updateSite } from '../lib/sites'
+import { archiveSite, deleteSite, getSite, restoreSite, updateSite } from '../lib/sites'
+import { isArchived } from '../lib/archive'
 
 function siteInfoFromSite(site) {
   return {
@@ -99,8 +104,10 @@ export function SiteProfile() {
   const [verifyingId, setVerifyingId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
   const [deletingSite, setDeletingSite] = useState(false)
-  const [pendingSiteDelete, setPendingSiteDelete] = useState(false)
-  const [pendingItemDelete, setPendingItemDelete] = useState(null)
+  const [restoring, setRestoring] = useState(false)
+  const [pendingSiteArchive, setPendingSiteArchive] = useState(false)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(false)
+  const [pendingItemArchive, setPendingItemArchive] = useState(null)
   const [profileTab, setProfileTab] = useState('details')
 
   useEffect(() => {
@@ -329,24 +336,26 @@ export function SiteProfile() {
     setSaving(false)
   }
 
-  async function handleDeleteItem() {
-    if (!pendingItemDelete) return
+  async function handleArchiveItem() {
+    if (!pendingItemArchive) return
 
     setError('')
-    setDeletingId(pendingItemDelete.id)
+    setDeletingId(pendingItemArchive.id)
 
-    const { error: deleteError } = await deleteComplianceItem(pendingItemDelete.id)
-    if (deleteError) {
-      setError(deleteError.message)
+    const { error: archiveError } = await archiveComplianceItem(
+      pendingItemArchive.id,
+    )
+    if (archiveError) {
+      setError(archiveError.message)
       setDeletingId(null)
       return
     }
 
-    if (editingItemId === pendingItemDelete.id) {
+    if (editingItemId === pendingItemArchive.id) {
       resetForm()
     }
 
-    setPendingItemDelete(null)
+    setPendingItemArchive(null)
     const { error: selectError } = await refreshItems()
     if (selectError) {
       setError(selectError.message)
@@ -439,6 +448,44 @@ export function SiteProfile() {
     setTogglingTypeId(null)
   }
 
+  async function handleArchiveSite() {
+    if (!siteId) return
+
+    setError('')
+    setDeletingSite(true)
+
+    const { error: archiveError } = await archiveSite(siteId)
+    if (archiveError) {
+      setError(archiveError.message)
+      setDeletingSite(false)
+      return
+    }
+
+    navigate(paths.sites, { replace: true })
+  }
+
+  async function handleRestoreSite() {
+    if (!siteId) return
+
+    setError('')
+    setRestoring(true)
+    const { error: restoreError } = await restoreSite(siteId)
+    if (restoreError) {
+      setError(restoreError.message)
+      setRestoring(false)
+      return
+    }
+
+    const { data, error: selectError } = await getSite(siteId)
+    if (selectError) {
+      setError(selectError.message)
+      setRestoring(false)
+      return
+    }
+    setSite(data)
+    setRestoring(false)
+  }
+
   async function handleDeleteSite() {
     if (!siteId) return
 
@@ -460,26 +507,53 @@ export function SiteProfile() {
   }
 
   const infoBusy = savingInfo || loading
+  const siteArchived = isArchived(site)
 
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title={site?.name ?? 'Site profile'}
-        description="Site details and every site-level requirement type for your organization."
+        description={
+          siteArchived
+            ? 'This site is archived, so it is hidden from lists, dashboards, and alerts.'
+            : 'Site details and every site-level requirement type for your organization.'
+        }
         actions={
           <>
             <Button asChild variant="outline" size="sm">
               <Link to={paths.sites}>Back to sites</Link>
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() => setPendingSiteDelete(true)}
-              disabled={loading || deletingSite}
-            >
-              {deletingSite ? 'Deleting…' : 'Delete site'}
-            </Button>
+            {siteArchived ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleRestoreSite}
+                  disabled={loading || restoring || deletingSite}
+                >
+                  {restoring ? 'Restoring…' : 'Restore'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setPendingPermanentDelete(true)}
+                  disabled={loading || restoring || deletingSite}
+                >
+                  Delete permanently
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPendingSiteArchive(true)}
+                disabled={loading || deletingSite}
+              >
+                Archive site
+              </Button>
+            )}
           </>
         }
       />
@@ -490,6 +564,7 @@ export function SiteProfile() {
         <ProfileSkeleton showStaff />
       ) : (
         <div className="flex flex-col gap-4">
+          {siteArchived ? null : (
           <ProfileComplianceHeader
             summary={complianceSummary}
             onReviewUrgent={() => {
@@ -505,6 +580,7 @@ export function SiteProfile() {
               }, 50)
             }}
           />
+          )}
           <Tabs value={profileTab} onValueChange={setProfileTab}>
             <TabsList>
               <TabsTrigger value="details">Site information</TabsTrigger>
@@ -737,10 +813,10 @@ export function SiteProfile() {
                                     ) : null}
                                     <Button
                                       type="button"
-                                      variant="destructive"
+                                      variant="outline"
                                       size="sm"
                                       onClick={() =>
-                                        setPendingItemDelete({
+                                        setPendingItemArchive({
                                           ...item,
                                           typeName:
                                             item.typeName ?? requirementType.name,
@@ -749,8 +825,8 @@ export function SiteProfile() {
                                       disabled={busy}
                                     >
                                       {deletingId === item.id
-                                        ? 'Deleting…'
-                                        : 'Delete'}
+                                        ? 'Archiving…'
+                                        : 'Archive'}
                                     </Button>
                                   </>
                                 )}
@@ -897,28 +973,49 @@ export function SiteProfile() {
       )}
 
       <ConfirmDeleteDialog
-        open={pendingSiteDelete}
-        onOpenChange={setPendingSiteDelete}
+        open={pendingSiteArchive}
+        onOpenChange={setPendingSiteArchive}
+        title={siteArchiveTitle(site?.name ?? 'this site')}
+        description={SITE_ARCHIVE_WARNING}
+        confirming={deletingSite}
+        onConfirm={handleArchiveSite}
+        confirmLabel="Archive"
+        confirmingLabel="Archiving…"
+        variant="default"
+      />
+      <ConfirmDeleteDialog
+        open={pendingPermanentDelete}
+        onOpenChange={setPendingPermanentDelete}
         title={siteDeleteTitle(site?.name ?? 'this site')}
         description={SITE_DELETE_WARNING}
         confirming={deletingSite}
         onConfirm={handleDeleteSite}
+        confirmLabel="Delete permanently"
+        confirmingLabel="Deleting…"
+        confirmPhrase={PERMANENT_DELETE_PHRASE}
       />
       <ConfirmDeleteDialog
-        open={Boolean(pendingItemDelete)}
+        open={Boolean(pendingItemArchive)}
         onOpenChange={(open) => {
-          if (!open) setPendingItemDelete(null)
+          if (!open) setPendingItemArchive(null)
         }}
         title={
-          pendingItemDelete
-            ? itemDeleteTitle(pendingItemDelete)
-            : 'Delete item?'
+          pendingItemArchive
+            ? itemArchiveTitle(pendingItemArchive)
+            : 'Archive item?'
         }
-        description={ITEM_DELETE_WARNING}
+        description={
+          pendingItemArchive
+            ? itemArchiveWarning(pendingItemArchive)
+            : ITEM_ARCHIVE_WARNING
+        }
         confirming={Boolean(
-          pendingItemDelete && deletingId === pendingItemDelete.id,
+          pendingItemArchive && deletingId === pendingItemArchive.id,
         )}
-        onConfirm={handleDeleteItem}
+        onConfirm={handleArchiveItem}
+        confirmLabel="Archive"
+        confirmingLabel="Archiving…"
+        variant="default"
       />
     </section>
   )

@@ -11,17 +11,25 @@ import {
 } from '@/components/ui/card'
 import {
   ConfirmDeleteDialog,
+  PERMANENT_DELETE_PHRASE,
+  SITE_ARCHIVE_WARNING,
   SITE_DELETE_WARNING,
+  siteArchiveTitle,
   siteDeleteTitle,
 } from './ConfirmDeleteDialog'
-import { ListFilters, matchesQuery, normalizeQuery } from './ListFilters'
+import {
+  ARCHIVE_VIEW_FILTERS,
+  ListFilters,
+  matchesQuery,
+  normalizeQuery,
+} from './ListFilters'
 import { ListTableSkeleton } from './PageSkeletons'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
 import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
 import { paths } from '../lib/paths'
-import { createSite, deleteSite, listSites } from '../lib/sites'
+import { createSite, archiveSite, restoreSite, deleteSite, listSites } from '../lib/sites'
 
 const EMPTY_SITE_FORM = {
   name: '',
@@ -39,10 +47,14 @@ export function Sites() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
-  const [pendingDelete, setPendingDelete] = useState(null)
+  const [restoringId, setRestoringId] = useState(null)
+  const [pendingArchive, setPendingArchive] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [query, setQuery] = useState('')
+  const [viewFilter, setViewFilter] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
   const creating = searchParams.get('new') === '1'
+  const archivedOnly = viewFilter === 'archived'
 
   function setFormField(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
@@ -56,7 +68,9 @@ export function Sites() {
     async function loadSites() {
       setLoading(true)
       setError('')
-      const { data, error: selectError } = await listSites(organizationId)
+      const { data, error: selectError } = await listSites(organizationId, {
+        archivedOnly,
+      })
       if (cancelled) return
 
       if (selectError) {
@@ -74,10 +88,12 @@ export function Sites() {
     return () => {
       cancelled = true
     }
-  }, [organizationId])
+  }, [organizationId, archivedOnly])
 
   async function refreshSites() {
-    const { data, error: selectError } = await listSites(organizationId)
+    const { data, error: selectError } = await listSites(organizationId, {
+      archivedOnly,
+    })
     if (selectError) {
       return { error: selectError }
     }
@@ -124,20 +140,57 @@ export function Sites() {
     setSaving(false)
   }
 
-  async function handleDelete() {
-    if (!pendingDelete) return
+  async function handleArchive() {
+    if (!pendingArchive) return
 
     setError('')
-    setDeletingId(pendingDelete.id)
+    setDeletingId(pendingArchive.id)
 
-    const { error: deleteError } = await deleteSite(pendingDelete.id)
+    const { error: archiveError } = await archiveSite(pendingArchive.id)
+    if (archiveError) {
+      setError(archiveError.message)
+      setDeletingId(null)
+      return
+    }
+
+    setPendingArchive(null)
+    const { error: selectError } = await refreshSites()
+    if (selectError) {
+      setError(selectError.message)
+    }
+    setDeletingId(null)
+  }
+
+  async function handleRestore(site) {
+    setError('')
+    setRestoringId(site.id)
+    const { error: restoreError } = await restoreSite(site.id)
+    if (restoreError) {
+      setError(restoreError.message)
+      setRestoringId(null)
+      return
+    }
+    const { error: selectError } = await refreshSites()
+    if (selectError) {
+      setError(selectError.message)
+    }
+    setRestoringId(null)
+  }
+
+  async function handlePermanentDelete() {
+    if (!pendingPermanentDelete) return
+
+    setError('')
+    setDeletingId(pendingPermanentDelete.id)
+
+    const { error: deleteError } = await deleteSite(pendingPermanentDelete.id)
     if (deleteError) {
       setError(deleteError.message)
       setDeletingId(null)
       return
     }
 
-    setPendingDelete(null)
+    setPendingPermanentDelete(null)
     const { error: selectError } = await refreshSites()
     if (selectError) {
       setError(selectError.message)
@@ -157,7 +210,11 @@ export function Sites() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Sites"
-        description="Open a site to view its profile. Use New site to create one."
+        description={
+          archivedOnly
+            ? 'Archived sites are hidden from lists, dashboards, and alerts. Restore to bring them back.'
+            : 'Open a site to view its profile. Use New site to create one.'
+        }
         actions={
           creating ? null : (
             <Button
@@ -267,7 +324,11 @@ export function Sites() {
       <Card>
         <CardHeader>
           <CardTitle>Services</CardTitle>
-          <CardDescription>Sites in your organisation.</CardDescription>
+          <CardDescription>
+            {archivedOnly
+              ? 'Restore a site or delete it permanently.'
+              : 'Sites in your organisation. Archive hides a site without deleting it.'}
+          </CardDescription>
           <CardAction>
             <span className="text-sm tabular-nums text-muted-foreground">
               {sites.length === 0 || !filtering
@@ -276,8 +337,15 @@ export function Sites() {
             </span>
           </CardAction>
         </CardHeader>
-        {sites.length > 0 ? (
-          <ListFilters query={query} onQueryChange={setQuery} />
+        {!loading && organizationId ? (
+          <ListFilters
+            query={query}
+            onQueryChange={setQuery}
+            status={viewFilter}
+            onStatusChange={setViewFilter}
+            statusOptions={ARCHIVE_VIEW_FILTERS}
+            statusLabel="Current or archived"
+          />
         ) : null}
         <CardContent className="px-0">
           {loading ? (
@@ -287,7 +355,9 @@ export function Sites() {
               No organization yet. Sign out and back in if this persists.
             </PageMuted>
           ) : sites.length === 0 ? (
-            <PageMuted>No sites yet.</PageMuted>
+            <PageMuted>
+              {archivedOnly ? 'No archived sites.' : 'No sites yet.'}
+            </PageMuted>
           ) : filteredSites.length === 0 ? (
             <PageMuted>No matching sites.</PageMuted>
           ) : (
@@ -329,15 +399,41 @@ export function Sites() {
                         <Button asChild size="sm" className="md:hidden">
                           <Link to={paths.siteProfile(site.id)}>View</Link>
                         </Button>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setPendingDelete(site)}
-                          disabled={deletingId === site.id}
-                        >
-                          {deletingId === site.id ? 'Deleting…' : 'Delete'}
-                        </Button>
+                        {archivedOnly ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => handleRestore(site)}
+                              disabled={
+                                restoringId === site.id || deletingId === site.id
+                              }
+                            >
+                              {restoringId === site.id ? 'Restoring…' : 'Restore'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => setPendingPermanentDelete(site)}
+                              disabled={
+                                restoringId === site.id || deletingId === site.id
+                              }
+                            >
+                              Delete permanently
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPendingArchive(site)}
+                            disabled={deletingId === site.id}
+                          >
+                            {deletingId === site.id ? 'Archiving…' : 'Archive'}
+                          </Button>
+                        )}
                       </div>
                     </Td>
                   </Tr>
@@ -349,14 +445,38 @@ export function Sites() {
       </Card>
 
       <ConfirmDeleteDialog
-        open={Boolean(pendingDelete)}
+        open={Boolean(pendingArchive)}
         onOpenChange={(open) => {
-          if (!open) setPendingDelete(null)
+          if (!open) setPendingArchive(null)
         }}
-        title={pendingDelete ? siteDeleteTitle(pendingDelete.name) : 'Delete site?'}
+        title={
+          pendingArchive ? siteArchiveTitle(pendingArchive.name) : 'Archive site?'
+        }
+        description={SITE_ARCHIVE_WARNING}
+        confirming={Boolean(pendingArchive && deletingId === pendingArchive.id)}
+        onConfirm={handleArchive}
+        confirmLabel="Archive"
+        confirmingLabel="Archiving…"
+        variant="default"
+      />
+      <ConfirmDeleteDialog
+        open={Boolean(pendingPermanentDelete)}
+        onOpenChange={(open) => {
+          if (!open) setPendingPermanentDelete(null)
+        }}
+        title={
+          pendingPermanentDelete
+            ? siteDeleteTitle(pendingPermanentDelete.name)
+            : 'Delete permanently?'
+        }
         description={SITE_DELETE_WARNING}
-        confirming={Boolean(pendingDelete && deletingId === pendingDelete.id)}
-        onConfirm={handleDelete}
+        confirming={Boolean(
+          pendingPermanentDelete && deletingId === pendingPermanentDelete.id,
+        )}
+        onConfirm={handlePermanentDelete}
+        confirmLabel="Delete permanently"
+        confirmingLabel="Deleting…"
+        confirmPhrase={PERMANENT_DELETE_PHRASE}
       />
     </section>
   )

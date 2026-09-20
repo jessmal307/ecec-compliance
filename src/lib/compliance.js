@@ -2,6 +2,7 @@ import {
   deleteComplianceDocument,
   persistComplianceDocument,
 } from './documents'
+import { isListedComplianceItem, withArchiveScope } from './archive'
 import { supabase } from './supabase'
 
 export const DEFAULT_REQUIREMENT_TYPES = [
@@ -98,9 +99,10 @@ const ITEM_SELECT = `
   org_id,
   staff_id,
   site_id,
+  archived_at,
   requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months ),
-  staff ( id, name, employment_status ),
-  sites ( id, name )
+  staff ( id, name, employment_status, archived_at ),
+  sites ( id, name, archived_at )
 `
 
 const ITEM_SELECT_AT_SITE = `
@@ -118,14 +120,16 @@ const ITEM_SELECT_AT_SITE = `
   org_id,
   staff_id,
   site_id,
+  archived_at,
   requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months ),
   staff!inner (
     id,
     name,
     employment_status,
+    archived_at,
     staff_sites!inner ( site_id )
   ),
-  sites ( id, name )
+  sites ( id, name, archived_at )
 `
 
 function mapItem(row) {
@@ -151,67 +155,85 @@ function mapItem(row) {
     ownerName: row.staff?.name ?? row.sites?.name ?? 'Unknown',
     ownerKind: row.staff_id ? 'staff' : 'site',
     ownerEmploymentStatus: row.staff?.employment_status ?? null,
+    archived_at: row.archived_at ?? null,
+    ownerArchivedAt: row.staff?.archived_at ?? row.sites?.archived_at ?? null,
   }
 }
 
-export async function listComplianceItems(orgId) {
-  const { data, error } = await supabase
-    .from('compliance_items')
-    .select(ITEM_SELECT)
-    .eq('org_id', orgId)
-    .order('expiry_date', { ascending: true })
+function listMappedItems(data, { archivedOnly = false } = {}) {
+  return (data ?? [])
+    .map(mapItem)
+    .filter((item) => isListedComplianceItem(item, { archivedOnly }))
+}
+
+export async function listComplianceItems(orgId, { archivedOnly = false } = {}) {
+  const { data, error } = await withArchiveScope(
+    supabase
+      .from('compliance_items')
+      .select(ITEM_SELECT)
+      .eq('org_id', orgId)
+      .order('expiry_date', { ascending: true }),
+    { archivedOnly },
+  )
 
   if (error) {
     return { data: null, error }
   }
 
-  return { data: (data ?? []).map(mapItem), error: null }
+  return { data: listMappedItems(data, { archivedOnly }), error: null }
 }
 
 export async function listStaffComplianceItems(orgId, staffId) {
-  const { data, error } = await supabase
-    .from('compliance_items')
-    .select(ITEM_SELECT)
-    .eq('org_id', orgId)
-    .eq('staff_id', staffId)
-    .order('expiry_date', { ascending: true })
+  const { data, error } = await withArchiveScope(
+    supabase
+      .from('compliance_items')
+      .select(ITEM_SELECT)
+      .eq('org_id', orgId)
+      .eq('staff_id', staffId)
+      .order('expiry_date', { ascending: true }),
+  )
 
   if (error) {
     return { data: null, error }
   }
 
-  return { data: (data ?? []).map(mapItem), error: null }
+  return { data: listMappedItems(data), error: null }
 }
 
 export async function listStaffComplianceItemsAtSite(orgId, siteId) {
-  const { data, error } = await supabase
-    .from('compliance_items')
-    .select(ITEM_SELECT_AT_SITE)
-    .eq('org_id', orgId)
-    .eq('staff.staff_sites.site_id', siteId)
-    .not('staff_id', 'is', null)
-    .order('expiry_date', { ascending: true })
+  const { data, error } = await withArchiveScope(
+    supabase
+      .from('compliance_items')
+      .select(ITEM_SELECT_AT_SITE)
+      .eq('org_id', orgId)
+      .eq('staff.staff_sites.site_id', siteId)
+      .is('staff.archived_at', null)
+      .not('staff_id', 'is', null)
+      .order('expiry_date', { ascending: true }),
+  )
 
   if (error) {
     return { data: null, error }
   }
 
-  return { data: (data ?? []).map(mapItem), error: null }
+  return { data: listMappedItems(data), error: null }
 }
 
 export async function listSiteComplianceItems(orgId, siteId) {
-  const { data, error } = await supabase
-    .from('compliance_items')
-    .select(ITEM_SELECT)
-    .eq('org_id', orgId)
-    .eq('site_id', siteId)
-    .order('expiry_date', { ascending: true })
+  const { data, error } = await withArchiveScope(
+    supabase
+      .from('compliance_items')
+      .select(ITEM_SELECT)
+      .eq('org_id', orgId)
+      .eq('site_id', siteId)
+      .order('expiry_date', { ascending: true }),
+  )
 
   if (error) {
     return { data: null, error }
   }
 
-  return { data: (data ?? []).map(mapItem), error: null }
+  return { data: listMappedItems(data), error: null }
 }
 
 export function isSiteRequirementType(requirementType) {
@@ -566,6 +588,25 @@ export async function saveComplianceItem({
 
   if (error) return { data: result.data, error }
   return result
+}
+
+export async function archiveComplianceItem(id) {
+  const { error } = await supabase
+    .from('compliance_items')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('archived_at', null)
+
+  return { error: error ?? null }
+}
+
+export async function restoreComplianceItem(id) {
+  const { error } = await supabase
+    .from('compliance_items')
+    .update({ archived_at: null })
+    .eq('id', id)
+
+  return { error: error ?? null }
 }
 
 export async function deleteComplianceItem(id) {

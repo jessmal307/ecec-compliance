@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
+import { withArchiveScope } from './archive'
 
-const STAFF_FIELDS = 'id, name, role, employment_status, start_date, email, phone, notes, org_id, created_at'
+const STAFF_FIELDS = 'id, name, role, employment_status, start_date, email, phone, notes, org_id, created_at, archived_at'
 
 function emptyToNull(value) {
   const trimmed = typeof value === 'string' ? value.trim() : value
@@ -26,6 +27,8 @@ function mapStaffRow(row) {
     phone: row.phone ?? '',
     notes: row.notes ?? '',
     org_id: row.org_id,
+    created_at: row.created_at,
+    archived_at: row.archived_at ?? null,
     sites,
   }
 }
@@ -34,20 +37,23 @@ export function isActiveStaff(member) {
   return member?.employment_status !== 'inactive'
 }
 
-export async function listStaff(orgId) {
-  const { data, error } = await supabase
-    .from('staff')
-    .select(
-      `
+export async function listStaff(orgId, { archivedOnly = false } = {}) {
+  const { data, error } = await withArchiveScope(
+    supabase
+      .from('staff')
+      .select(
+        `
       ${STAFF_FIELDS},
       staff_sites (
         site_id,
-        sites ( id, name )
+        sites ( id, name, archived_at )
       )
     `,
-    )
-    .eq('org_id', orgId)
-    .order('created_at', { ascending: true })
+      )
+      .eq('org_id', orgId)
+      .order('created_at', { ascending: true }),
+    { archivedOnly },
+  )
 
   if (error) {
     return { data: null, error }
@@ -57,20 +63,22 @@ export async function listStaff(orgId) {
 }
 
 export async function listStaffBySite(orgId, siteId) {
-  const { data, error } = await supabase
-    .from('staff')
-    .select(
-      `
+  const { data, error } = await withArchiveScope(
+    supabase
+      .from('staff')
+      .select(
+        `
       ${STAFF_FIELDS},
       staff_sites!inner (
         site_id,
-        sites ( id, name )
+        sites ( id, name, archived_at )
       )
     `,
-    )
-    .eq('org_id', orgId)
-    .eq('staff_sites.site_id', siteId)
-    .order('created_at', { ascending: true })
+      )
+      .eq('org_id', orgId)
+      .eq('staff_sites.site_id', siteId)
+      .order('created_at', { ascending: true }),
+  )
 
   if (error) {
     return { data: null, error }
@@ -87,7 +95,7 @@ export async function getStaff(id) {
       ${STAFF_FIELDS},
       staff_sites (
         site_id,
-        sites ( id, name )
+        sites ( id, name, archived_at )
       )
     `,
     )
@@ -203,6 +211,25 @@ export async function updateStaff({
   }
 
   return getStaff(id)
+}
+
+export async function archiveStaff(id) {
+  const { error } = await supabase
+    .from('staff')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('archived_at', null)
+
+  return { error: error ?? null }
+}
+
+export async function restoreStaff(id) {
+  const { error } = await supabase
+    .from('staff')
+    .update({ archived_at: null })
+    .eq('id', id)
+
+  return { error: error ?? null }
 }
 
 export async function deleteStaff(id) {

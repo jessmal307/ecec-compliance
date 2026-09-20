@@ -17,7 +17,7 @@ const STYLES = {
 }
 
 export function StatusBadge({ status }) {
-  if (status === 'Not applicable' || status === 'Inactive') {
+  if (status === 'Not applicable' || status === 'Inactive' || status === 'Archived') {
     return (
       <Badge variant="secondary" className="max-w-none shrink-0">
         {status}

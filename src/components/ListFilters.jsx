@@ -7,12 +7,19 @@ export const STATUS_FILTERS = [
   { value: 'expiring', label: 'Expiring' },
   { value: 'expired', label: 'Expired' },
   { value: 'missing', label: 'Missing' },
+  { value: 'archived', label: 'Archived' },
 ]
 
 export const EMPLOYMENT_FILTERS = [
   { value: '', label: 'All staff' },
   { value: 'active', label: 'Active' },
   { value: 'inactive', label: 'Inactive' },
+  { value: 'archived', label: 'Archived' },
+]
+
+export const ARCHIVE_VIEW_FILTERS = [
+  { value: '', label: 'Current' },
+  { value: 'archived', label: 'Archived' },
 ]
 
 export function normalizeQuery(query) {

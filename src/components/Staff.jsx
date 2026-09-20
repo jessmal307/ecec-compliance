@@ -10,6 +10,12 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import {
+  ConfirmDeleteDialog,
+  PERMANENT_DELETE_PHRASE,
+  STAFF_DELETE_WARNING,
+  staffDeleteTitle,
+} from './ConfirmDeleteDialog'
+import {
   EMPLOYMENT_FILTERS,
   ListFilters,
   matchesAnyQuery,
@@ -38,8 +44,10 @@ import {
   summarizeProfileRequirements,
 } from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
-import { isActiveStaff, listStaff } from '../lib/staff'
+import { isActiveStaff, listStaff, restoreStaff, deleteStaff } from '../lib/staff'
 import { listSites } from '../lib/sites'
+import { isArchived } from '../lib/archive'
+import { formatTimestamp } from '../lib/format'
 
 function compareNames(left, right) {
   return String(left ?? '').localeCompare(String(right ?? ''), undefined, {
@@ -72,6 +80,10 @@ export function Staff() {
   const [statusFilter, setStatusFilter] = useState('')
   const [siteFilter, setSiteFilter] = useState('')
   const [page, setPage] = useState(1)
+  const [restoringId, setRestoringId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
+  const archivedOnly = statusFilter === 'archived'
 
   useEffect(() => {
     if (!organizationId) return
@@ -90,7 +102,7 @@ export function Staff() {
         exclusionsResult,
       ] = await Promise.all([
         listSites(organizationId),
-        listStaff(organizationId),
+        listStaff(organizationId, { archivedOnly }),
         listRequirementTypes(organizationId),
         listComplianceItems(organizationId),
         listStaffRequirementExclusionsForOrg(organizationId),
@@ -123,7 +135,7 @@ export function Staff() {
     return () => {
       cancelled = true
     }
-  }, [organizationId])
+  }, [organizationId, archivedOnly])
 
   const progressByStaffId = useMemo(() => {
     return new Map(
@@ -163,6 +175,7 @@ export function Staff() {
       ) {
         return false
       }
+      if (archivedOnly) return true
       if (statusFilter === 'active' && !isActiveStaff(member)) return false
       if (statusFilter === 'inactive' && isActiveStaff(member)) return false
       return true
@@ -180,11 +193,41 @@ export function Staff() {
       }
       return compareNames(a.name, b.name)
     })
-  }, [staff, query, siteFilter, statusFilter])
+  }, [staff, query, siteFilter, statusFilter, archivedOnly])
 
   useEffect(() => {
     setPage(1)
   }, [query, statusFilter, siteFilter])
+
+  async function handleRestore(member) {
+    setError('')
+    setRestoringId(member.id)
+    const { error: restoreError } = await restoreStaff(member.id)
+    if (restoreError) {
+      setError(restoreError.message)
+      setRestoringId(null)
+      return
+    }
+    setStaff((current) => current.filter((row) => row.id !== member.id))
+    setRestoringId(null)
+  }
+
+  async function handlePermanentDelete() {
+    if (!pendingPermanentDelete) return
+    setError('')
+    setDeletingId(pendingPermanentDelete.id)
+    const { error: deleteError } = await deleteStaff(pendingPermanentDelete.id)
+    if (deleteError) {
+      setError(deleteError.message)
+      setDeletingId(null)
+      return
+    }
+    setStaff((current) =>
+      current.filter((row) => row.id !== pendingPermanentDelete.id),
+    )
+    setPendingPermanentDelete(null)
+    setDeletingId(null)
+  }
 
   const paged = paginateItems(filteredStaff, page)
   const visibleStaff = paged.items
@@ -205,7 +248,11 @@ export function Staff() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Staff"
-        description="Open a person to view their profile. Add people with New staff."
+        description={
+          archivedOnly
+            ? 'Archived people are hidden from dashboards and alerts. Restore to bring them back.'
+            : 'Open a person to view their profile. Add people with New staff.'
+        }
         actions={
           <Button asChild disabled={!organizationId}>
             <Link to={paths.newStaff}>New staff</Link>
@@ -219,7 +266,8 @@ export function Staff() {
         <CardHeader>
           <CardTitle>People</CardTitle>
           <CardDescription>
-            Search, filter by site or employment, 25 per page.
+            Search, filter by site or employment, 25 per page. Use Archived to
+            restore or permanently delete.
           </CardDescription>
           <CardAction>
             <span className="text-sm tabular-nums text-muted-foreground">
@@ -231,7 +279,7 @@ export function Staff() {
             </span>
           </CardAction>
         </CardHeader>
-        {staff.length > 0 ? (
+        {!loading && organizationId ? (
           <ListFilters
             query={query}
             onQueryChange={setQuery}
@@ -254,7 +302,9 @@ export function Staff() {
               No organization yet. Sign out and back in if this persists.
             </PageMuted>
           ) : staff.length === 0 ? (
-            <PageMuted>No staff yet.</PageMuted>
+            <PageMuted>
+              {archivedOnly ? 'No archived staff.' : 'No staff yet.'}
+            </PageMuted>
           ) : filteredStaff.length === 0 ? (
             <PageMuted>No matching staff.</PageMuted>
           ) : (
@@ -266,6 +316,7 @@ export function Staff() {
                 <Th className="py-1.5">Status</Th>
                 <Th className="py-1.5">Progress</Th>
                 <Th className="py-1.5">Sites</Th>
+                {archivedOnly ? <Th className="py-1.5 text-right">Actions</Th> : null}
               </THead>
               <tbody>
                 {visibleStaff.map((member, index) => {
@@ -282,7 +333,7 @@ export function Staff() {
                         <Tr slot="group">
                           <Td
                             slot="group"
-                            colSpan={5}
+                            colSpan={archivedOnly ? 6 : 5}
                             className="bg-muted/50 py-1.5 text-xs font-medium text-muted-foreground max-md:bg-transparent max-md:py-0"
                           >
                             {groupKey}
@@ -309,14 +360,31 @@ export function Staff() {
                           {member.role}
                         </Td>
                         <Td slot="status" className="py-1.5">
-                          <StatusBadge status={inactive ? 'Inactive' : 'Active'} />
+                          <StatusBadge
+                            status={
+                              isArchived(member)
+                                ? 'Archived'
+                                : inactive
+                                  ? 'Inactive'
+                                  : 'Active'
+                            }
+                          />
+                          {isArchived(member) ? (
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {formatTimestamp(member.archived_at)}
+                            </p>
+                          ) : null}
                         </Td>
                         <Td slot="meta" className="py-1.5">
-                          <ProgressPill
-                            completed={progress?.completed ?? 0}
-                            total={progress?.applicableCount ?? 0}
-                            inactive={inactive}
-                          />
+                          {isArchived(member) ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <ProgressPill
+                              completed={progress?.completed ?? 0}
+                              total={progress?.applicableCount ?? 0}
+                              inactive={inactive}
+                            />
+                          )}
                         </Td>
                         <Td
                           slot="extra"
@@ -329,10 +397,43 @@ export function Staff() {
                         >
                           {sitesLabel(member)}
                         </Td>
-                        <Td slot="action" className="py-1.5 md:hidden">
-                          <Button asChild size="sm">
-                            <Link to={paths.staffProfile(member.id)}>View</Link>
-                          </Button>
+                        <Td slot="action" className={`py-1.5 ${archivedOnly ? '' : 'md:hidden'}`}>
+                          <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
+                            <Button asChild size="sm" className="md:hidden">
+                              <Link to={paths.staffProfile(member.id)}>View</Link>
+                            </Button>
+                            {archivedOnly ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => handleRestore(member)}
+                                  disabled={
+                                    restoringId === member.id ||
+                                    deletingId === member.id
+                                  }
+                                >
+                                  {restoringId === member.id
+                                    ? 'Restoring…'
+                                    : 'Restore'}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() =>
+                                    setPendingPermanentDelete(member)
+                                  }
+                                  disabled={
+                                    restoringId === member.id ||
+                                    deletingId === member.id
+                                  }
+                                >
+                                  Delete permanently
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
                         </Td>
                       </Tr>
                     </Fragment>
@@ -352,6 +453,26 @@ export function Staff() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDeleteDialog
+        open={Boolean(pendingPermanentDelete)}
+        onOpenChange={(open) => {
+          if (!open) setPendingPermanentDelete(null)
+        }}
+        title={
+          pendingPermanentDelete
+            ? staffDeleteTitle(pendingPermanentDelete.name)
+            : 'Delete permanently?'
+        }
+        description={STAFF_DELETE_WARNING}
+        confirming={Boolean(
+          pendingPermanentDelete && deletingId === pendingPermanentDelete.id,
+        )}
+        onConfirm={handlePermanentDelete}
+        confirmLabel="Delete permanently"
+        confirmingLabel="Deleting…"
+        confirmPhrase={PERMANENT_DELETE_PHRASE}
+      />
     </section>
   )
 }

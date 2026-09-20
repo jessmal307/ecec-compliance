@@ -1,7 +1,8 @@
 import { supabase } from './supabase'
+import { withArchiveScope } from './archive'
 
 const SITE_FIELDS =
-  'id, name, address, service_approval_number, phone, nominated_supervisor, org_id, created_at'
+  'id, name, address, service_approval_number, phone, nominated_supervisor, org_id, created_at, archived_at'
 
 export const SITES_CHANGED_EVENT = 'ecec:sites-changed'
 
@@ -24,15 +25,19 @@ function mapSite(row) {
     nominated_supervisor: row.nominated_supervisor ?? '',
     org_id: row.org_id,
     created_at: row.created_at,
+    archived_at: row.archived_at ?? null,
   }
 }
 
-export async function listSites(orgId) {
-  const { data, error } = await supabase
-    .from('sites')
-    .select(SITE_FIELDS)
-    .eq('org_id', orgId)
-    .order('created_at', { ascending: true })
+export async function listSites(orgId, { archivedOnly = false } = {}) {
+  const { data, error } = await withArchiveScope(
+    supabase
+      .from('sites')
+      .select(SITE_FIELDS)
+      .eq('org_id', orgId)
+      .order('created_at', { ascending: true }),
+    { archivedOnly },
+  )
 
   if (error) {
     return { data: null, error }
@@ -109,6 +114,35 @@ export async function updateSite(id, {
   }
 
   return { data: mapSite(data), error: null }
+}
+
+export async function archiveSite(id) {
+  const { error } = await supabase
+    .from('sites')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('archived_at', null)
+
+  if (error) {
+    return { error }
+  }
+
+  notifySitesChanged()
+  return { error: null }
+}
+
+export async function restoreSite(id) {
+  const { error } = await supabase
+    .from('sites')
+    .update({ archived_at: null })
+    .eq('id', id)
+
+  if (error) {
+    return { error }
+  }
+
+  notifySitesChanged()
+  return { error: null }
 }
 
 export async function deleteSite(id) {

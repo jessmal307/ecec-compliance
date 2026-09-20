@@ -16,6 +16,11 @@ import {
 } from './ComplianceItemFields'
 import {
   ConfirmDeleteDialog,
+  ITEM_ARCHIVE_WARNING,
+  ITEM_DELETE_WARNING,
+  PERMANENT_DELETE_PHRASE,
+  itemArchiveTitle,
+  itemArchiveWarning,
   itemDeleteTitle,
   itemDeleteWarning,
 } from './ConfirmDeleteDialog'
@@ -41,6 +46,8 @@ import { useAuth } from '../hooks/useAuth'
 import {
   complianceStatus,
   saveComplianceItem,
+  archiveComplianceItem,
+  restoreComplianceItem,
   deleteComplianceItem,
   formValuesFromItem,
   hasRecheckInterval,
@@ -73,10 +80,13 @@ export function ComplianceItems() {
   const [saving, setSaving] = useState(false)
   const [verifyingId, setVerifyingId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
-  const [pendingDelete, setPendingDelete] = useState(null)
+  const [restoringId, setRestoringId] = useState(null)
+  const [pendingArchive, setPendingArchive] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [siteFilter, setSiteFilter] = useState('')
+  const archivedOnly = statusFilter === 'archived'
 
   const selectedType = requirementTypes.find((type) => type.id === requirementTypeId)
   const showLastVerified = tracksVerification(selectedType)
@@ -150,7 +160,7 @@ export function ComplianceItems() {
       }
 
       const { data: itemRows, error: itemsError } =
-        await listComplianceItems(organizationId)
+        await listComplianceItems(organizationId, { archivedOnly })
       if (cancelled) return
       if (itemsError) {
         setError(itemsError.message)
@@ -173,10 +183,13 @@ export function ComplianceItems() {
     return () => {
       cancelled = true
     }
-  }, [organizationId])
+  }, [organizationId, archivedOnly])
 
   async function refreshItems() {
-    const { data, error: selectError } = await listComplianceItems(organizationId)
+    const { data, error: selectError } = await listComplianceItems(
+      organizationId,
+      { archivedOnly },
+    )
     if (selectError) {
       return { error: selectError }
     }
@@ -272,23 +285,65 @@ export function ComplianceItems() {
     setVerifyingId(null)
   }
 
-  async function handleDelete() {
-    if (!pendingDelete) return
+  async function handleArchive() {
+    if (!pendingArchive) return
 
     setError('')
-    setDeletingId(pendingDelete.id)
-    const { error: deleteError } = await deleteComplianceItem(pendingDelete.id)
+    setDeletingId(pendingArchive.id)
+    const { error: archiveError } = await archiveComplianceItem(pendingArchive.id)
+    if (archiveError) {
+      setError(archiveError.message)
+      setDeletingId(null)
+      return
+    }
+
+    if (editingId === pendingArchive.id) {
+      resetForm()
+    }
+
+    setPendingArchive(null)
+    const { error: selectError } = await refreshItems()
+    if (selectError) {
+      setError(selectError.message)
+    }
+    setDeletingId(null)
+  }
+
+  async function handleRestore(item) {
+    setError('')
+    setRestoringId(item.id)
+    const { error: restoreError } = await restoreComplianceItem(item.id)
+    if (restoreError) {
+      setError(restoreError.message)
+      setRestoringId(null)
+      return
+    }
+    const { error: selectError } = await refreshItems()
+    if (selectError) {
+      setError(selectError.message)
+    }
+    setRestoringId(null)
+  }
+
+  async function handlePermanentDelete() {
+    if (!pendingPermanentDelete) return
+
+    setError('')
+    setDeletingId(pendingPermanentDelete.id)
+    const { error: deleteError } = await deleteComplianceItem(
+      pendingPermanentDelete.id,
+    )
     if (deleteError) {
       setError(deleteError.message)
       setDeletingId(null)
       return
     }
 
-    if (editingId === pendingDelete.id) {
+    if (editingId === pendingPermanentDelete.id) {
       resetForm()
     }
 
-    setPendingDelete(null)
+    setPendingPermanentDelete(null)
     const { error: selectError } = await refreshItems()
     if (selectError) {
       setError(selectError.message)
@@ -313,6 +368,7 @@ export function ComplianceItems() {
       }
       if (
         statusFilter &&
+        statusFilter !== 'archived' &&
         !matchesItemStatus(statusFilter, complianceStatus(item.expiry_date))
       ) {
         return false
@@ -339,6 +395,7 @@ export function ComplianceItems() {
 
       <PageError>{error}</PageError>
 
+      {archivedOnly ? null : (
       <Card>
         <CardHeader>
           <CardTitle>{editingId ? 'Edit item' : 'Add item'}</CardTitle>
@@ -460,12 +517,15 @@ export function ComplianceItems() {
           </ComplianceItemForm>
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle>Recorded items</CardTitle>
           <CardDescription>
-            Status is calculated from expiry dates.
+            {archivedOnly
+              ? 'Archived records are hidden from dashboards and alerts. Restore to bring them back.'
+              : 'Status is calculated from expiry dates. Archive hides a record without deleting it.'}
           </CardDescription>
           <CardAction>
             <span className="text-sm tabular-nums text-muted-foreground">
@@ -475,7 +535,7 @@ export function ComplianceItems() {
             </span>
           </CardAction>
         </CardHeader>
-        {items.length > 0 ? (
+        {!loading ? (
           <ListFilters
             query={query}
             onQueryChange={setQuery}
@@ -495,7 +555,11 @@ export function ComplianceItems() {
               No organization yet. Sign out and back in if this persists.
             </PageMuted>
           ) : items.length === 0 ? (
-            <PageMuted>No compliance items yet.</PageMuted>
+            <PageMuted>
+              {archivedOnly
+                ? 'No archived compliance items.'
+                : 'No compliance items yet.'}
+            </PageMuted>
           ) : filteredItems.length === 0 ? (
             <PageMuted>No matching items.</PageMuted>
           ) : (
@@ -557,15 +621,17 @@ export function ComplianceItems() {
                       </Td>
                       <Td slot="action">
                         <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => startEdit(item)}
-                            disabled={Boolean(verifyingId)}
-                          >
-                            Edit
-                          </Button>
+                          {archivedOnly ? null : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => startEdit(item)}
+                              disabled={Boolean(verifyingId)}
+                            >
+                              Edit
+                            </Button>
+                          )}
                           {editingId === item.id ? null : (
                             <DocumentActions
                               path={item.document_url}
@@ -575,22 +641,54 @@ export function ComplianceItems() {
                               onChanged={() => refreshItems()}
                             />
                           )}
-                          {hasRecheckInterval(item) ? (
+                          {archivedOnly || !hasRecheckInterval(item) ? null : (
                             <MarkVerifiedButton
                               onClick={() => handleMarkVerified(item)}
                               disabled={Boolean(verifyingId) && verifyingId !== item.id}
                               saving={verifyingId === item.id}
                             />
-                          ) : null}
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => setPendingDelete(item)}
-                            disabled={Boolean(verifyingId) || deletingId === item.id}
-                          >
-                            {deletingId === item.id ? 'Deleting…' : 'Delete'}
-                          </Button>
+                          )}
+                          {archivedOnly ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleRestore(item)}
+                                disabled={
+                                  restoringId === item.id ||
+                                  deletingId === item.id
+                                }
+                              >
+                                {restoringId === item.id
+                                  ? 'Restoring…'
+                                  : 'Restore'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => setPendingPermanentDelete(item)}
+                                disabled={
+                                  restoringId === item.id ||
+                                  deletingId === item.id
+                                }
+                              >
+                                Delete permanently
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setPendingArchive(item)}
+                              disabled={
+                                Boolean(verifyingId) || deletingId === item.id
+                              }
+                            >
+                              {deletingId === item.id ? 'Archiving…' : 'Archive'}
+                            </Button>
+                          )}
                         </div>
                       </Td>
                     </Tr>
@@ -603,14 +701,46 @@ export function ComplianceItems() {
       </Card>
 
       <ConfirmDeleteDialog
-        open={Boolean(pendingDelete)}
+        open={Boolean(pendingArchive)}
         onOpenChange={(open) => {
-          if (!open) setPendingDelete(null)
+          if (!open) setPendingArchive(null)
         }}
-        title={pendingDelete ? itemDeleteTitle(pendingDelete) : 'Delete item?'}
-        description={pendingDelete ? itemDeleteWarning(pendingDelete) : ''}
-        confirming={Boolean(pendingDelete && deletingId === pendingDelete.id)}
-        onConfirm={handleDelete}
+        title={
+          pendingArchive ? itemArchiveTitle(pendingArchive) : 'Archive item?'
+        }
+        description={
+          pendingArchive
+            ? itemArchiveWarning(pendingArchive)
+            : ITEM_ARCHIVE_WARNING
+        }
+        confirming={Boolean(pendingArchive && deletingId === pendingArchive.id)}
+        onConfirm={handleArchive}
+        confirmLabel="Archive"
+        confirmingLabel="Archiving…"
+        variant="default"
+      />
+      <ConfirmDeleteDialog
+        open={Boolean(pendingPermanentDelete)}
+        onOpenChange={(open) => {
+          if (!open) setPendingPermanentDelete(null)
+        }}
+        title={
+          pendingPermanentDelete
+            ? itemDeleteTitle(pendingPermanentDelete)
+            : 'Delete permanently?'
+        }
+        description={
+          pendingPermanentDelete
+            ? itemDeleteWarning(pendingPermanentDelete)
+            : ITEM_DELETE_WARNING
+        }
+        confirming={Boolean(
+          pendingPermanentDelete && deletingId === pendingPermanentDelete.id,
+        )}
+        onConfirm={handlePermanentDelete}
+        confirmLabel="Delete permanently"
+        confirmingLabel="Deleting…"
+        confirmPhrase={PERMANENT_DELETE_PHRASE}
       />
     </section>
   )

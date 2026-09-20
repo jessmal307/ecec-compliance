@@ -156,7 +156,8 @@ create table if not exists public.sites (
   phone text,
   nominated_supervisor text,
   org_id uuid not null references public.organizations (id) on delete cascade,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  archived_at timestamptz
 );
 
 create index if not exists sites_org_id_idx on public.sites (org_id);
@@ -216,7 +217,11 @@ alter table public.sites
   add column if not exists address text,
   add column if not exists service_approval_number text,
   add column if not exists phone text,
-  add column if not exists nominated_supervisor text;
+  add column if not exists nominated_supervisor text,
+  add column if not exists archived_at timestamptz;
+
+create index if not exists sites_org_id_archived_at_idx
+  on public.sites (org_id, archived_at);
 
 create table if not exists public.staff (
   id uuid primary key default gen_random_uuid(),
@@ -229,6 +234,7 @@ create table if not exists public.staff (
   notes text,
   org_id uuid not null references public.organizations (id) on delete cascade,
   created_at timestamptz not null default now(),
+  archived_at timestamptz,
   constraint staff_employment_status_check check (
     employment_status in ('active', 'inactive')
   )
@@ -249,11 +255,16 @@ alter table public.staff
 alter table public.staff
   add column if not exists notes text;
 
+alter table public.staff
+  add column if not exists archived_at timestamptz;
+
 alter table public.staff drop constraint if exists staff_employment_status_check;
 alter table public.staff add constraint staff_employment_status_check
   check (employment_status in ('active', 'inactive'));
 
 create index if not exists staff_org_id_idx on public.staff (org_id);
+create index if not exists staff_org_id_archived_at_idx
+  on public.staff (org_id, archived_at);
 
 alter table public.staff enable row level security;
 
@@ -928,6 +939,7 @@ create table if not exists public.compliance_items (
   staff_id uuid references public.staff (id) on delete cascade,
   site_id uuid references public.sites (id) on delete cascade,
   created_at timestamptz not null default now(),
+  archived_at timestamptz,
   constraint compliance_items_owner_check check (
     (staff_id is not null and site_id is null)
     or (staff_id is null and site_id is not null)
@@ -943,7 +955,8 @@ alter table public.compliance_items
   add column if not exists issuer text,
   add column if not exists status text not null default 'current',
   add column if not exists last_verified_date date,
-  add column if not exists document_url text;
+  add column if not exists document_url text,
+  add column if not exists archived_at timestamptz;
 
 alter table public.compliance_items drop constraint if exists compliance_items_status_check;
 alter table public.compliance_items add constraint compliance_items_status_check
@@ -980,6 +993,8 @@ create index if not exists compliance_items_org_id_idx on public.compliance_item
 create index if not exists compliance_items_expiry_date_idx on public.compliance_items (expiry_date);
 create index if not exists compliance_items_requirement_type_id_idx
   on public.compliance_items (requirement_type_id);
+create index if not exists compliance_items_org_id_archived_at_idx
+  on public.compliance_items (org_id, archived_at);
 
 alter table public.compliance_items enable row level security;
 

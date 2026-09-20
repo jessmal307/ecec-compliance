@@ -14,13 +14,14 @@ type ComplianceItemRow = {
   label: string
   staff_id: string | null
   site_id: string | null
+  archived_at: string | null
   requirement_types: {
     name: string
     renewal_lead_days: number | null
     recheck_interval_days: number | null
   } | null
-  staff: { name: string } | null
-  sites: { name: string } | null
+  staff: { name: string; archived_at: string | null } | null
+  sites: { name: string; archived_at: string | null } | null
 }
 
 type OrganizationRow = {
@@ -46,6 +47,17 @@ type DigestSection = {
   key: string
   name: string
   entries: PendingAlert[]
+}
+
+function isArchived(value: string | null | undefined): boolean {
+  return value != null && value !== ''
+}
+
+function isAlertableItem(item: ComplianceItemRow): boolean {
+  if (isArchived(item.archived_at)) return false
+  if (isArchived(item.staff?.archived_at)) return false
+  if (isArchived(item.sites?.archived_at)) return false
+  return true
 }
 
 function json(body: unknown, status = 200) {
@@ -346,17 +358,19 @@ Deno.serve(async () => {
       label,
       staff_id,
       site_id,
+      archived_at,
       requirement_types ( name, renewal_lead_days, recheck_interval_days ),
-      staff ( name ),
-      sites ( name )
+      staff ( name, archived_at ),
+      sites ( name, archived_at )
     `,
     )
+    .is('archived_at', null)
 
   if (itemsError) {
     return json({ error: `Failed to load compliance items: ${itemsError.message}` }, 500)
   }
 
-  const allItems = (items ?? []) as ComplianceItemRow[]
+  const allItems = ((items ?? []) as ComplianceItemRow[]).filter(isAlertableItem)
   const pending: PendingAlert[] = []
 
   const expiryEligible: { item: ComplianceItemRow; leadDays: number; kinds: AlertKind[] }[] = []
@@ -452,7 +466,7 @@ Deno.serve(async () => {
   if (staffIds.length > 0) {
     const { data: staffSites, error: staffSitesError } = await supabase
       .from('staff_sites')
-      .select('staff_id, site_id, sites ( name )')
+      .select('staff_id, site_id, sites ( name, archived_at )')
       .in('staff_id', staffIds)
 
     if (staffSitesError) {
@@ -462,8 +476,9 @@ Deno.serve(async () => {
     for (const row of (staffSites ?? []) as {
       staff_id: string
       site_id: string
-      sites: { name: string } | null
+      sites: { name: string; archived_at: string | null } | null
     }[]) {
+      if (isArchived(row.sites?.archived_at)) continue
       const assigned = sitesByStaffId.get(row.staff_id) ?? []
       if (assigned.some((site) => site.id === row.site_id)) continue
       assigned.push({ id: row.site_id, name: row.sites?.name ?? 'Unknown' })
