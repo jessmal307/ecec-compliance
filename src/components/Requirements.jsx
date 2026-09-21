@@ -57,8 +57,32 @@ function valuesFromType(type) {
   }
 }
 
-function levelLabel(appliesTo) {
-  return appliesTo === 'site' ? 'Site' : 'Staff'
+function NumberPhraseField({
+  prefix,
+  suffix,
+  value,
+  onChange,
+  disabled,
+  ariaLabel,
+}) {
+  return (
+    <label className="flex min-h-11 flex-wrap items-center gap-2 text-base font-medium text-card-foreground">
+      {prefix ? <span>{prefix}</span> : null}
+      <Input
+        type="number"
+        min="0"
+        step="1"
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className="w-24"
+      />
+      {suffix ? (
+        <span className="font-normal text-muted-foreground">{suffix}</span>
+      ) : null}
+    </label>
+  )
 }
 
 export function Requirements() {
@@ -277,7 +301,7 @@ export function Requirements() {
           <CardDescription>
             {archivedOnly
               ? 'Restore a type or delete it permanently if nothing is recorded against it.'
-              : 'Mandatory types appear as gaps on Overview when missing. Archive retires a type that is already in use.'}
+              : 'Required types appear as gaps on Overview when missing. Archive retires a type that is already in use.'}
           </CardDescription>
           <CardAction>
             <span className="text-sm tabular-nums text-muted-foreground">
@@ -318,10 +342,10 @@ export function Requirements() {
               <THead>
                 <Th>Name</Th>
                 <Th>Applies to</Th>
-                <Th>Mandatory</Th>
-                <Th>Validity</Th>
-                <Th>Renewal lead</Th>
-                <Th>Recheck</Th>
+                <Th>Required</Th>
+                <Th>Valid for</Th>
+                <Th>Remind me</Th>
+                <Th>Re-check every</Th>
                 <Th className="text-right">Actions</Th>
               </THead>
               <tbody>
@@ -346,7 +370,7 @@ export function Requirements() {
                         <StatusBadge status="Archived" />
                       ) : type.mandatory ? (
                         <Badge className="border-transparent bg-status-valid text-status-valid-foreground">
-                          Mandatory
+                          Required
                         </Badge>
                       ) : (
                         <Badge variant="secondary">Optional</Badge>
@@ -354,19 +378,23 @@ export function Requirements() {
                     </Td>
                     <Td
                       slot="expiry"
-                      label="Validity"
+                      label="Valid for"
                       className="text-muted-foreground"
                     >
                       {type.validity_months
                         ? `${type.validity_months} months`
                         : '—'}
                     </Td>
-                    <Td slot="extra" className="text-muted-foreground">
+                    <Td slot="extra" label="Remind me" className="text-muted-foreground">
                       {type.renewal_lead_days
-                        ? `${type.renewal_lead_days} days`
+                        ? `${type.renewal_lead_days} days before expiry`
                         : '—'}
                     </Td>
-                    <Td slot="extra" className="text-muted-foreground">
+                    <Td
+                      slot="extra"
+                      label="Re-check every"
+                      className="text-muted-foreground"
+                    >
                       {type.recheck_interval_days
                         ? `${type.recheck_interval_days} days`
                         : '—'}
@@ -478,66 +506,58 @@ export function Requirements() {
                     <option value="site">Site</option>
                   </Select>
                 </Field>
-                <Field label="Validity (months)">
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={editValues.validity_months}
-                    onChange={(event) =>
-                      setEditValues((current) => ({
-                        ...current,
-                        validity_months: event.target.value,
-                      }))
-                    }
-                    disabled={saving}
-                  />
-                </Field>
-                <Field label="Renewal lead (days)">
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={editValues.renewal_lead_days}
-                    onChange={(event) =>
-                      setEditValues((current) => ({
-                        ...current,
-                        renewal_lead_days: event.target.value,
-                      }))
-                    }
-                    disabled={saving}
-                  />
-                </Field>
-                <Field label="Recheck interval (days)">
-                  <Input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={editValues.recheck_interval_days}
-                    onChange={(event) =>
-                      setEditValues((current) => ({
-                        ...current,
-                        recheck_interval_days: event.target.value,
-                      }))
-                    }
-                    disabled={saving}
-                  />
-                </Field>
-                <Field label="Mandatory">
-                  <Choice
-                    type="checkbox"
-                    checked={editValues.mandatory}
-                    onChange={(event) =>
-                      setEditValues((current) => ({
-                        ...current,
-                        mandatory: event.target.checked,
-                      }))
-                    }
-                    disabled={saving}
-                  >
-                    Required for gaps and overall compliance
-                  </Choice>
-                </Field>
+                <NumberPhraseField
+                  prefix="Valid for"
+                  suffix="months"
+                  ariaLabel="Valid for months"
+                  value={editValues.validity_months}
+                  onChange={(event) =>
+                    setEditValues((current) => ({
+                      ...current,
+                      validity_months: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+                <NumberPhraseField
+                  prefix="Remind me"
+                  suffix="days before expiry"
+                  ariaLabel="Remind me days before expiry"
+                  value={editValues.renewal_lead_days}
+                  onChange={(event) =>
+                    setEditValues((current) => ({
+                      ...current,
+                      renewal_lead_days: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+                <NumberPhraseField
+                  prefix="Re-check every"
+                  suffix="days"
+                  ariaLabel="Re-check every days"
+                  value={editValues.recheck_interval_days}
+                  onChange={(event) =>
+                    setEditValues((current) => ({
+                      ...current,
+                      recheck_interval_days: event.target.value,
+                    }))
+                  }
+                  disabled={saving}
+                />
+                <Choice
+                  type="checkbox"
+                  checked={editValues.mandatory}
+                  onChange={(event) =>
+                    setEditValues((current) => ({
+                      ...current,
+                      mandatory: event.target.checked,
+                    }))
+                  }
+                  disabled={saving}
+                >
+                  Required
+                </Choice>
               </FieldGrid>
               <FormActions>
                 <Button type="submit" disabled={saving}>

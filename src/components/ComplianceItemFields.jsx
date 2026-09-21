@@ -175,7 +175,7 @@ export function ComplianceItemFields({
             error={fieldErrors.expiryDate}
             hint={
               validityMonths
-                ? `Suggested from issued date + ${validityMonths} months. You can override this.`
+                ? `Valid for ${validityMonths} months from the issued date. You can override the expiry.`
                 : undefined
             }
           >

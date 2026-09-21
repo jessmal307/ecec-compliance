@@ -433,7 +433,7 @@ export function NewStaff() {
                             </p>
                             {requirementType.mandatory ? (
                               <p className="text-xs text-muted-foreground">
-                                Mandatory
+                                Required
                               </p>
                             ) : (
                               <p className="text-xs text-muted-foreground">

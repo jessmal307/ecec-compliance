@@ -71,7 +71,7 @@ function urgentAccent(status) {
 function urgentDetail(row) {
   if (row.status === 'Missing') {
     return row.requirementType.mandatory
-      ? 'Mandatory requirement has no record on file'
+      ? 'Required item has no record on file'
       : 'No record on file'
   }
 
