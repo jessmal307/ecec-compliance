@@ -1,12 +1,16 @@
+import { useEffect, useState } from 'react'
 import { Check, ChevronRight, Circle } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { useAuth } from '../hooks/useAuth'
 import { paths } from '../lib/paths'
 
 export function setupProgress({ sites, staff, requirementTypes }) {
@@ -43,8 +47,109 @@ const STEPS = [
   },
 ]
 
+const INTRO_STEPS = [
+  {
+    title: 'Add your sites.',
+    to: paths.sites,
+  },
+  {
+    title: 'Add your staff and their certificates.',
+    to: paths.newStaff,
+  },
+  {
+    title: "We'll email you before anything lapses.",
+    to: null,
+  },
+]
+
+function introStorageKey(orgId) {
+  return `ecec-how-this-works:${orgId}`
+}
+
+function readIntroDismissed(orgId) {
+  if (!orgId) return false
+  try {
+    return localStorage.getItem(introStorageKey(orgId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeIntroDismissed(orgId) {
+  if (!orgId) return
+  try {
+    localStorage.setItem(introStorageKey(orgId), '1')
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
 export function GetStarted({ steps }) {
+  const { organizationId } = useAuth()
+  const [introDismissed, setIntroDismissed] = useState(() =>
+    readIntroDismissed(organizationId),
+  )
+  const brandNew = !steps.site && !steps.staff
+  const showIntro = brandNew && !introDismissed
   const doneCount = STEPS.filter((step) => steps[step.key]).length
+
+  useEffect(() => {
+    setIntroDismissed(readIntroDismissed(organizationId))
+  }, [organizationId])
+
+  function dismissIntro() {
+    writeIntroDismissed(organizationId)
+    setIntroDismissed(true)
+  }
+
+  if (showIntro) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>How this works</CardTitle>
+          <CardAction>
+            <Button type="button" variant="ghost" size="sm" onClick={dismissIntro}>
+              Dismiss
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <ol className="space-y-3">
+            {INTRO_STEPS.map((step, index) => {
+              const body = (
+                <span className="flex items-start gap-3">
+                  <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium tabular-nums text-muted-foreground">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1 text-base font-medium text-card-foreground md:text-sm">
+                    {step.title}
+                  </span>
+                  {step.to ? (
+                    <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                  ) : null}
+                </span>
+              )
+
+              return (
+                <li key={step.title}>
+                  {step.to ? (
+                    <Link
+                      to={step.to}
+                      className="block min-h-11 rounded-md py-1 no-underline"
+                    >
+                      {body}
+                    </Link>
+                  ) : (
+                    <div className="py-1">{body}</div>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>
