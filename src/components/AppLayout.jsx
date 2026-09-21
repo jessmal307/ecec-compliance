@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { FeedbackButton } from './FeedbackDialog'
 import { ThemeToggle } from './ThemeToggle'
 import { SitesNavLinks, SitesSidebarItem } from './SitesNav'
 import { useAuth } from '../hooks/useAuth'
@@ -280,6 +281,7 @@ export function AppLayout() {
                 {user.user_metadata?.display_name || user.email}
               </Link>
             ) : null}
+            <FeedbackButton />
             <ThemeToggle />
             <Button type="button" variant="outline" size="sm" onClick={() => signOut()}>
               <LogOut data-icon="inline-start" />

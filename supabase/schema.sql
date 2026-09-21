@@ -1301,3 +1301,40 @@ create policy "Users can delete compliance docs in their organization"
       select org_id::text from public.user_org_ids() as org_id
     )
   );
+
+-- In-app feedback. Members can insert their own org's rows. No SELECT
+-- policy: read this in the dashboard (service role), not from the client.
+create table if not exists public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  type text not null,
+  message text not null,
+  page text not null default '',
+  created_at timestamptz not null default now(),
+  constraint feedback_type_check check (
+    type in ('bug', 'improvement', 'feature_request', 'other')
+  )
+);
+
+alter table public.feedback drop constraint if exists feedback_type_check;
+alter table public.feedback add constraint feedback_type_check
+  check (type in ('bug', 'improvement', 'feature_request', 'other'));
+
+create index if not exists feedback_org_id_created_at_idx
+  on public.feedback (org_id, created_at desc);
+
+alter table public.feedback enable row level security;
+
+drop policy if exists "Users can insert feedback in their organization"
+  on public.feedback;
+create policy "Users can insert feedback in their organization"
+  on public.feedback
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+    and user_id = auth.uid()
+  );

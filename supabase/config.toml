@@ -1,3 +1,7 @@
 [functions.send-compliance-alerts]
 enabled = true
 verify_jwt = false
+
+[functions.send-feedback]
+enabled = true
+verify_jwt = true
