@@ -329,6 +329,10 @@ export function Overview() {
       value: dashboard.expiringCount,
       hint: 'Still in date, due soon',
       icon: Clock,
+      href:
+        dashboard.expiringCount > 0
+          ? `${paths.attention}?status=expiring`
+          : null,
     },
     {
       label: 'Missing',
@@ -336,10 +340,10 @@ export function Overview() {
       hint:
         dashboard.missingCount === 0
           ? 'All required records are entered'
-          : missingOwnersHint(
+          : `${missingOwnersHint(
               dashboard.missingStaffOwners,
               dashboard.missingSiteOwners,
-            ),
+            )}. Add them`,
       icon: UserRoundX,
       href: dashboard.missingCount > 0 ? paths.gaps : null,
     },
@@ -384,9 +388,7 @@ export function Overview() {
                     </CardAction>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-xs text-muted-foreground">
-                      {stat.href ? `${stat.hint}. Add them` : stat.hint}
-                    </p>
+                    <p className="text-xs text-muted-foreground">{stat.hint}</p>
                   </CardContent>
                 </>
               )

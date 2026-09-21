@@ -10,7 +10,7 @@ import {
   canMarkVerifiedToday,
   recheckDueDate,
 } from '../lib/compliance'
-import { ownerProfilePath } from '../lib/paths'
+import { ownerRequirementPath } from '../lib/paths'
 import { daysUntil, formatDate } from '../lib/format'
 
 function relativeExpiry(expiryDate) {
@@ -50,6 +50,7 @@ export function UrgentAttentionList({
   kind,
   requirementTypes,
   compact = false,
+  emptyMessage,
   editingItemId,
   editValues,
   onEditValuesChange,
@@ -65,11 +66,12 @@ export function UrgentAttentionList({
   if (items.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        {kind === 'staff'
-          ? 'Nothing needs attention for staff.'
-          : kind === 'sites'
-            ? 'Nothing needs attention for sites.'
-            : 'Nothing needs attention.'}
+        {emptyMessage ??
+          (kind === 'staff'
+            ? 'Nothing needs attention for staff.'
+            : kind === 'sites'
+              ? 'Nothing needs attention for sites.'
+              : 'Nothing needs attention.')}
       </p>
     )
   }
@@ -110,7 +112,7 @@ export function UrgentAttentionList({
             >
               <div className="min-w-0">
                 <Link
-                  to={ownerProfilePath(item)}
+                  to={ownerRequirementPath(item)}
                   className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
                 >
                   {item.typeName}

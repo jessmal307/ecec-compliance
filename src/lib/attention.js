@@ -1,5 +1,7 @@
 import {
   attentionStatus,
+  complianceStatus,
+  isSiteRequirementType,
   isStaffRequirementType,
   recheckDueDate,
   resolveRecheckDays,
@@ -116,6 +118,60 @@ export function buildUrgentItems({
     items: urgentItems,
     staffItems: urgentItems.filter((item) => item.ownerKind === 'staff'),
     siteItems: urgentItems.filter((item) => item.ownerKind !== 'staff'),
+  }
+}
+
+export function buildExpiringSoonItems({
+  visibleItems,
+  activeStaff,
+  sites,
+  requirementTypes,
+  exclusions,
+  siteExclusions,
+}) {
+  const mandatoryStaffTypes = requirementTypes.filter(
+    (type) => type.mandatory && isStaffRequirementType(type),
+  )
+  const mandatorySiteTypes = requirementTypes.filter(
+    (type) => type.mandatory && isSiteRequirementType(type),
+  )
+
+  const expiring = []
+
+  for (const member of activeStaff) {
+    for (const type of mandatoryStaffTypes) {
+      if (isRequirementExcluded(exclusions, member.id, type.id)) continue
+      const item = visibleItems.find(
+        (row) =>
+          row.staff_id === member.id && row.requirement_type_id === type.id,
+      )
+      if (!item) continue
+      if (complianceStatus(item.expiry_date) !== 'Expiring soon') continue
+      expiring.push(item)
+    }
+  }
+
+  for (const site of sites) {
+    for (const type of mandatorySiteTypes) {
+      if (isSiteRequirementExcluded(siteExclusions, site.id, type.id)) continue
+      const item = visibleItems.find(
+        (row) =>
+          row.site_id === site.id && row.requirement_type_id === type.id,
+      )
+      if (!item) continue
+      if (complianceStatus(item.expiry_date) !== 'Expiring soon') continue
+      expiring.push(item)
+    }
+  }
+
+  expiring.sort((a, b) =>
+    String(a.expiry_date ?? '').localeCompare(String(b.expiry_date ?? '')),
+  )
+
+  return {
+    items: expiring,
+    staffItems: expiring.filter((item) => item.ownerKind === 'staff'),
+    siteItems: expiring.filter((item) => item.ownerKind !== 'staff'),
   }
 }
 

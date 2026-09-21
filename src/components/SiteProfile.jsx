@@ -1,5 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -83,6 +89,8 @@ function siteInfoFromSite(site) {
 export function SiteProfile() {
   const { siteId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
   const { organizationId } = useAuth()
   const [site, setSite] = useState(null)
   const [info, setInfo] = useState(siteInfoFromSite(null))
@@ -108,7 +116,18 @@ export function SiteProfile() {
   const [pendingSiteArchive, setPendingSiteArchive] = useState(false)
   const [pendingPermanentDelete, setPendingPermanentDelete] = useState(false)
   const [pendingItemArchive, setPendingItemArchive] = useState(null)
-  const [profileTab, setProfileTab] = useState('details')
+  const deepLinkTab =
+    searchParams.get('tab') === 'requirements' ? 'requirements' : null
+  const deepLinkKey = deepLinkTab
+    ? `${siteId}:${deepLinkTab}:${location.hash}`
+    : `${siteId}:none`
+  const [profileTab, setProfileTab] = useState(deepLinkTab ?? 'details')
+  const [appliedDeepLink, setAppliedDeepLink] = useState(deepLinkKey)
+
+  if (appliedDeepLink !== deepLinkKey) {
+    setAppliedDeepLink(deepLinkKey)
+    setProfileTab(deepLinkTab ?? 'details')
+  }
 
   useEffect(() => {
     if (!organizationId || !siteId) return
@@ -171,6 +190,21 @@ export function SiteProfile() {
       cancelled = true
     }
   }, [organizationId, siteId])
+
+  useEffect(() => {
+    if (loading) return
+    const id = location.hash.replace(/^#/, '')
+    if (!id || searchParams.get('tab') !== 'requirements') return
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    }, 80)
+
+    return () => window.clearTimeout(timer)
+  }, [loading, location.hash, searchParams, items])
 
   const rows = useMemo(() => {
     return requirementTypes.map((requirementType) => {

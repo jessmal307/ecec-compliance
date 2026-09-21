@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { ThemeToggle } from './ThemeToggle'
 import { SitesNavLinks, SitesSidebarItem } from './SitesNav'
 import { useAuth } from '../hooks/useAuth'
-import { isSitesPath, paths } from '../lib/paths'
+import { isExpiringAttentionPath, isSitesPath, paths } from '../lib/paths'
 
 const pages = [
   { to: paths.home, label: 'Overview', icon: LayoutDashboard, end: true },
@@ -33,7 +33,7 @@ const morePages = pages.filter(
     item.to !== paths.sites,
 )
 
-function pageTitle(pathname) {
+function pageTitle(pathname, search = '') {
   if (pathname === paths.home) return 'Overview'
   if (pathname === paths.compliance) return 'Compliance items'
   if (pathname === paths.staff) return 'Staff'
@@ -43,7 +43,11 @@ function pageTitle(pathname) {
   if (pathname.startsWith(`${paths.sites}/`)) return 'Site profile'
   if (pathname === paths.requirements) return 'Requirements'
   if (pathname === paths.gaps) return 'Compliance gaps'
-  if (pathname === paths.attention) return 'Needs attention'
+  if (pathname === paths.attention) {
+    return isExpiringAttentionPath(search)
+      ? 'Expiring in 30 days'
+      : 'Needs attention'
+  }
   if (pathname === paths.settings) return 'Account'
   if (pathname === paths.privacy) return 'Privacy & Data Handling'
   if (pathname === paths.terms) return 'Terms of Service'
@@ -230,7 +234,7 @@ function BottomTabBar({
 
 export function AppLayout() {
   const { signOut, user } = useAuth()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const [moreForPath, setMoreForPath] = useState(null)
   const [sitesForPath, setSitesForPath] = useState(null)
   const moreOpen = moreForPath === pathname
@@ -260,7 +264,7 @@ export function AppLayout() {
       <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
         <header className="sticky top-0 z-20 flex h-14 min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
           <p className="truncate text-sm font-semibold tracking-tight text-card-foreground">
-            {pageTitle(pathname)}
+            {pageTitle(pathname, search)}
           </p>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
             {user?.email ? (

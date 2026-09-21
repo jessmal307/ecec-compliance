@@ -13,7 +13,12 @@ import { UrgentAttentionList } from './UrgentAttentionList'
 import { PageError, PageHeader } from './ui/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { useAuth } from '../hooks/useAuth'
-import { buildUrgentItems, visibleComplianceItems } from '../lib/attention'
+import {
+  buildExpiringSoonItems,
+  buildUrgentItems,
+  visibleComplianceItems,
+} from '../lib/attention'
+import { isExpiringAttentionPath } from '../lib/paths'
 import {
   formValuesFromItem,
   listComplianceItems,
@@ -35,6 +40,7 @@ export function Attention() {
   const { organizationId } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = searchParams.get('tab') === 'sites' ? 'sites' : 'staff'
+  const expiringOnly = isExpiringAttentionPath(searchParams)
   const [items, setItems] = useState([])
   const [staff, setStaff] = useState([])
   const [sites, setSites] = useState([])
@@ -209,15 +215,27 @@ export function Attention() {
       siteExclusions,
     })
 
-    return buildUrgentItems({
+    const args = {
       visibleItems,
       activeStaff,
       sites,
       requirementTypes,
       exclusions,
       siteExclusions,
-    })
-  }, [items, staff, sites, requirementTypes, exclusions, siteExclusions])
+    }
+
+    return expiringOnly
+      ? buildExpiringSoonItems(args)
+      : buildUrgentItems(args)
+  }, [
+    items,
+    staff,
+    sites,
+    requirementTypes,
+    exclusions,
+    siteExclusions,
+    expiringOnly,
+  ])
 
   const listProps = {
     requirementTypes,
@@ -237,8 +255,12 @@ export function Attention() {
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
-        title="Needs attention"
-        description="Expired items first, then overdue rechecks, then soonest to expire."
+        title={expiringOnly ? 'Expiring in 30 days' : 'Needs attention'}
+        description={
+          expiringOnly
+            ? 'Required items that expire within 30 days, soonest first.'
+            : 'Expired items first, then overdue rechecks, then soonest to expire.'
+        }
       />
 
       <PageError>{error}</PageError>
@@ -252,10 +274,13 @@ export function Attention() {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>All urgent items</CardTitle>
+            <CardTitle>
+              {expiringOnly ? 'Expiring items' : 'All urgent items'}
+            </CardTitle>
             <CardDescription>
-              Staff-level and site-level records that are expired, overdue for
-              recheck, or coming due.
+              {expiringOnly
+                ? 'Click an item to open it on the staff or site profile.'
+                : 'Staff-level and site-level records that are expired, overdue for recheck, or coming due.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -263,9 +288,10 @@ export function Attention() {
               value={tab}
               onValueChange={(next) => {
                 cancelEditItem()
-                setSearchParams(next === 'sites' ? { tab: 'sites' } : {}, {
-                  replace: true,
-                })
+                const nextParams = {}
+                if (expiringOnly) nextParams.status = 'expiring'
+                if (next === 'sites') nextParams.tab = 'sites'
+                setSearchParams(nextParams, { replace: true })
               }}
             >
               <TabsList className="grid h-auto w-full grid-cols-2 sm:w-full">
@@ -286,6 +312,11 @@ export function Attention() {
                 <UrgentAttentionList
                   items={staffItems}
                   kind="staff"
+                  emptyMessage={
+                    expiringOnly
+                      ? 'No staff items expire in the next 30 days.'
+                      : undefined
+                  }
                   {...listProps}
                 />
               </TabsContent>
@@ -293,6 +324,11 @@ export function Attention() {
                 <UrgentAttentionList
                   items={siteItems}
                   kind="sites"
+                  emptyMessage={
+                    expiringOnly
+                      ? 'No site items expire in the next 30 days.'
+                      : undefined
+                  }
                   {...listProps}
                 />
               </TabsContent>

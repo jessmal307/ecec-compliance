@@ -1,5 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -90,6 +96,8 @@ function staffInfoFromMember(member) {
 export function StaffProfile() {
   const { staffId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
   const { organizationId } = useAuth()
   const [member, setMember] = useState(null)
   const [info, setInfo] = useState(staffInfoFromMember(null))
@@ -113,7 +121,18 @@ export function StaffProfile() {
   const [deletingId, setDeletingId] = useState(null)
   const [pendingItemArchive, setPendingItemArchive] = useState(null)
   const [restoring, setRestoring] = useState(false)
-  const [profileTab, setProfileTab] = useState('details')
+  const deepLinkTab =
+    searchParams.get('tab') === 'requirements' ? 'requirements' : null
+  const deepLinkKey = deepLinkTab
+    ? `${staffId}:${deepLinkTab}:${location.hash}`
+    : `${staffId}:none`
+  const [profileTab, setProfileTab] = useState(deepLinkTab ?? 'details')
+  const [appliedDeepLink, setAppliedDeepLink] = useState(deepLinkKey)
+
+  if (appliedDeepLink !== deepLinkKey) {
+    setAppliedDeepLink(deepLinkKey)
+    setProfileTab(deepLinkTab ?? 'details')
+  }
 
   useEffect(() => {
     if (!organizationId || !staffId) return
@@ -167,6 +186,21 @@ export function StaffProfile() {
       cancelled = true
     }
   }, [organizationId, staffId])
+
+  useEffect(() => {
+    if (loading) return
+    const id = location.hash.replace(/^#/, '')
+    if (!id || searchParams.get('tab') !== 'requirements') return
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    }, 80)
+
+    return () => window.clearTimeout(timer)
+  }, [loading, location.hash, searchParams, items])
 
   const { otherType, rows, extraRows } = useMemo(
     () => buildStaffRequirementRows(requirementTypes, items, staffId),
