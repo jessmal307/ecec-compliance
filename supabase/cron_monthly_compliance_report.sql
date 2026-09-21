@@ -7,10 +7,9 @@
 -- Enable pg_cron and pg_net, replace PROJECT_REF and SERVICE_ROLE_KEY,
 -- then run this in the SQL editor.
 
-select cron.unschedule('send-monthly-compliance-report')
-where exists (
-  select 1 from cron.job where jobname = 'send-monthly-compliance-report'
-);
+select cron.unschedule(jobid)
+from cron.job
+where jobname = 'send-monthly-compliance-report';
 
 select cron.schedule(
   'send-monthly-compliance-report',

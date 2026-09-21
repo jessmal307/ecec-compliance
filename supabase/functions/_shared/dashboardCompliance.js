@@ -1,5 +1,5 @@
 // Shared with Overview. Do not change status maths here without updating the dashboard.
-
+const ATTENTION_RANK = {
   Expired: 0,
   'Expiring soon': 1,
   Missing: 2,
