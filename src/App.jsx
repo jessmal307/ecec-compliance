@@ -4,11 +4,10 @@ import { AppLayout } from './components/AppLayout'
 import { Attention } from './components/Attention'
 import { AuthForm } from './components/AuthForm'
 import { ForgotPassword } from './components/ForgotPassword'
-import { ComplianceItems } from './components/ComplianceItems'
+import { Compliance } from './components/Compliance'
 import { Gaps } from './components/Gaps'
 import { Overview } from './components/Overview'
 import { ResetPassword } from './components/ResetPassword'
-import { Requirements } from './components/Requirements'
 import { SetupScreen } from './components/SetupScreen'
 import { SiteProfile } from './components/SiteProfile'
 import { Sites } from './components/Sites'
@@ -71,8 +70,16 @@ function AppShell() {
           <Route path="/staff/:staffId" element={<StaffProfile />} />
           <Route path={paths.sites} element={<Sites />} />
           <Route path="/sites/:siteId" element={<SiteProfile />} />
-          <Route path={paths.compliance} element={<ComplianceItems />} />
-          <Route path={paths.requirements} element={<Requirements />} />
+          <Route path={paths.compliance} element={<Compliance />} />
+          <Route
+            path={paths.requirements}
+            element={
+              <Navigate
+                to={{ pathname: paths.settings, search: '?tab=requirements' }}
+                replace
+              />
+            }
+          />
           <Route path={paths.gaps} element={<Gaps />} />
           <Route path={paths.attention} element={<Attention />} />
           <Route path={paths.settings} element={<AccountSettings />} />

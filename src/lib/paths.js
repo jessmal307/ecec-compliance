@@ -62,3 +62,27 @@ export function isExpiredAttentionPath(search) {
 export function isSitesPath(pathname) {
   return pathname === paths.sites || pathname.startsWith(`${paths.sites}/`)
 }
+
+export function isCompliancePath(pathname) {
+  return pathname === paths.compliance
+}
+
+export function isSettingsNavPath(pathname) {
+  return (
+    pathname === paths.settings ||
+    pathname === paths.requirements ||
+    pathname === paths.privacy ||
+    pathname === paths.terms ||
+    pathname === paths.security
+  )
+}
+
+export function complianceHref(tab) {
+  if (tab === 'items') return { pathname: paths.compliance, search: '?tab=items' }
+  return paths.compliance
+}
+
+export function settingsHref(tab) {
+  if (!tab || tab === 'account') return paths.settings
+  return { pathname: paths.settings, search: `?tab=${tab}` }
+}

@@ -57,6 +57,10 @@ function valuesFromType(type) {
   }
 }
 
+function levelLabel(appliesTo) {
+  return appliesTo === 'site' ? 'Site' : 'Staff'
+}
+
 function NumberPhraseField({
   prefix,
   suffix,
@@ -85,7 +89,7 @@ function NumberPhraseField({
   )
 }
 
-export function Requirements() {
+export function Requirements({ embedded = false }) {
   const { organizationId } = useAuth()
   const [types, setTypes] = useState([])
   const [error, setError] = useState('')
@@ -284,14 +288,16 @@ export function Requirements() {
 
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
-      <PageHeader
-        title="Requirements"
-        description={
-          archivedOnly
-            ? 'Archived types are hidden from add-requirement pickers and gaps. Restore to use them again.'
-            : 'Requirement types used for staff and site compliance checks.'
-        }
-      />
+      {embedded ? null : (
+        <PageHeader
+          title="Requirements"
+          description={
+            archivedOnly
+              ? 'Archived types are hidden from add-requirement pickers and gaps. Restore to use them again.'
+              : 'Requirement types used for staff and site compliance checks.'
+          }
+        />
+      )}
 
       <PageError>{error}</PageError>
 

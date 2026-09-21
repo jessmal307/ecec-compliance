@@ -63,7 +63,7 @@ import { paths } from '../lib/paths'
 import { listStaff } from '../lib/staff'
 import { listSites } from '../lib/sites'
 
-export function ComplianceItems() {
+export function ComplianceItems({ embedded = false }) {
   const { organizationId } = useAuth()
   const [requirementTypeId, setRequirementTypeId] = useState('')
   const [formValues, setFormValues] = useState(EMPTY_COMPLIANCE_ITEM_VALUES)
@@ -388,10 +388,12 @@ export function ComplianceItems() {
 
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
-      <PageHeader
-        title="Compliance items"
-        description="Track certificates and checks. Each item belongs to one staff member or one site."
-      />
+      {embedded ? null : (
+        <PageHeader
+          title="Compliance items"
+          description="Track certificates and checks. Each item belongs to one staff member or one site."
+        />
+      )}
 
       <PageError>{error}</PageError>
 

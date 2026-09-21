@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { useAuth } from '../hooks/useAuth'
-import { paths } from '../lib/paths'
+import { paths, settingsHref } from '../lib/paths'
 
 export function setupProgress({ sites, staff, requirementTypes }) {
   const steps = {
@@ -43,7 +43,7 @@ const STEPS = [
     key: 'requirements',
     title: 'Set up requirements',
     description: 'Review the requirement types used for compliance.',
-    to: paths.requirements,
+    to: settingsHref('requirements'),
   },
 ]
 

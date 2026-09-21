@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
-const FEEDBACK_TYPES = ['bug', 'improvement', 'feature_request', 'other'] as const
+const FEEDBACK_TYPES = ['bug', 'improvement', 'feature_request', 'other', 'feature-interest'] as const
 
 type FeedbackType = (typeof FEEDBACK_TYPES)[number]
 
@@ -9,6 +9,7 @@ const TYPE_LABELS: Record<FeedbackType, string> = {
   improvement: 'Improvement',
   feature_request: 'Feature request',
   other: 'Other',
+  'feature-interest': 'Feature interest',
 }
 
 const corsHeaders = {

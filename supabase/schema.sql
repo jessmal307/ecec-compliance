@@ -1313,13 +1313,13 @@ create table if not exists public.feedback (
   page text not null default '',
   created_at timestamptz not null default now(),
   constraint feedback_type_check check (
-    type in ('bug', 'improvement', 'feature_request', 'other')
+    type in ('bug', 'improvement', 'feature_request', 'other', 'feature-interest')
   )
 );
 
 alter table public.feedback drop constraint if exists feedback_type_check;
 alter table public.feedback add constraint feedback_type_check
-  check (type in ('bug', 'improvement', 'feature_request', 'other'));
+  check (type in ('bug', 'improvement', 'feature_request', 'other', 'feature-interest'));
 
 create index if not exists feedback_org_id_created_at_idx
   on public.feedback (org_id, created_at desc);

@@ -7,6 +7,11 @@ export const FEEDBACK_TYPES = [
   { value: 'other', label: 'Other' },
 ]
 
+const SUBMIT_TYPES = new Set([
+  ...FEEDBACK_TYPES.map((item) => item.value),
+  'feature-interest',
+])
+
 export function currentPagePath(location) {
   return `${location.pathname}${location.search}${location.hash}`
 }
@@ -18,7 +23,7 @@ export async function submitFeedback({ orgId, type, message, page }) {
     return { error: new Error('No organization yet.') }
   }
 
-  if (!FEEDBACK_TYPES.some((item) => item.value === type)) {
+  if (!SUBMIT_TYPES.has(type)) {
     return { error: new Error('Choose a feedback type.') }
   }
 
@@ -48,4 +53,18 @@ export async function submitFeedback({ orgId, type, message, page }) {
   }
 
   return { error: null }
+}
+
+export async function submitFeatureInterest({ orgId, feature, page }) {
+  const name = String(feature ?? '').trim()
+  if (!name) {
+    return { error: new Error('Choose a feature.') }
+  }
+
+  return submitFeedback({
+    orgId,
+    type: 'feature-interest',
+    message: name,
+    page: page || `feature:${name}`,
+  })
 }
