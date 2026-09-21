@@ -98,7 +98,7 @@ function tabClassName(isActive) {
 
 function SidebarNav({ onNavigate }) {
   return (
-    <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
+    <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
       {pages.map((item) => {
         const Icon = item.icon
         if (item.to === paths.sites) {
@@ -261,14 +261,17 @@ export function AppLayout() {
   }
 
   return (
-    <div className="app-shell flex min-h-svh w-full max-w-full overflow-x-hidden bg-background text-left">
-      <aside className="hidden w-[210px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
+    <div className="app-shell flex h-svh w-full max-w-full overflow-hidden bg-background text-left">
+      <aside className="hidden h-full w-[210px] shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
         <SidebarBrand />
         <SidebarNav />
+        <div className="mt-auto shrink-0 border-t border-sidebar-border p-3">
+          <FeedbackButton className="w-full" />
+        </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
-        <header className="sticky top-0 z-20 flex h-14 min-w-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-4 md:px-6">
           <p className="truncate text-sm font-semibold tracking-tight text-card-foreground">
             {pageTitle(pathname, search)}
           </p>
@@ -281,7 +284,7 @@ export function AppLayout() {
                 {user.user_metadata?.display_name || user.email}
               </Link>
             ) : null}
-            <FeedbackButton />
+            <FeedbackButton className="md:hidden" />
             <ThemeToggle />
             <Button type="button" variant="outline" size="sm" onClick={() => signOut()}>
               <LogOut data-icon="inline-start" />
@@ -290,7 +293,7 @@ export function AppLayout() {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
           <div className="mx-auto w-full min-w-0 max-w-7xl px-4 py-4 md:p-6">
             <Outlet />
           </div>

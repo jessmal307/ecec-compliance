@@ -14,6 +14,14 @@ export function PageHeader({ title, description, actions }) {
   )
 }
 
+function toUserFacingError(children) {
+  if (typeof children !== 'string') return children
+  if (/jwt issued at future|pgrst303/i.test(children)) {
+    return 'Could not load this page. Refresh and try again.'
+  }
+  return children
+}
+
 export function PageError({ children }) {
   if (!children) return null
   return (
@@ -21,7 +29,7 @@ export function PageError({ children }) {
       className="rounded-lg border border-status-expired/30 bg-status-expired-muted px-3 py-2 text-base text-status-expired md:text-sm"
       role="alert"
     >
-      {children}
+      {toUserFacingError(children)}
     </p>
   )
 }

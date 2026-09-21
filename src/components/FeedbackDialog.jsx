@@ -11,12 +11,18 @@ const EMPTY_FORM = {
   message: '',
 }
 
-export function FeedbackButton() {
+export function FeedbackButton({ className }) {
   const [open, setOpen] = useState(false)
 
   return (
     <>
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={className}
+        onClick={() => setOpen(true)}
+      >
         Feedback
       </Button>
       <FeedbackDialog open={open} onOpenChange={setOpen} />
