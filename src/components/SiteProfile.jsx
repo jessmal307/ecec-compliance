@@ -32,6 +32,7 @@ import {
   siteDeleteTitle,
 } from './ConfirmDeleteDialog'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
+import { AlertTimingHint } from './AlertTimingHint'
 import { ProfileSkeleton } from './PageSkeletons'
 import { ProgressPill } from './ProgressPill'
 import { DocumentAttached } from './DocumentLink'
@@ -148,7 +149,7 @@ export function SiteProfile() {
         staffExclusionsResult,
       ] = await Promise.all([
         getSite(siteId),
-        listRequirementTypes(organizationId),
+        listRequirementTypes(organizationId, { includeArchived: true }),
         listSiteComplianceItems(organizationId, siteId),
         listSiteRequirementExclusions([siteId]),
         listStaffBySite(organizationId, siteId),
@@ -207,12 +208,18 @@ export function SiteProfile() {
   }, [loading, location.hash, searchParams, items])
 
   const rows = useMemo(() => {
-    return requirementTypes.map((requirementType) => {
-      const item = items.find(
-        (entry) => entry.requirement_type_id === requirementType.id,
+    return requirementTypes
+      .filter(
+        (type) =>
+          !isArchived(type) ||
+          items.some((entry) => entry.requirement_type_id === type.id),
       )
-      return { requirementType, item }
-    })
+      .map((requirementType) => {
+        const item = items.find(
+          (entry) => entry.requirement_type_id === requirementType.id,
+        )
+        return { requirementType, item }
+      })
   }, [requirementTypes, items])
 
   const complianceSummary = useMemo(
@@ -798,6 +805,12 @@ export function SiteProfile() {
                                 path={item?.document_url}
                                 disabled={busy}
                               />
+                              <AlertTimingHint
+                                className="mt-1"
+                                item={item}
+                                type={requirementType}
+                                status={itemStatus}
+                              />
                             </Td>
                             <Td
                               slot="expiry"
@@ -898,6 +911,8 @@ export function SiteProfile() {
                                   )}
                                   validityMonths={requirementType.validity_months}
                                   disabled={saving}
+                                  item={item}
+                                  requirementType={requirementType}
                                   documentContext={
                                     item
                                       ? {

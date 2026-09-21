@@ -1,3 +1,4 @@
+import { isArchived } from './archive'
 import { complianceStatus, isOtherRequirementType } from './compliance'
 
 const URGENCY_RANK = {
@@ -29,6 +30,15 @@ export function buildStaffRequirementRows(requirementTypes, items, staffId) {
   const otherType = requirementTypes.find(isOtherRequirementType) ?? null
   const rows = requirementTypes
     .filter((type) => !isOtherRequirementType(type))
+    .filter(
+      (type) =>
+        !isArchived(type) ||
+        items.some(
+          (entry) =>
+            forStaff(entry) &&
+            String(entry.requirement_type_id) === String(type.id),
+        ),
+    )
     .map((requirementType) => ({
       requirementType,
       item: items.find(

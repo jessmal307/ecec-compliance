@@ -414,6 +414,8 @@ export function ComplianceItems() {
             showLastVerified={showLastVerified}
             validityMonths={selectedType?.validity_months}
             disabled={formBusy}
+            item={editingId ? items.find((row) => row.id === editingId) : null}
+            requirementType={selectedType}
             documentContext={
               editingId
                 ? {

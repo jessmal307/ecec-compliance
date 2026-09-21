@@ -629,6 +629,39 @@ create policy "Users can insert requirement types in their organization"
     )
   );
 
+alter table public.requirement_types
+  add column if not exists archived_at timestamptz;
+
+create index if not exists requirement_types_org_id_archived_at_idx
+  on public.requirement_types (org_id, archived_at);
+
+drop policy if exists "Users can update requirement types in their organization" on public.requirement_types;
+create policy "Users can update requirement types in their organization"
+  on public.requirement_types
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+drop policy if exists "Users can delete requirement types in their organization" on public.requirement_types;
+create policy "Users can delete requirement types in their organization"
+  on public.requirement_types
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
 create or replace function public.normalized_requirement_name(raw text)
 returns text
 language sql

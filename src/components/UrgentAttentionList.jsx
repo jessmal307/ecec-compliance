@@ -180,6 +180,8 @@ export function UrgentAttentionList({
                 showLastVerified={canMarkVerified}
                 validityMonths={item.validity_months}
                 disabled={savingItem}
+                item={item}
+                requirementType={requirementType}
                 documentContext={{
                   itemId: item.id,
                   orgId: item.org_id ?? organizationId,

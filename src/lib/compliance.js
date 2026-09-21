@@ -34,24 +34,62 @@ export const COMPLIANCE_ITEM_STATUSES = [
   { value: 'revoked', label: 'Revoked' },
 ]
 
+const REQUIREMENT_TYPE_FIELDS =
+  'id, name, org_id, mandatory, applies_to, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days, archived_at'
+
 function emptyToNull(value) {
   const trimmed = typeof value === 'string' ? value.trim() : value
   return trimmed ? trimmed : null
 }
 
-export async function listRequirementTypes(orgId) {
-  const { data, error } = await supabase
+function optionalInt(value) {
+  if (value === '' || value == null) return null
+  const parsed = Number(value)
+  return Number.isInteger(parsed) ? parsed : null
+}
+
+function mapRequirementType(row) {
+  return {
+    ...row,
+    archived_at: row.archived_at ?? null,
+  }
+}
+
+export async function listRequirementTypes(
+  orgId,
+  { archivedOnly = false, includeArchived = false } = {},
+) {
+  let query = supabase
     .from('requirement_types')
-    .select('id, name, org_id, mandatory, applies_to, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days')
+    .select(REQUIREMENT_TYPE_FIELDS)
     .eq('org_id', orgId)
     .order('name', { ascending: true })
+
+  if (!includeArchived) {
+    query = withArchiveScope(query, { archivedOnly })
+  }
+
+  const { data, error } = await query
 
   if (error) {
     return { data: null, error }
   }
 
   if ((data ?? []).length > 0) {
-    return { data, error: null }
+    return { data: data.map(mapRequirementType), error: null }
+  }
+
+  const { count, error: countError } = await supabase
+    .from('requirement_types')
+    .select('id', { count: 'exact', head: true })
+    .eq('org_id', orgId)
+
+  if (countError) {
+    return { data: null, error: countError }
+  }
+
+  if ((count ?? 0) > 0) {
+    return { data: [], error: null }
   }
 
   const { error: insertError } = await supabase.from('requirement_types').insert(
@@ -73,7 +111,7 @@ export async function listRequirementTypes(orgId) {
 
   const { data: seeded, error: seededError } = await supabase
     .from('requirement_types')
-    .select('id, name, org_id, mandatory, applies_to, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days')
+    .select(REQUIREMENT_TYPE_FIELDS)
     .eq('org_id', orgId)
     .order('name', { ascending: true })
 
@@ -81,7 +119,84 @@ export async function listRequirementTypes(orgId) {
     return { data: null, error: seededError }
   }
 
-  return { data: seeded ?? [], error: null }
+  return { data: (seeded ?? []).map(mapRequirementType), error: null }
+}
+
+export async function countComplianceItemsForRequirementType(typeId) {
+  const { count, error } = await supabase
+    .from('compliance_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('requirement_type_id', typeId)
+
+  if (error) {
+    return { count: 0, error }
+  }
+
+  return { count: count ?? 0, error: null }
+}
+
+export async function updateRequirementType(id, values) {
+  const { data, error } = await supabase
+    .from('requirement_types')
+    .update({
+      name: values.name.trim(),
+      applies_to: values.applies_to,
+      mandatory: Boolean(values.mandatory),
+      validity_months: optionalInt(values.validity_months),
+      renewal_lead_days: optionalInt(values.renewal_lead_days),
+      recheck_interval_days: optionalInt(values.recheck_interval_days),
+    })
+    .eq('id', id)
+    .select(REQUIREMENT_TYPE_FIELDS)
+    .single()
+
+  if (error) {
+    return { data: null, error }
+  }
+
+  return { data: mapRequirementType(data), error: null }
+}
+
+export async function archiveRequirementType(id) {
+  const { error } = await supabase
+    .from('requirement_types')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('archived_at', null)
+
+  return { error: error ?? null }
+}
+
+export async function restoreRequirementType(id) {
+  const { error } = await supabase
+    .from('requirement_types')
+    .update({ archived_at: null })
+    .eq('id', id)
+
+  return { error: error ?? null }
+}
+
+export async function deleteRequirementType(id) {
+  const { count, error: countError } =
+    await countComplianceItemsForRequirementType(id)
+  if (countError) {
+    return { error: countError }
+  }
+  if (count > 0) {
+    return {
+      error: {
+        message:
+          'This type has recorded items. Archive it instead of deleting.',
+      },
+    }
+  }
+
+  const { error } = await supabase
+    .from('requirement_types')
+    .delete()
+    .eq('id', id)
+
+  return { error: error ?? null }
 }
 
 const ITEM_SELECT = `
@@ -100,7 +215,7 @@ const ITEM_SELECT = `
   staff_id,
   site_id,
   archived_at,
-  requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months ),
+  requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days ),
   staff ( id, name, employment_status, archived_at ),
   sites ( id, name, archived_at )
 `
@@ -121,7 +236,7 @@ const ITEM_SELECT_AT_SITE = `
   staff_id,
   site_id,
   archived_at,
-  requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months ),
+  requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days ),
   staff!inner (
     id,
     name,
@@ -140,6 +255,7 @@ function mapItem(row) {
     recheck_interval_months: row.requirement_types?.recheck_interval_months ?? null,
     recheck_interval_days: row.requirement_types?.recheck_interval_days ?? null,
     validity_months: row.requirement_types?.validity_months ?? null,
+    renewal_lead_days: row.requirement_types?.renewal_lead_days ?? null,
     label: row.label,
     expiry_date: row.expiry_date,
     reference_number: row.reference_number,

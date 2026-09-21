@@ -7,6 +7,7 @@ import {
 } from '../lib/compliance'
 import { isIsoDate, validateIsoDate } from '../lib/dates'
 import { DocumentActions } from './DocumentLink'
+import { AlertTimingHint } from './AlertTimingHint'
 import {
   DOCUMENT_ACCEPT,
   documentFileName,
@@ -84,6 +85,8 @@ export function ComplianceItemFields({
   errors,
   documentContext,
   onDocumentChange,
+  item,
+  requirementType,
 }) {
   const fieldErrors = errors ?? {}
   const managed = errors != null
@@ -211,6 +214,13 @@ export function ComplianceItemFields({
             </Field>
           ) : null}
         </FieldGrid>
+        <AlertTimingHint
+          className="mt-3"
+          item={item}
+          type={requirementType}
+          expiryDate={values.expiryDate}
+          lastVerifiedDate={values.lastVerifiedDate}
+        />
       </FormSection>
 
       <FormSection title="Certificate file">
@@ -279,6 +289,8 @@ export function ComplianceItemForm({
   errors: errorsProp,
   documentContext,
   onDocumentChange,
+  item,
+  requirementType,
   ...fieldProps
 }) {
   const [localErrors, setLocalErrors] = useState({})
@@ -311,6 +323,8 @@ export function ComplianceItemForm({
         onChange={handleChange}
         documentContext={documentContext}
         onDocumentChange={onDocumentChange}
+        item={item}
+        requirementType={requirementType}
       />
       <FormActions>
         <Button type="submit" disabled={fieldProps.disabled || saving}>

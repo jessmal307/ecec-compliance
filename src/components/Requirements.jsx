@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
@@ -8,16 +9,86 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  ConfirmDeleteDialog,
+  PERMANENT_DELETE_PHRASE,
+  TYPE_ARCHIVE_WARNING,
+  TYPE_DELETE_WARNING,
+  typeArchiveTitle,
+  typeDeleteTitle,
+} from './ConfirmDeleteDialog'
+import {
+  ARCHIVE_VIEW_FILTERS,
+  ListFilters,
+  matchesQuery,
+  normalizeQuery,
+} from './ListFilters'
+import { StatusBadge } from './StatusBadge'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
+import {
+  Choice,
+  Field,
+  FieldGrid,
+  FormActions,
+  Input,
+  Select,
+} from './ui/form'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
-import { listRequirementTypes } from '../lib/compliance'
+import { isArchived } from '../lib/archive'
+import {
+  archiveRequirementType,
+  countComplianceItemsForRequirementType,
+  deleteRequirementType,
+  listRequirementTypes,
+  restoreRequirementType,
+  updateRequirementType,
+} from '../lib/compliance'
+import { formatTimestamp } from '../lib/format'
+
+function valuesFromType(type) {
+  return {
+    name: type?.name ?? '',
+    applies_to: type?.applies_to === 'site' ? 'site' : 'staff',
+    mandatory: Boolean(type?.mandatory),
+    validity_months: type?.validity_months ?? '',
+    renewal_lead_days: type?.renewal_lead_days ?? '',
+    recheck_interval_days: type?.recheck_interval_days ?? '',
+  }
+}
+
+function levelLabel(appliesTo) {
+  return appliesTo === 'site' ? 'Site' : 'Staff'
+}
 
 export function Requirements() {
   const { organizationId } = useAuth()
   const [types, setTypes] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [query, setQuery] = useState('')
+  const [viewFilter, setViewFilter] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editValues, setEditValues] = useState(valuesFromType(null))
+  const [saving, setSaving] = useState(false)
+  const [pendingLevelChange, setPendingLevelChange] = useState(null)
+  const [pendingArchive, setPendingArchive] = useState(null)
+  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
+  const [blockedDelete, setBlockedDelete] = useState(null)
+  const [busyId, setBusyId] = useState(null)
+  const archivedOnly = viewFilter === 'archived'
+
+  async function loadTypes() {
+    const { data, error: typesError } = await listRequirementTypes(
+      organizationId,
+      { archivedOnly },
+    )
+    if (typesError) {
+      return { error: typesError }
+    }
+    setTypes(data ?? [])
+    return { error: null }
+  }
 
   useEffect(() => {
     if (!organizationId) return
@@ -27,8 +98,12 @@ export function Requirements() {
     async function load() {
       setLoading(true)
       setError('')
+      setEditingId(null)
 
-      const { data, error: typesError } = await listRequirementTypes(organizationId)
+      const { data, error: typesError } = await listRequirementTypes(
+        organizationId,
+        { archivedOnly },
+      )
       if (cancelled) return
       if (typesError) {
         setError(typesError.message)
@@ -45,13 +120,153 @@ export function Requirements() {
     return () => {
       cancelled = true
     }
-  }, [organizationId])
+  }, [organizationId, archivedOnly])
+
+  const filteredTypes = useMemo(() => {
+    const normalized = normalizeQuery(query)
+    return types.filter((type) => matchesQuery(type.name, normalized))
+  }, [types, query])
+
+  function startEdit(type) {
+    setEditingId(type.id)
+    setEditValues(valuesFromType(type))
+    setError('')
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditValues(valuesFromType(null))
+    setPendingLevelChange(null)
+  }
+
+  async function saveType(type, values) {
+    setSaving(true)
+    setError('')
+
+    const { error: saveError } = await updateRequirementType(type.id, values)
+    if (saveError) {
+      setError(saveError.message)
+      setSaving(false)
+      return
+    }
+
+    const { error: reloadError } = await loadTypes()
+    if (reloadError) {
+      setError(reloadError.message)
+      setSaving(false)
+      return
+    }
+
+    cancelEdit()
+    setSaving(false)
+  }
+
+  async function handleSave(event, type) {
+    event.preventDefault()
+    if (!editValues.name.trim()) {
+      setError('Name is required.')
+      return
+    }
+
+    if (editValues.applies_to !== type.applies_to) {
+      const { count, error: countError } =
+        await countComplianceItemsForRequirementType(type.id)
+      if (countError) {
+        setError(countError.message)
+        return
+      }
+      if (count > 0) {
+        setPendingLevelChange({ type, count, values: { ...editValues } })
+        return
+      }
+    }
+
+    await saveType(type, editValues)
+  }
+
+  async function handleArchive() {
+    if (!pendingArchive) return
+    setBusyId(pendingArchive.id)
+    setError('')
+
+    const { error: archiveError } = await archiveRequirementType(
+      pendingArchive.id,
+    )
+    if (archiveError) {
+      setError(archiveError.message)
+      setBusyId(null)
+      return
+    }
+
+    if (editingId === pendingArchive.id) cancelEdit()
+    setPendingArchive(null)
+    const { error: reloadError } = await loadTypes()
+    if (reloadError) setError(reloadError.message)
+    setBusyId(null)
+  }
+
+  async function handleRestore(type) {
+    setBusyId(type.id)
+    setError('')
+
+    const { error: restoreError } = await restoreRequirementType(type.id)
+    if (restoreError) {
+      setError(restoreError.message)
+      setBusyId(null)
+      return
+    }
+
+    const { error: reloadError } = await loadTypes()
+    if (reloadError) setError(reloadError.message)
+    setBusyId(null)
+  }
+
+  async function requestDelete(type) {
+    setError('')
+    const { count, error: countError } =
+      await countComplianceItemsForRequirementType(type.id)
+    if (countError) {
+      setError(countError.message)
+      return
+    }
+    if (count > 0) {
+      setBlockedDelete({ type, count })
+      return
+    }
+    setPendingPermanentDelete(type)
+  }
+
+  async function handleDelete() {
+    if (!pendingPermanentDelete) return
+    setBusyId(pendingPermanentDelete.id)
+    setError('')
+
+    const { error: deleteError } = await deleteRequirementType(
+      pendingPermanentDelete.id,
+    )
+    if (deleteError) {
+      setError(deleteError.message)
+      setBusyId(null)
+      return
+    }
+
+    setPendingPermanentDelete(null)
+    const { error: reloadError } = await loadTypes()
+    if (reloadError) setError(reloadError.message)
+    setBusyId(null)
+  }
+
+  const editingType = types.find((type) => type.id === editingId) ?? null
 
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Requirements"
-        description="Requirement types used for staff and site compliance checks."
+        description={
+          archivedOnly
+            ? 'Archived types are hidden from add-requirement pickers and gaps. Restore to use them again.'
+            : 'Requirement types used for staff and site compliance checks.'
+        }
       />
 
       <PageError>{error}</PageError>
@@ -60,14 +275,29 @@ export function Requirements() {
         <CardHeader>
           <CardTitle>Types</CardTitle>
           <CardDescription>
-            Mandatory types appear as gaps on Overview when missing.
+            {archivedOnly
+              ? 'Restore a type or delete it permanently if nothing is recorded against it.'
+              : 'Mandatory types appear as gaps on Overview when missing. Archive retires a type that is already in use.'}
           </CardDescription>
           <CardAction>
             <span className="text-sm tabular-nums text-muted-foreground">
-              {types.length}
+              {types.length === 0 || !query.trim()
+                ? types.length
+                : `${filteredTypes.length} of ${types.length}`}
             </span>
           </CardAction>
         </CardHeader>
+        {!loading && organizationId ? (
+          <ListFilters
+            query={query}
+            onQueryChange={setQuery}
+            queryPlaceholder="Search by name"
+            status={viewFilter}
+            onStatusChange={setViewFilter}
+            statusOptions={ARCHIVE_VIEW_FILTERS}
+            statusLabel="Current or archived"
+          />
+        ) : null}
         <CardContent className="px-0">
           {loading ? (
             <PageMuted>Loading requirements…</PageMuted>
@@ -76,7 +306,13 @@ export function Requirements() {
               No organization yet. Sign out and back in if this persists.
             </PageMuted>
           ) : types.length === 0 ? (
-            <PageMuted>No requirement types yet.</PageMuted>
+            <PageMuted>
+              {archivedOnly
+                ? 'No archived requirement types.'
+                : 'No requirement types yet.'}
+            </PageMuted>
+          ) : filteredTypes.length === 0 ? (
+            <PageMuted>No matching requirement types.</PageMuted>
           ) : (
             <Table>
               <THead>
@@ -86,21 +322,29 @@ export function Requirements() {
                 <Th>Validity</Th>
                 <Th>Renewal lead</Th>
                 <Th>Recheck</Th>
+                <Th className="text-right">Actions</Th>
               </THead>
               <tbody>
-                {types.map((type) => (
+                {filteredTypes.map((type) => (
                   <Tr key={type.id} className="hover:bg-muted/40">
                     <Td slot="label" className="font-medium text-card-foreground">
                       {type.name}
                       <p className="mt-0.5 text-xs font-normal text-muted-foreground md:hidden">
-                        {type.applies_to === 'site' ? 'Site' : 'Staff'}
+                        {levelLabel(type.applies_to)}
                       </p>
+                      {isArchived(type) ? (
+                        <p className="mt-0.5 text-xs font-normal text-muted-foreground">
+                          Archived {formatTimestamp(type.archived_at)}
+                        </p>
+                      ) : null}
                     </Td>
                     <Td slot="extra" className="text-muted-foreground">
-                      {type.applies_to === 'site' ? 'Site' : 'Staff'}
+                      {levelLabel(type.applies_to)}
                     </Td>
                     <Td slot="status">
-                      {type.mandatory ? (
+                      {isArchived(type) ? (
+                        <StatusBadge status="Archived" />
+                      ) : type.mandatory ? (
                         <Badge className="border-transparent bg-status-valid text-status-valid-foreground">
                           Mandatory
                         </Badge>
@@ -127,6 +371,61 @@ export function Requirements() {
                         ? `${type.recheck_interval_days} days`
                         : '—'}
                     </Td>
+                    <Td slot="action">
+                      <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
+                        {archivedOnly ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => handleRestore(type)}
+                              disabled={busyId === type.id}
+                            >
+                              {busyId === type.id ? 'Restoring…' : 'Restore'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => requestDelete(type)}
+                              disabled={busyId === type.id}
+                            >
+                              Delete permanently
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => startEdit(type)}
+                              disabled={saving || busyId === type.id}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setPendingArchive(type)}
+                              disabled={saving || busyId === type.id}
+                            >
+                              Archive
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => requestDelete(type)}
+                              disabled={saving || busyId === type.id}
+                            >
+                              Delete permanently
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </Td>
                   </Tr>
                 ))}
               </tbody>
@@ -134,6 +433,217 @@ export function Requirements() {
           )}
         </CardContent>
       </Card>
+
+      {editingType && !archivedOnly ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Edit {editingType.name}</CardTitle>
+            <CardDescription>
+              Changing the level on a type that already has records needs
+              confirmation first.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              className="space-y-5"
+              onSubmit={(event) => handleSave(event, editingType)}
+            >
+              <FieldGrid>
+                <Field label="Name">
+                  <Input
+                    value={editValues.name}
+                    onChange={(event) =>
+                      setEditValues((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    required
+                    disabled={saving}
+                  />
+                </Field>
+                <Field label="Level">
+                  <Select
+                    value={editValues.applies_to}
+                    onChange={(event) =>
+                      setEditValues((current) => ({
+                        ...current,
+                        applies_to: event.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                    aria-label="Level"
+                  >
+                    <option value="staff">Staff</option>
+                    <option value="site">Site</option>
+                  </Select>
+                </Field>
+                <Field label="Validity (months)">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editValues.validity_months}
+                    onChange={(event) =>
+                      setEditValues((current) => ({
+                        ...current,
+                        validity_months: event.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                  />
+                </Field>
+                <Field label="Renewal lead (days)">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editValues.renewal_lead_days}
+                    onChange={(event) =>
+                      setEditValues((current) => ({
+                        ...current,
+                        renewal_lead_days: event.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                  />
+                </Field>
+                <Field label="Recheck interval (days)">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={editValues.recheck_interval_days}
+                    onChange={(event) =>
+                      setEditValues((current) => ({
+                        ...current,
+                        recheck_interval_days: event.target.value,
+                      }))
+                    }
+                    disabled={saving}
+                  />
+                </Field>
+                <Field label="Mandatory">
+                  <Choice
+                    type="checkbox"
+                    checked={editValues.mandatory}
+                    onChange={(event) =>
+                      setEditValues((current) => ({
+                        ...current,
+                        mandatory: event.target.checked,
+                      }))
+                    }
+                    disabled={saving}
+                  >
+                    Required for gaps and overall compliance
+                  </Choice>
+                </Field>
+              </FieldGrid>
+              <FormActions>
+                <Button type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={cancelEdit}
+                  disabled={saving}
+                >
+                  Cancel
+                </Button>
+              </FormActions>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <ConfirmDeleteDialog
+        open={Boolean(pendingLevelChange)}
+        onOpenChange={(open) => {
+          if (!open) setPendingLevelChange(null)
+        }}
+        title={`Change ${pendingLevelChange?.type.name ?? 'this type'} to ${levelLabel(pendingLevelChange?.values.applies_to)}?`}
+        description={
+          pendingLevelChange
+            ? `This type already has ${pendingLevelChange.count} recorded ${pendingLevelChange.count === 1 ? 'item' : 'items'}. Changing the level does not move those records — they stay on their current staff or site.`
+            : ''
+        }
+        confirming={saving}
+        onConfirm={() => {
+          const pending = pendingLevelChange
+          if (!pending) return
+          setPendingLevelChange(null)
+          return saveType(pending.type, pending.values)
+        }}
+        confirmLabel="Change level"
+        confirmingLabel="Saving…"
+        variant="default"
+      />
+
+      <ConfirmDeleteDialog
+        open={Boolean(pendingArchive)}
+        onOpenChange={(open) => {
+          if (!open) setPendingArchive(null)
+        }}
+        title={
+          pendingArchive
+            ? typeArchiveTitle(pendingArchive.name)
+            : 'Archive type?'
+        }
+        description={TYPE_ARCHIVE_WARNING}
+        confirming={Boolean(pendingArchive && busyId === pendingArchive.id)}
+        onConfirm={handleArchive}
+        confirmLabel="Archive"
+        confirmingLabel="Archiving…"
+      />
+
+      <ConfirmDeleteDialog
+        open={Boolean(blockedDelete)}
+        onOpenChange={(open) => {
+          if (!open) setBlockedDelete(null)
+        }}
+        title={
+          blockedDelete
+            ? `Cannot delete ${blockedDelete.type.name}`
+            : 'Cannot delete'
+        }
+        description={
+          blockedDelete
+            ? `This type has ${blockedDelete.count} recorded ${blockedDelete.count === 1 ? 'item' : 'items'}. Delete is blocked so those records are not lost. Archive it instead.`
+            : ''
+        }
+        confirming={Boolean(
+          blockedDelete && busyId === blockedDelete.type.id,
+        )}
+        onConfirm={() => {
+          const type = blockedDelete?.type
+          setBlockedDelete(null)
+          if (type) setPendingArchive(type)
+        }}
+        confirmLabel="Archive instead"
+        confirmingLabel="Archiving…"
+        variant="default"
+      />
+
+      <ConfirmDeleteDialog
+        open={Boolean(pendingPermanentDelete)}
+        onOpenChange={(open) => {
+          if (!open) setPendingPermanentDelete(null)
+        }}
+        title={
+          pendingPermanentDelete
+            ? typeDeleteTitle(pendingPermanentDelete.name)
+            : 'Delete permanently?'
+        }
+        description={TYPE_DELETE_WARNING}
+        confirming={Boolean(
+          pendingPermanentDelete &&
+            busyId === pendingPermanentDelete.id,
+        )}
+        onConfirm={handleDelete}
+        confirmLabel="Delete permanently"
+        confirmPhrase={PERMANENT_DELETE_PHRASE}
+      />
     </section>
   )
 }

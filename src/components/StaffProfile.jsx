@@ -31,6 +31,7 @@ import {
   staffDeleteTitle,
 } from './ConfirmDeleteDialog'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
+import { AlertTimingHint } from './AlertTimingHint'
 import { ProfileSkeleton } from './PageSkeletons'
 import { DocumentAttached } from './DocumentLink'
 import { StatusBadge } from './StatusBadge'
@@ -151,7 +152,7 @@ export function StaffProfile() {
         sitesResult,
       ] = await Promise.all([
         getStaff(staffId),
-        listRequirementTypes(organizationId),
+        listRequirementTypes(organizationId, { includeArchived: true }),
         listStaffComplianceItems(organizationId, staffId),
         listStaffRequirementExclusions([staffId]),
         listSites(organizationId),
@@ -856,6 +857,12 @@ export function StaffProfile() {
                                 path={item?.document_url}
                                 disabled={busy}
                               />
+                              <AlertTimingHint
+                                className="mt-1"
+                                item={item}
+                                type={requirementType}
+                                status={itemStatus}
+                              />
                             </Td>
                             <Td
                               slot="expiry"
@@ -939,6 +946,8 @@ export function StaffProfile() {
                                   )}
                                   validityMonths={requirementType.validity_months}
                                   disabled={saving}
+                                  item={item}
+                                  requirementType={requirementType}
                                   documentContext={
                                     item
                                       ? {
@@ -984,6 +993,12 @@ export function StaffProfile() {
                               <DocumentAttached
                                 path={item.document_url}
                                 disabled={busy}
+                              />
+                              <AlertTimingHint
+                                className="mt-1"
+                                item={item}
+                                type={requirementType}
+                                status={complianceStatus(item.expiry_date)}
                               />
                             </Td>
                             <Td
@@ -1050,6 +1065,8 @@ export function StaffProfile() {
                                   showLastVerified={false}
                                   validityMonths={requirementType.validity_months}
                                   disabled={saving}
+                                  item={item}
+                                  requirementType={requirementType}
                                   documentContext={{
                                     itemId: item.id,
                                     orgId: item.org_id ?? organizationId,
@@ -1065,7 +1082,7 @@ export function StaffProfile() {
                   </tbody>
                 </Table>
               )}
-              {otherType ? (
+              {otherType && !isArchived(otherType) ? (
                 <div className="border-t border-border px-4 py-5">
                   <div className="mb-4">
                     <h3 className="text-sm font-medium text-card-foreground">
@@ -1091,6 +1108,7 @@ export function StaffProfile() {
                       showLastVerified={false}
                       validityMonths={otherType.validity_months}
                       disabled={saving}
+                      requirementType={otherType}
                     />
                   )}
                 </div>

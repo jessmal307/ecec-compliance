@@ -29,6 +29,20 @@ export const SITE_DELETE_WARNING =
 export const ITEM_DELETE_WARNING =
   'This permanently deletes the recorded check and any uploaded document. This cannot be undone. Prefer Archive unless you need a genuine data-deletion request.'
 
+export const TYPE_ARCHIVE_WARNING =
+  'This hides the type from add-requirement pickers and gap calculations. Existing recorded items stay on staff and site profiles. You can restore it later from Archived.'
+
+export const TYPE_DELETE_WARNING =
+  'This permanently deletes the requirement type. This cannot be undone. Only unused types can be deleted.'
+
+export function typeArchiveTitle(name) {
+  return `Archive ${name}?`
+}
+
+export function typeDeleteTitle(name) {
+  return `Delete ${name} permanently?`
+}
+
 export const PERMANENT_DELETE_PHRASE = 'DELETE'
 
 export function staffArchiveTitle(name) {
