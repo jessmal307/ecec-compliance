@@ -323,6 +323,10 @@ export function Overview() {
       value: dashboard.expiredCount,
       hint: 'Past expiry date',
       icon: AlertTriangle,
+      href:
+        dashboard.expiredCount > 0
+          ? `${paths.attention}?status=expired`
+          : null,
     },
     {
       label: 'Expiring in 30 days',

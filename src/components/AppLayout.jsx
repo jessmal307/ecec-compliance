@@ -15,7 +15,12 @@ import { Button } from '@/components/ui/button'
 import { ThemeToggle } from './ThemeToggle'
 import { SitesNavLinks, SitesSidebarItem } from './SitesNav'
 import { useAuth } from '../hooks/useAuth'
-import { isExpiringAttentionPath, isSitesPath, paths } from '../lib/paths'
+import {
+  isExpiredAttentionPath,
+  isExpiringAttentionPath,
+  isSitesPath,
+  paths,
+} from '../lib/paths'
 
 const pages = [
   { to: paths.home, label: 'Overview', icon: LayoutDashboard, end: true },
@@ -44,9 +49,9 @@ function pageTitle(pathname, search = '') {
   if (pathname === paths.requirements) return 'Requirements'
   if (pathname === paths.gaps) return 'Compliance gaps'
   if (pathname === paths.attention) {
-    return isExpiringAttentionPath(search)
-      ? 'Expiring in 30 days'
-      : 'Needs attention'
+    if (isExpiredAttentionPath(search)) return 'Expired'
+    if (isExpiringAttentionPath(search)) return 'Expiring in 30 days'
+    return 'Needs attention'
   }
   if (pathname === paths.settings) return 'Account'
   if (pathname === paths.privacy) return 'Privacy & Data Handling'

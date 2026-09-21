@@ -14,11 +14,12 @@ import { PageError, PageHeader } from './ui/page'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { useAuth } from '../hooks/useAuth'
 import {
+  buildExpiredItems,
   buildExpiringSoonItems,
   buildUrgentItems,
   visibleComplianceItems,
 } from '../lib/attention'
-import { isExpiringAttentionPath } from '../lib/paths'
+import { attentionStatusFilter } from '../lib/paths'
 import {
   formValuesFromItem,
   listComplianceItems,
@@ -40,7 +41,9 @@ export function Attention() {
   const { organizationId } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = searchParams.get('tab') === 'sites' ? 'sites' : 'staff'
-  const expiringOnly = isExpiringAttentionPath(searchParams)
+  const statusFilter = attentionStatusFilter(searchParams)
+  const expiringOnly = statusFilter === 'expiring'
+  const expiredOnly = statusFilter === 'expired'
   const [items, setItems] = useState([])
   const [staff, setStaff] = useState([])
   const [sites, setSites] = useState([])
@@ -224,9 +227,9 @@ export function Attention() {
       siteExclusions,
     }
 
-    return expiringOnly
-      ? buildExpiringSoonItems(args)
-      : buildUrgentItems(args)
+    if (expiredOnly) return buildExpiredItems(args)
+    if (expiringOnly) return buildExpiringSoonItems(args)
+    return buildUrgentItems(args)
   }, [
     items,
     staff,
@@ -234,6 +237,7 @@ export function Attention() {
     requirementTypes,
     exclusions,
     siteExclusions,
+    expiredOnly,
     expiringOnly,
   ])
 
@@ -255,11 +259,19 @@ export function Attention() {
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
-        title={expiringOnly ? 'Expiring in 30 days' : 'Needs attention'}
+        title={
+          expiredOnly
+            ? 'Expired'
+            : expiringOnly
+              ? 'Expiring in 30 days'
+              : 'Needs attention'
+        }
         description={
-          expiringOnly
-            ? 'Required items that expire within 30 days, soonest first.'
-            : 'Expired items first, then overdue rechecks, then soonest to expire.'
+          expiredOnly
+            ? 'Required items that are past their expiry date, most overdue first.'
+            : expiringOnly
+              ? 'Required items that expire within 30 days, soonest first.'
+              : 'Expired items first, then overdue rechecks, then soonest to expire.'
         }
       />
 
@@ -275,10 +287,14 @@ export function Attention() {
         <Card>
           <CardHeader>
             <CardTitle>
-              {expiringOnly ? 'Expiring items' : 'All urgent items'}
+              {expiredOnly
+                ? 'Expired items'
+                : expiringOnly
+                  ? 'Expiring items'
+                  : 'All urgent items'}
             </CardTitle>
             <CardDescription>
-              {expiringOnly
+              {expiredOnly || expiringOnly
                 ? 'Click an item to open it on the staff or site profile.'
                 : 'Staff-level and site-level records that are expired, overdue for recheck, or coming due.'}
             </CardDescription>
@@ -289,7 +305,7 @@ export function Attention() {
               onValueChange={(next) => {
                 cancelEditItem()
                 const nextParams = {}
-                if (expiringOnly) nextParams.status = 'expiring'
+                if (statusFilter) nextParams.status = statusFilter
                 if (next === 'sites') nextParams.tab = 'sites'
                 setSearchParams(nextParams, { replace: true })
               }}
@@ -313,9 +329,11 @@ export function Attention() {
                   items={staffItems}
                   kind="staff"
                   emptyMessage={
-                    expiringOnly
-                      ? 'No staff items expire in the next 30 days.'
-                      : undefined
+                    expiredOnly
+                      ? 'No staff items are expired.'
+                      : expiringOnly
+                        ? 'No staff items expire in the next 30 days.'
+                        : undefined
                   }
                   {...listProps}
                 />
@@ -325,9 +343,11 @@ export function Attention() {
                   items={siteItems}
                   kind="sites"
                   emptyMessage={
-                    expiringOnly
-                      ? 'No site items expire in the next 30 days.'
-                      : undefined
+                    expiredOnly
+                      ? 'No site items are expired.'
+                      : expiringOnly
+                        ? 'No site items expire in the next 30 days.'
+                        : undefined
                   }
                   {...listProps}
                 />

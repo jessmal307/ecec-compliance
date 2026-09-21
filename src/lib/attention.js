@@ -121,14 +121,17 @@ export function buildUrgentItems({
   }
 }
 
-export function buildExpiringSoonItems({
-  visibleItems,
-  activeStaff,
-  sites,
-  requirementTypes,
-  exclusions,
-  siteExclusions,
-}) {
+function buildRequiredItemsByStatus(
+  status,
+  {
+    visibleItems,
+    activeStaff,
+    sites,
+    requirementTypes,
+    exclusions,
+    siteExclusions,
+  },
+) {
   const mandatoryStaffTypes = requirementTypes.filter(
     (type) => type.mandatory && isStaffRequirementType(type),
   )
@@ -136,7 +139,7 @@ export function buildExpiringSoonItems({
     (type) => type.mandatory && isSiteRequirementType(type),
   )
 
-  const expiring = []
+  const matched = []
 
   for (const member of activeStaff) {
     for (const type of mandatoryStaffTypes) {
@@ -146,8 +149,8 @@ export function buildExpiringSoonItems({
           row.staff_id === member.id && row.requirement_type_id === type.id,
       )
       if (!item) continue
-      if (complianceStatus(item.expiry_date) !== 'Expiring soon') continue
-      expiring.push(item)
+      if (complianceStatus(item.expiry_date) !== status) continue
+      matched.push(item)
     }
   }
 
@@ -159,20 +162,28 @@ export function buildExpiringSoonItems({
           row.site_id === site.id && row.requirement_type_id === type.id,
       )
       if (!item) continue
-      if (complianceStatus(item.expiry_date) !== 'Expiring soon') continue
-      expiring.push(item)
+      if (complianceStatus(item.expiry_date) !== status) continue
+      matched.push(item)
     }
   }
 
-  expiring.sort((a, b) =>
+  matched.sort((a, b) =>
     String(a.expiry_date ?? '').localeCompare(String(b.expiry_date ?? '')),
   )
 
   return {
-    items: expiring,
-    staffItems: expiring.filter((item) => item.ownerKind === 'staff'),
-    siteItems: expiring.filter((item) => item.ownerKind !== 'staff'),
+    items: matched,
+    staffItems: matched.filter((item) => item.ownerKind === 'staff'),
+    siteItems: matched.filter((item) => item.ownerKind !== 'staff'),
   }
+}
+
+export function buildExpiringSoonItems(args) {
+  return buildRequiredItemsByStatus('Expiring soon', args)
+}
+
+export function buildExpiredItems(args) {
+  return buildRequiredItemsByStatus('Expired', args)
 }
 
 export function visibleComplianceItems({

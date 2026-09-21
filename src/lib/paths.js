@@ -44,8 +44,18 @@ export function ownerRequirementPath(item) {
   }
 }
 
+export function attentionStatusFilter(search) {
+  const status = new URLSearchParams(search).get('status')
+  if (status === 'expiring' || status === 'expired') return status
+  return null
+}
+
 export function isExpiringAttentionPath(search) {
-  return new URLSearchParams(search).get('status') === 'expiring'
+  return attentionStatusFilter(search) === 'expiring'
+}
+
+export function isExpiredAttentionPath(search) {
+  return attentionStatusFilter(search) === 'expired'
 }
 
 export function isSitesPath(pathname) {
