@@ -29,15 +29,12 @@ import {
   visibleComplianceItems,
 } from '../lib/attention'
 import {
-  complianceStatus,
-  isSiteRequirementType,
-  isStaffRequirementType,
   listComplianceItems,
   listRequirementTypes,
+  todayIsoDate,
 } from '../lib/compliance'
+import { buildProviderComplianceReport } from '../lib/dashboardCompliance'
 import {
-  isRequirementExcluded,
-  isSiteRequirementExcluded,
   listStaffRequirementExclusionsForOrg,
   listSiteRequirementExclusionsForOrg,
 } from '../lib/exclusions'
@@ -62,65 +59,6 @@ function missingOwnersHint(staffOwners, siteOwners) {
     parts.push(countLabel(siteOwners, 'site', 'sites'))
   }
   return `Across ${parts.join(' and ')}`
-}
-
-function requiredSlotStatus(item) {
-  if (!item) return 'Missing'
-  return complianceStatus(item.expiry_date)
-}
-
-function findRequiredItem(visibleItems, matches) {
-  return visibleItems.find(matches) ?? null
-}
-
-function staffRequiredSlots(member, mandatoryStaffTypes, visibleItems, exclusions) {
-  return mandatoryStaffTypes
-    .filter((type) => !isRequirementExcluded(exclusions, member.id, type.id))
-    .map((type) => ({
-      status: requiredSlotStatus(
-        findRequiredItem(
-          visibleItems,
-          (item) =>
-            item.staff_id === member.id &&
-            item.requirement_type_id === type.id,
-        ),
-      ),
-    }))
-}
-
-function siteRequiredSlots(site, mandatorySiteTypes, visibleItems, siteExclusions) {
-  return mandatorySiteTypes
-    .filter(
-      (type) => !isSiteRequirementExcluded(siteExclusions, site.id, type.id),
-    )
-    .map((type) => ({
-      status: requiredSlotStatus(
-        findRequiredItem(
-          visibleItems,
-          (item) =>
-            item.site_id === site.id && item.requirement_type_id === type.id,
-        ),
-      ),
-    }))
-}
-
-// All-in %: valid-only numerator ÷ every applicable required slot (incl. missing).
-function allInCompliance(slots) {
-  const requiredCount = slots.length
-  const compliantCount = slots.filter((slot) => slot.status === 'Valid').length
-
-  return {
-    requiredCount,
-    compliantCount,
-    expiredCount: slots.filter((slot) => slot.status === 'Expired').length,
-    expiringCount: slots.filter((slot) => slot.status === 'Expiring soon')
-      .length,
-    missingCount: slots.filter((slot) => slot.status === 'Missing').length,
-    percent:
-      requiredCount === 0
-        ? null
-        : Math.round((compliantCount / requiredCount) * 100),
-  }
 }
 
 function progressClass(percent) {
@@ -201,12 +139,6 @@ export function Overview() {
   }, [organizationId])
 
   const dashboard = useMemo(() => {
-    const mandatoryStaffTypes = requirementTypes.filter(
-      (type) => type.mandatory && isStaffRequirementType(type),
-    )
-    const mandatorySiteTypes = requirementTypes.filter(
-      (type) => type.mandatory && isSiteRequirementType(type),
-    )
     const activeStaff = staff.filter(isActiveStaff)
 
     const visibleItems = visibleComplianceItems({
@@ -225,25 +157,15 @@ export function Overview() {
       siteExclusions,
     })
 
-    const orgSlots = [
-      ...activeStaff.flatMap((member) =>
-        staffRequiredSlots(
-          member,
-          mandatoryStaffTypes,
-          visibleItems,
-          exclusions,
-        ),
-      ),
-      ...sites.flatMap((site) =>
-        siteRequiredSlots(
-          site,
-          mandatorySiteTypes,
-          visibleItems,
-          siteExclusions,
-        ),
-      ),
-    ]
-    const orgCompliance = allInCompliance(orgSlots)
+    const report = buildProviderComplianceReport({
+      staff,
+      sites,
+      items,
+      requirementTypes,
+      exclusions,
+      siteExclusions,
+      todayIso: todayIsoDate(),
+    })
 
     const { items: urgentItems } = buildUrgentItems({
       visibleItems,
@@ -254,44 +176,22 @@ export function Overview() {
       siteExclusions,
     })
 
-    const siteRows = sites.map((site) => {
-      const staffAtSite = activeStaff.filter((member) =>
-        member.sites.some((assigned) => assigned.id === site.id),
-      )
-      const siteSlots = [
-        ...siteRequiredSlots(
-          site,
-          mandatorySiteTypes,
-          visibleItems,
-          siteExclusions,
-        ),
-        ...staffAtSite.flatMap((member) =>
-          staffRequiredSlots(
-            member,
-            mandatoryStaffTypes,
-            visibleItems,
-            exclusions,
-          ),
-        ),
-      ]
-      const siteCompliance = allInCompliance(siteSlots)
-
-      return {
-        site,
-        percent: siteCompliance.percent,
-        expiredCount: siteCompliance.expiredCount,
-        expiringCount: siteCompliance.expiringCount,
-        missingCount: siteCompliance.missingCount,
-        staffCount: staffAtSite.length,
-      }
-    })
+    const siteById = new Map(sites.map((site) => [site.id, site]))
+    const siteRows = report.sites.map((section) => ({
+      site: siteById.get(section.id) ?? { id: section.id, name: section.name },
+      percent: section.percent,
+      expiredCount: section.expiredCount,
+      expiringCount: section.expiringCount,
+      missingCount: section.missingCount,
+      staffCount: section.staffCount,
+    }))
 
     return {
-      compliancePercent: orgCompliance.percent,
-      requiredCount: orgCompliance.requiredCount,
-      expiredCount: orgCompliance.expiredCount,
-      expiringCount: orgCompliance.expiringCount,
-      missingCount: orgCompliance.missingCount,
+      compliancePercent: report.org.percent,
+      requiredCount: report.org.requiredCount,
+      expiredCount: report.org.expiredCount,
+      expiringCount: report.org.expiringCount,
+      missingCount: report.org.missingCount,
       missingStaffOwners: gaps.filter(
         (row) => row.kind === 'staff' && row.missing.length > 0,
       ).length,
