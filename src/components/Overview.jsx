@@ -63,41 +63,70 @@ function missingOwnersHint(staffOwners, siteOwners) {
   return `Across ${parts.join(' and ')}`
 }
 
-function coverageTone(recorded, missing) {
-  if (missing === 0) return 'ok'
-  if (recorded === 0 || missing >= recorded) return 'high'
-  return 'warn'
+function requiredSlotStatus(item) {
+  if (!item) return 'Missing'
+  return complianceStatus(item.expiry_date)
 }
 
-function coverageCardClass(tone) {
-  if (tone === 'high') {
-    return 'border-status-expired/40 bg-status-expired-muted/60'
+function findRequiredItem(visibleItems, matches) {
+  return visibleItems.find(matches) ?? null
+}
+
+function staffRequiredSlots(member, mandatoryStaffTypes, visibleItems, exclusions) {
+  return mandatoryStaffTypes
+    .filter((type) => !isRequirementExcluded(exclusions, member.id, type.id))
+    .map((type) => ({
+      status: requiredSlotStatus(
+        findRequiredItem(
+          visibleItems,
+          (item) =>
+            item.staff_id === member.id &&
+            item.requirement_type_id === type.id,
+        ),
+      ),
+    }))
+}
+
+function siteRequiredSlots(site, mandatorySiteTypes, visibleItems, siteExclusions) {
+  return mandatorySiteTypes
+    .filter(
+      (type) => !isSiteRequirementExcluded(siteExclusions, site.id, type.id),
+    )
+    .map((type) => ({
+      status: requiredSlotStatus(
+        findRequiredItem(
+          visibleItems,
+          (item) =>
+            item.site_id === site.id && item.requirement_type_id === type.id,
+        ),
+      ),
+    }))
+}
+
+// All-in %: valid-only numerator ÷ every applicable required slot (incl. missing).
+function allInCompliance(slots) {
+  const requiredCount = slots.length
+  const compliantCount = slots.filter((slot) => slot.status === 'Valid').length
+
+  return {
+    requiredCount,
+    compliantCount,
+    expiredCount: slots.filter((slot) => slot.status === 'Expired').length,
+    expiringCount: slots.filter((slot) => slot.status === 'Expiring soon')
+      .length,
+    missingCount: slots.filter((slot) => slot.status === 'Missing').length,
+    percent:
+      requiredCount === 0
+        ? null
+        : Math.round((compliantCount / requiredCount) * 100),
   }
-  if (tone === 'warn') {
-    return 'border-status-soon/40 bg-status-soon-muted/60'
-  }
-  return ''
 }
 
-function coverageMissingClass(tone) {
-  if (tone === 'high') return 'text-status-expired'
-  if (tone === 'warn') return 'text-status-soon'
-  return 'text-card-foreground'
-}
-
-function coverageRecordedLine(recorded, required) {
-  return `${recorded} of ${required} recorded`
-}
-
-function coverageHeadline(recorded, required, missing) {
-  return `${coverageRecordedLine(recorded, required)} · ${missing} missing`
-}
-
-function coverageProgressClass(tone) {
-  if (tone === 'ok') {
+function progressClass(percent) {
+  if (percent >= 90) {
     return 'h-2 [&_[data-slot=progress-indicator]]:bg-status-valid'
   }
-  if (tone === 'warn') {
+  if (percent >= 70) {
     return 'h-2 [&_[data-slot=progress-indicator]]:bg-status-soon'
   }
   return 'h-2 [&_[data-slot=progress-indicator]]:bg-status-expired'
@@ -195,21 +224,25 @@ export function Overview() {
       siteExclusions,
     })
 
-    const missingCount = gaps.reduce((sum, row) => sum + row.missing.length, 0)
-    const expiredCount = visibleItems.filter(
-      (item) => complianceStatus(item.expiry_date) === 'Expired',
-    ).length
-    const expiringCount = visibleItems.filter(
-      (item) => complianceStatus(item.expiry_date) === 'Expiring soon',
-    ).length
-    const trackedCount = visibleItems.length
-    const currentCount = visibleItems.filter(
-      (item) => complianceStatus(item.expiry_date) !== 'Expired',
-    ).length
-    const compliancePercent =
-      trackedCount === 0
-        ? null
-        : Math.round((currentCount / trackedCount) * 100)
+    const orgSlots = [
+      ...activeStaff.flatMap((member) =>
+        staffRequiredSlots(
+          member,
+          mandatoryStaffTypes,
+          visibleItems,
+          exclusions,
+        ),
+      ),
+      ...sites.flatMap((site) =>
+        siteRequiredSlots(
+          site,
+          mandatorySiteTypes,
+          visibleItems,
+          siteExclusions,
+        ),
+      ),
+    ]
+    const orgCompliance = allInCompliance(orgSlots)
 
     const { items: urgentItems } = buildUrgentItems({
       visibleItems,
@@ -224,61 +257,40 @@ export function Overview() {
       const staffAtSite = activeStaff.filter((member) =>
         member.sites.some((assigned) => assigned.id === site.id),
       )
-      const staffIds = new Set(staffAtSite.map((member) => member.id))
-      const recordedItems = visibleItems.filter(
-        (item) =>
-          item.site_id === site.id || staffIds.has(item.staff_id),
-      )
-      const siteMissing = mandatorySiteTypes.filter(
-        (type) =>
-          !isSiteRequirementExcluded(siteExclusions, site.id, type.id) &&
-          !recordedItems.some(
-            (item) =>
-              item.site_id === site.id &&
-              item.requirement_type_id === type.id,
+      const siteSlots = [
+        ...siteRequiredSlots(
+          site,
+          mandatorySiteTypes,
+          visibleItems,
+          siteExclusions,
+        ),
+        ...staffAtSite.flatMap((member) =>
+          staffRequiredSlots(
+            member,
+            mandatoryStaffTypes,
+            visibleItems,
+            exclusions,
           ),
-      ).length
-      const staffMissing = staffAtSite.reduce((sum, member) => {
-        return (
-          sum +
-          mandatoryStaffTypes.filter(
-            (type) =>
-              !isRequirementExcluded(exclusions, member.id, type.id) &&
-              !visibleItems.some(
-                (item) =>
-                  item.staff_id === member.id &&
-                  item.requirement_type_id === type.id,
-              ),
-          ).length
-        )
-      }, 0)
-      const recorded = recordedItems.length
-      const missing = siteMissing + staffMissing
-      const required = recorded + missing
-      const current = recordedItems.filter(
-        (item) => complianceStatus(item.expiry_date) !== 'Expired',
-      ).length
-      const percent =
-        recorded === 0 ? null : Math.round((current / recorded) * 100)
+        ),
+      ]
+      const siteCompliance = allInCompliance(siteSlots)
 
       return {
         site,
-        percent,
-        recorded,
-        missing,
-        required,
+        percent: siteCompliance.percent,
+        expiredCount: siteCompliance.expiredCount,
+        expiringCount: siteCompliance.expiringCount,
+        missingCount: siteCompliance.missingCount,
         staffCount: staffAtSite.length,
-        tone: coverageTone(recorded, missing),
       }
     })
 
     return {
-      compliancePercent,
-      trackedCount,
-      requiredCount: trackedCount + missingCount,
-      expiredCount,
-      expiringCount,
-      missingCount,
+      compliancePercent: orgCompliance.percent,
+      requiredCount: orgCompliance.requiredCount,
+      expiredCount: orgCompliance.expiredCount,
+      expiringCount: orgCompliance.expiringCount,
+      missingCount: orgCompliance.missingCount,
       missingStaffOwners: gaps.filter(
         (row) => row.kind === 'staff' && row.missing.length > 0,
       ).length,
@@ -293,8 +305,19 @@ export function Overview() {
   }, [items, staff, sites, requirementTypes, exclusions, siteExclusions])
 
   const setup = setupProgress({ sites, staff, requirementTypes })
-  const orgTone = coverageTone(dashboard.trackedCount, dashboard.missingCount)
-  const secondaryStats = [
+  const stats = [
+    {
+      label: 'Overall compliance',
+      value:
+        dashboard.compliancePercent == null
+          ? '—'
+          : `${dashboard.compliancePercent}%`,
+      hint:
+        dashboard.requiredCount === 0
+          ? 'No required items yet'
+          : 'Valid and in date, of all required items',
+      icon: ShieldCheck,
+    },
     {
       label: 'Expired',
       value: dashboard.expiredCount,
@@ -306,6 +329,19 @@ export function Overview() {
       value: dashboard.expiringCount,
       hint: 'Still in date, due soon',
       icon: Clock,
+    },
+    {
+      label: 'Missing',
+      value: dashboard.missingCount,
+      hint:
+        dashboard.missingCount === 0
+          ? 'All required records are entered'
+          : missingOwnersHint(
+              dashboard.missingStaffOwners,
+              dashboard.missingSiteOwners,
+            ),
+      icon: UserRoundX,
+      href: dashboard.missingCount > 0 ? paths.gaps : null,
     },
   ]
 
@@ -331,84 +367,11 @@ export function Overview() {
         <GetStarted steps={setup.steps} />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardDescription>Compliance</CardDescription>
-                <CardTitle className="text-3xl font-semibold tabular-nums tracking-tight">
-                  {dashboard.compliancePercent == null
-                    ? '—'
-                    : `${dashboard.compliancePercent}%`}
-                </CardTitle>
-                <CardAction>
-                  <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-card-foreground">
-                    <ShieldCheck className="size-4" />
-                  </span>
-                </CardAction>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Of recorded items
-                </p>
-              </CardContent>
-            </Card>
-
-            <Link
-              to={dashboard.missingCount > 0 ? paths.gaps : paths.compliance}
-              className="min-w-0 no-underline"
-            >
-              <Card
-                className={`h-full transition-colors hover:bg-muted/30 ${coverageCardClass(orgTone)}`}
-              >
-                <CardHeader>
-                  <CardDescription>Coverage</CardDescription>
-                  <CardTitle
-                    className={`text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl ${coverageMissingClass(orgTone)}`}
-                  >
-                    {dashboard.trackedCount === 0
-                      ? coverageRecordedLine(
-                          dashboard.trackedCount,
-                          dashboard.requiredCount,
-                        )
-                      : coverageHeadline(
-                          dashboard.trackedCount,
-                          dashboard.requiredCount,
-                          dashboard.missingCount,
-                        )}
-                  </CardTitle>
-                  <CardAction>
-                    <span
-                      className={`flex size-9 items-center justify-center rounded-lg ${
-                        orgTone === 'high'
-                          ? 'bg-status-expired text-status-expired-foreground'
-                          : orgTone === 'warn'
-                            ? 'bg-status-soon text-status-soon-foreground'
-                            : 'bg-muted text-card-foreground'
-                      }`}
-                    >
-                      <UserRoundX className="size-4" />
-                    </span>
-                  </CardAction>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    {dashboard.missingCount === 0
-                      ? 'All required records are entered'
-                      : missingOwnersHint(
-                          dashboard.missingStaffOwners,
-                          dashboard.missingSiteOwners,
-                        )}
-                  </p>
-                </CardContent>
-              </Card>
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {secondaryStats.map((stat) => {
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 xl:gap-4">
+            {stats.map((stat) => {
               const Icon = stat.icon
-              return (
-                <Card key={stat.label}>
+              const body = (
+                <>
                   <CardHeader>
                     <CardDescription>{stat.label}</CardDescription>
                     <CardTitle className="text-3xl font-semibold tabular-nums tracking-tight">
@@ -421,9 +384,25 @@ export function Overview() {
                     </CardAction>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-xs text-muted-foreground">{stat.hint}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {stat.href ? `${stat.hint}. Add them` : stat.hint}
+                    </p>
                   </CardContent>
-                </Card>
+                </>
+              )
+
+              return stat.href ? (
+                <Link
+                  key={stat.label}
+                  to={stat.href}
+                  className="min-w-0 no-underline"
+                >
+                  <Card className="h-full transition-colors hover:bg-muted/30">
+                    {body}
+                  </Card>
+                </Link>
+              ) : (
+                <Card key={stat.label}>{body}</Card>
               )
             })}
           </div>
@@ -509,8 +488,7 @@ export function Overview() {
                 <CardHeader>
                   <CardTitle>By site</CardTitle>
                   <CardDescription>
-                    Compliance of recorded items, and coverage of required
-                    records.
+                    Valid and in date, of all required items at that site.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -519,85 +497,58 @@ export function Overview() {
                       No sites yet.
                     </p>
                   ) : (
-                    <ul className="space-y-5">
+                    <ul className="space-y-4">
                       {dashboard.siteRows.map(
                         ({
                           site,
                           percent,
-                          recorded,
-                          missing,
-                          required,
+                          expiredCount,
+                          expiringCount,
+                          missingCount,
                           staffCount,
-                          tone,
-                        }) => {
-                          const coveragePercent =
-                            required === 0
-                              ? 0
-                              : Math.round((recorded / required) * 100)
-
-                          return (
-                            <li key={site.id} className="space-y-2">
-                              <div className="flex items-baseline justify-between gap-3">
-                                <Link
-                                  to={paths.siteProfile(site.id)}
-                                  className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
+                        }) => (
+                          <li key={site.id} className="space-y-2">
+                            <div className="flex items-baseline justify-between gap-3">
+                              <Link
+                                to={paths.siteProfile(site.id)}
+                                className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
+                              >
+                                {site.name}
+                              </Link>
+                              <div className="flex items-center gap-2">
+                                <p
+                                  className={
+                                    percent === null
+                                      ? 'text-sm text-muted-foreground'
+                                      : 'text-sm tabular-nums text-card-foreground'
+                                  }
                                 >
-                                  {site.name}
-                                </Link>
+                                  {percent === null ? '—' : `${percent}%`}
+                                </p>
                                 <Button asChild variant="outline" size="sm">
                                   <Link to={paths.siteProfile(site.id)}>
                                     Profile
                                   </Link>
                                 </Button>
                               </div>
-                              <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                  <p className="text-xs text-muted-foreground">
-                                    Compliance
-                                  </p>
-                                  <p
-                                    className={
-                                      percent === null
-                                        ? 'text-sm text-muted-foreground'
-                                        : 'text-sm font-semibold tabular-nums text-card-foreground'
-                                    }
-                                  >
-                                    {percent === null ? '—' : `${percent}%`}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    Of recorded items
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-muted-foreground">
-                                    Coverage
-                                  </p>
-                                  <p
-                                    className={`text-sm font-semibold tabular-nums ${coverageMissingClass(tone)}`}
-                                  >
-                                    {recorded === 0
-                                      ? coverageRecordedLine(
-                                          recorded,
-                                          required,
-                                        )
-                                      : coverageHeadline(
-                                          recorded,
-                                          required,
-                                          missing,
-                                        )}
-                                  </p>
-                                </div>
-                              </div>
-                              <Progress
-                                value={coveragePercent}
-                                className={coverageProgressClass(tone)}
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                {countLabel(staffCount, 'staff member', 'staff')}
-                              </p>
-                            </li>
-                          )
-                        },
+                            </div>
+                            <Progress
+                              value={percent ?? 0}
+                              className={
+                                percent === null
+                                  ? 'h-2'
+                                  : progressClass(percent)
+                              }
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              {countLabel(staffCount, 'staff member', 'staff')}
+                              {' · '}
+                              {expiredCount} expired · {expiringCount} expiring
+                              {' · '}
+                              {missingCount} missing
+                            </p>
+                          </li>
+                        ),
                       )}
                     </ul>
                   )}
