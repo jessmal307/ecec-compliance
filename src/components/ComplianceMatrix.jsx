@@ -47,12 +47,13 @@ const MATRIX_STATUS_FILTERS = STATUS_FILTERS.filter(
 )
 
 const CELL_CLASS = {
-  Valid: 'bg-status-valid-muted text-status-valid hover:bg-status-valid/20',
+  Valid: 'bg-status-valid text-status-valid-foreground hover:brightness-95',
   'Expiring soon':
-    'bg-status-soon-muted text-status-soon-foreground hover:bg-status-soon/30',
+    'bg-status-soon text-status-soon-foreground hover:brightness-95',
   Expired:
-    'bg-status-expired-muted text-status-expired hover:bg-status-expired/20',
-  Missing: 'bg-muted text-muted-foreground hover:bg-muted/80',
+    'bg-status-expired text-status-expired-foreground hover:brightness-95',
+  Missing:
+    'bg-card text-muted-foreground hover:bg-muted/60',
 }
 
 function cellLabel({ type, member, cell }) {
@@ -80,7 +81,7 @@ function MatrixCell({ type, member, cell, onOpen }) {
   return (
     <button
       type="button"
-      className={`flex min-h-14 min-w-24 flex-col items-center justify-center gap-0.5 border border-border/40 px-1.5 py-2 text-center text-xs font-medium tabular-nums ${CELL_CLASS[cell.status] ?? CELL_CLASS.Missing}`}
+      className={`flex min-h-14 min-w-24 flex-col items-center justify-center gap-0.5 border border-foreground/15 px-1.5 py-2 text-center text-xs font-semibold tabular-nums ${CELL_CLASS[cell.status] ?? CELL_CLASS.Missing}`}
       onClick={() => onOpen({ type, member, cell })}
       aria-label={cellLabel({ type, member, cell })}
     >
