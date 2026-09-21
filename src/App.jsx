@@ -17,6 +17,7 @@ import { Staff } from './components/Staff'
 import { StaffProfile } from './components/StaffProfile'
 import { LegalLinks } from './components/LegalDocument'
 import { Privacy } from './components/Privacy'
+import { Security } from './components/Security'
 import { Terms } from './components/Terms'
 import { ThemeToggle } from './components/ThemeToggle'
 import { AuthProvider } from './context/AuthProvider'
@@ -77,6 +78,7 @@ function AppShell() {
           <Route path={paths.settings} element={<AccountSettings />} />
           <Route path={paths.privacy} element={<Privacy />} />
           <Route path={paths.terms} element={<Terms />} />
+          <Route path={paths.security} element={<Security />} />
           <Route path="*" element={<Navigate to={paths.home} replace />} />
         </Route>
       ) : (
@@ -94,6 +96,14 @@ function AppShell() {
             element={
               <GuestShell>
                 <Terms />
+              </GuestShell>
+            }
+          />
+          <Route
+            path={paths.security}
+            element={
+              <GuestShell>
+                <Security />
               </GuestShell>
             }
           />

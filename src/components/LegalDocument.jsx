@@ -76,12 +76,17 @@ export function LegalDocument({ title, updated, contactEmail, sections, session 
 
 export function LegalLinks() {
   return (
-    <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center">
+    <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-muted-foreground">
       <Link to={paths.privacy} className={legalLinkClassName}>
         Privacy
       </Link>
+      <span aria-hidden="true">·</span>
       <Link to={paths.terms} className={legalLinkClassName}>
         Terms
+      </Link>
+      <span aria-hidden="true">·</span>
+      <Link to={paths.security} className={legalLinkClassName}>
+        Security
       </Link>
     </p>
   )

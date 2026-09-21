@@ -32,7 +32,9 @@ export function AuthForm() {
     setConsentError('')
 
     if (isSignUp && !acceptedLegal) {
-      setConsentError('Please agree to the Privacy Policy and Terms of Service.')
+      setConsentError(
+        'Please agree to the Privacy Policy, Terms of Service, and Security statement.',
+      )
       return
     }
 
@@ -142,7 +144,7 @@ export function AuthForm() {
                 required
                 disabled={submitting}
                 aria-invalid={Boolean(consentError) || undefined}
-                aria-label="I agree to the Privacy Policy and Terms of Service"
+                aria-label="I agree to the Privacy Policy, Terms of Service, and Security statement"
               >
                 <span className="text-muted-foreground">
                   I agree to the{' '}
@@ -153,8 +155,7 @@ export function AuthForm() {
                     className="font-medium text-card-foreground underline underline-offset-4"
                   >
                     Privacy Policy
-                  </Link>{' '}
-                  and{' '}
+                  </Link>,{' '}
                   <Link
                     to={paths.terms}
                     target="_blank"
@@ -162,7 +163,16 @@ export function AuthForm() {
                     className="font-medium text-card-foreground underline underline-offset-4"
                   >
                     Terms of Service
-                  </Link>
+                  </Link>, and{' '}
+                  <Link
+                    to={paths.security}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-card-foreground underline underline-offset-4"
+                  >
+                    Security
+                  </Link>{' '}
+                  statement
                 </span>
               </Choice>
             </Field>

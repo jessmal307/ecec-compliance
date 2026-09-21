@@ -57,6 +57,7 @@ function pageTitle(pathname, search = '') {
   if (pathname === paths.settings) return 'Account'
   if (pathname === paths.privacy) return 'Privacy & Data Handling'
   if (pathname === paths.terms) return 'Terms of Service'
+  if (pathname === paths.security) return 'Data security'
   return 'ECEC'
 }
 
@@ -74,7 +75,8 @@ function isMorePath(pathname) {
     !isStaffPath(pathname) &&
     !isSitesPath(pathname) &&
     pathname !== paths.privacy &&
-    pathname !== paths.terms
+    pathname !== paths.terms &&
+    pathname !== paths.security
   )
 }
 
