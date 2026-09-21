@@ -16,9 +16,23 @@ export function DashboardSkeleton() {
       aria-busy="true"
       aria-label="Loading overview"
     >
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 xl:gap-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <Card key={index}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {Array.from({ length: 2 }, (_, index) => (
+          <Card key={`headline-${index}`}>
+            <CardHeader>
+              <Line className="h-3 w-24" />
+              <Line className="mt-2 h-8 w-40" />
+            </CardHeader>
+            <CardContent>
+              <Line className="h-3 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: 2 }, (_, index) => (
+          <Card key={`secondary-${index}`}>
             <CardHeader>
               <Line className="h-3 w-24" />
               <Line className="mt-2 h-8 w-16" />
