@@ -19,6 +19,7 @@ import { GapCategories } from './GapCategories'
 import { GetStarted, setupProgress } from './GetStarted'
 import { DashboardSkeleton } from './PageSkeletons'
 import { UrgentAttentionList } from './UrgentAttentionList'
+import { StatusLegend } from './StatusBadge'
 import { PageError, PageHeader } from './ui/page'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -375,6 +376,8 @@ export function Overview() {
         <GetStarted steps={setup.steps} />
       ) : (
         <>
+          <StatusLegend />
+
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 xl:gap-4">
             {stats.map((stat) => {
               const Icon = stat.icon
