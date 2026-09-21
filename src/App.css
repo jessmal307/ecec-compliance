@@ -24,3 +24,29 @@
 .status {
   margin: auto;
 }
+
+@media print {
+  .app-shell aside,
+  .app-shell header,
+  .app-shell nav,
+  .no-print {
+    display: none !important;
+  }
+
+  .app-shell,
+  .app-shell main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .compliance-matrix-scroll {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .compliance-matrix a {
+    text-decoration: none;
+    color: inherit;
+  }
+}

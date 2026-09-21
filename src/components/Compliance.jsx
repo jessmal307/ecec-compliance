@@ -1,14 +1,8 @@
 import { useSearchParams } from 'react-router-dom'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageHeader } from './ui/page'
 import { ComplianceItems } from './ComplianceItems'
+import { ComplianceMatrix } from './ComplianceMatrix'
 
 export function Compliance() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -30,25 +24,12 @@ export function Compliance() {
       />
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="no-print">
           <TabsTrigger value="matrix">Matrix</TabsTrigger>
           <TabsTrigger value="items">Items</TabsTrigger>
         </TabsList>
         <TabsContent value="matrix">
-          <Card>
-            <CardHeader>
-              <CardTitle>Matrix</CardTitle>
-              <CardDescription>
-                A staff-and-site view of required checks. This tab will be built
-                next.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                Nothing here yet. Use Items to add and edit compliance records.
-              </p>
-            </CardContent>
-          </Card>
+          <ComplianceMatrix />
         </TabsContent>
         <TabsContent value="items">
           <ComplianceItems embedded />
