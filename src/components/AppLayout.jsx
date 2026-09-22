@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ComingSoonDialog, ComingSoonNavItem, RESERVED_FEATURES } from './ComingSoon'
 import { FeedbackButton } from './FeedbackDialog'
+import { SitesSidebarItem } from './SitesNav'
 import { ThemeToggle } from './ThemeToggle'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -93,6 +94,16 @@ function SidebarNav({ onNavigate, onOpenSoon }) {
   return (
     <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
       {pages.map((item) => {
+        if (item.to === paths.sites) {
+          return (
+            <SitesSidebarItem
+              key={item.to}
+              onNavigate={onNavigate}
+              navClassName={navClassName}
+            />
+          )
+        }
+
         const Icon = item.icon
         return (
           <NavLink
@@ -104,11 +115,9 @@ function SidebarNav({ onNavigate, onOpenSoon }) {
               const active =
                 item.to === paths.staff
                   ? isStaffPath(pathname)
-                  : item.to === paths.sites
-                    ? isSitesPath(pathname)
-                    : item.to === paths.settings
-                      ? isSettingsNavPath(pathname)
-                      : isActive
+                  : item.to === paths.settings
+                    ? isSettingsNavPath(pathname)
+                    : isActive
               return navClassName(active)
             }}
           >

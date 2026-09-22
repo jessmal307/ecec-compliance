@@ -20,10 +20,9 @@ function childNavClassName(isActive) {
 
 function useOrgSites() {
   const { organizationId } = useAuth()
-  const { pathname, search } = useLocation()
   const [sites, setSites] = useState([])
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
 
   useEffect(() => {
@@ -48,7 +47,6 @@ function useOrgSites() {
     let cancelled = false
 
     async function load() {
-      setLoading(true)
       setError('')
       const { data, error: selectError } = await listSites(organizationId)
       if (cancelled) return
@@ -66,14 +64,13 @@ function useOrgSites() {
     return () => {
       cancelled = true
     }
-  }, [organizationId, pathname, search, revision])
+  }, [organizationId, revision])
 
-  return { sites, error, loading, organizationId }
+  return { sites, error, loading }
 }
 
-export function SitesNavLinks({ onNavigate }) {
+export function SitesNavLinks({ onNavigate, sites, error, loading }) {
   const { pathname, search } = useLocation()
-  const { sites, error, loading } = useOrgSites()
   const adding = pathname === paths.sites && isNewSiteSearch(search)
   const showingAll = pathname === paths.sites && !adding
 
@@ -105,30 +102,36 @@ export function SitesNavLinks({ onNavigate }) {
         <p className="px-2.5 py-2 text-xs text-muted-foreground">No sites yet.</p>
       ) : null}
 
-      <NavLink
-        to={{ pathname: paths.sites, search: '' }}
-        end
-        onClick={onNavigate}
-        className={childNavClassName(showingAll)}
-      >
-        <List className="size-4 shrink-0" />
-        All sites
-      </NavLink>
+      <div className="mt-0.5 border-t border-sidebar-border pt-0.5">
+        <NavLink
+          to={{ pathname: paths.sites, search: '' }}
+          end
+          onClick={onNavigate}
+          aria-current={showingAll ? 'page' : undefined}
+          className={childNavClassName(showingAll)}
+        >
+          <List className="size-4 shrink-0" />
+          Show all
+        </NavLink>
 
-      <NavLink
-        to={{ pathname: paths.sites, search: '?new=1' }}
-        onClick={onNavigate}
-        className={childNavClassName(adding)}
-      >
-        <Plus className="size-4 shrink-0" />
-        New site
-      </NavLink>
+        <NavLink
+          to={{ pathname: paths.sites, search: '?new=1' }}
+          end
+          onClick={onNavigate}
+          aria-current={adding ? 'page' : undefined}
+          className={childNavClassName(adding)}
+        >
+          <Plus className="size-4 shrink-0" />
+          Add site
+        </NavLink>
+      </div>
     </div>
   )
 }
 
 export function SitesSidebarItem({ onNavigate, navClassName }) {
   const { pathname } = useLocation()
+  const { sites, error, loading } = useOrgSites()
   const [expanded, setExpanded] = useState(() => isSitesPath(pathname))
   const [seenPath, setSeenPath] = useState(pathname)
   const sectionActive = isSitesPath(pathname)
@@ -154,7 +157,12 @@ export function SitesSidebarItem({ onNavigate, navClassName }) {
       </button>
       {expanded ? (
         <div className="mt-0.5 ml-4 border-l border-sidebar-border pl-2">
-          <SitesNavLinks onNavigate={onNavigate} />
+          <SitesNavLinks
+            onNavigate={onNavigate}
+            sites={sites}
+            error={error}
+            loading={loading}
+          />
         </div>
       ) : null}
     </div>
