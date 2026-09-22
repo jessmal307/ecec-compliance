@@ -400,12 +400,7 @@ export function AppLayout() {
         </header>
 
         <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
-          <div
-            className={cn(
-              'mx-auto w-full min-w-0 px-4 py-4 md:p-6',
-              sidebarCollapsed ? 'max-w-none' : 'max-w-7xl',
-            )}
-          >
+          <div className="w-full min-w-0 px-4 py-4 md:p-6">
             <Outlet />
           </div>
         </main>
