@@ -10,16 +10,31 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
 import { PageError, PageHeader, PageMuted, PageSuccess } from './ui/page'
 import { LegalLinks } from './LegalDocument'
 import { Requirements } from './Requirements'
 import { useAuth } from '../hooks/useAuth'
 import { getOrganization, updateOrganization } from '../lib/organizations'
+import { authRedirectUrl, paths } from '../lib/paths'
 import { supabase } from '../lib/supabase'
 
 function displayNameFromUser(user) {
   return user?.user_metadata?.display_name ?? ''
+}
+
+function emailsMatch(left, right) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase()
 }
 
 export function AccountSettings() {
@@ -31,21 +46,28 @@ export function AccountSettings() {
     ? searchParams.get('tab')
     : 'account'
   const [displayName, setDisplayName] = useState(displayNameFromUser(user))
+  const [loginEmail, setLoginEmail] = useState(user?.email ?? '')
+  const [confirmEmail, setConfirmEmail] = useState('')
   const [orgName, setOrgName] = useState('')
   const [alertEmail, setAlertEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [accountError, setAccountError] = useState('')
+  const [emailError, setEmailError] = useState('')
   const [orgError, setOrgError] = useState('')
   const [securityError, setSecurityError] = useState('')
   const [alertsError, setAlertsError] = useState('')
   const [accountSaved, setAccountSaved] = useState('')
+  const [emailSaved, setEmailSaved] = useState('')
   const [orgSaved, setOrgSaved] = useState('')
   const [securitySaved, setSecuritySaved] = useState('')
   const [alertsSaved, setAlertsSaved] = useState('')
   const [loading, setLoading] = useState(false)
   const [savingAccount, setSavingAccount] = useState(false)
+  const [savingEmail, setSavingEmail] = useState(false)
+  const [alertPromptOpen, setAlertPromptOpen] = useState(false)
+  const [pendingAlertEmail, setPendingAlertEmail] = useState('')
   const [savingOrg, setSavingOrg] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
   const [savingAlerts, setSavingAlerts] = useState(false)
@@ -53,6 +75,10 @@ export function AccountSettings() {
   useEffect(() => {
     setDisplayName(displayNameFromUser(user))
   }, [user])
+
+  useEffect(() => {
+    setLoginEmail(user?.email ?? '')
+  }, [user?.email])
 
   useEffect(() => {
     if (!organizationId) return
@@ -101,6 +127,83 @@ export function AccountSettings() {
 
     setAccountSaved('Display name saved.')
     setSavingAccount(false)
+  }
+
+  async function handleChangeEmail(event) {
+    event.preventDefault()
+    setEmailError('')
+    setEmailSaved('')
+
+    const nextEmail = loginEmail.trim()
+    const confirmed = confirmEmail.trim()
+    const currentEmail = user?.email?.trim() ?? ''
+
+    if (!nextEmail) {
+      setEmailError('Enter a new login email.')
+      return
+    }
+
+    if (currentEmail && nextEmail.toLowerCase() === currentEmail.toLowerCase()) {
+      setEmailError('That is already your login email.')
+      return
+    }
+
+    if (nextEmail.toLowerCase() !== confirmed.toLowerCase()) {
+      setEmailError('Email addresses do not match.')
+      return
+    }
+
+    if (organizationId && !emailsMatch(alertEmail || currentEmail, nextEmail)) {
+      setPendingAlertEmail(nextEmail)
+      setAlertPromptOpen(true)
+      return
+    }
+
+    await submitLoginEmailChange(nextEmail, { updateAlerts: false })
+  }
+
+  async function submitLoginEmailChange(nextEmail, { updateAlerts }) {
+    setSavingEmail(true)
+    setEmailError('')
+    setEmailSaved('')
+
+    const { error: updateError } = await supabase.auth.updateUser(
+      { email: nextEmail },
+      { emailRedirectTo: authRedirectUrl(paths.settings) },
+    )
+
+    if (updateError) {
+      setEmailError(updateError.message)
+      setSavingEmail(false)
+      return
+    }
+
+    setConfirmEmail('')
+    let saved =
+      'Check your current and new inbox to confirm. You keep signing in with the current address until then.'
+
+    if (updateAlerts && organizationId) {
+      const { data, error: alertError } = await updateOrganization(
+        organizationId,
+        { alertEmail: nextEmail },
+      )
+
+      if (alertError) {
+        setEmailError(alertError.message)
+        setEmailSaved(saved)
+        setSavingEmail(false)
+        setAlertPromptOpen(false)
+        return
+      }
+
+      setAlertEmail(data.alert_email || nextEmail)
+      saved = `${saved} Alert email updated too.`
+    }
+
+    setEmailSaved(saved)
+    setSavingEmail(false)
+    setAlertPromptOpen(false)
+    setPendingAlertEmail('')
   }
 
   async function handleSaveOrganization(event) {
@@ -222,32 +325,20 @@ export function AccountSettings() {
                 <CardHeader>
                   <CardTitle>Account</CardTitle>
                   <CardDescription>
-                    Your display name is stored on your login, not on a staff profile.
+                    Your display name and login email are stored on your account, not on a staff profile.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-5">
                   <form className="space-y-5" onSubmit={handleSaveAccount}>
                     <FormSection title="Details">
                       <FieldGrid>
-                        <Field label="Display name">
+                        <Field label="Display name" className="col-span-full">
                           <Input
                             type="text"
                             name="display_name"
                             value={displayName}
                             onChange={(event) => setDisplayName(event.target.value)}
                             disabled={savingAccount}
-                          />
-                        </Field>
-                        <Field
-                          label="Login email"
-                          hint="Used to sign in. This cannot be changed here."
-                        >
-                          <Input
-                            type="email"
-                            name="email"
-                            value={user?.email ?? ''}
-                            readOnly
-                            disabled
                           />
                         </Field>
                       </FieldGrid>
@@ -258,6 +349,50 @@ export function AccountSettings() {
                     <FormActions>
                       <Button type="submit" disabled={savingAccount}>
                         {savingAccount ? 'Saving…' : 'Save'}
+                      </Button>
+                    </FormActions>
+                  </form>
+
+                  <form className="space-y-5" onSubmit={handleChangeEmail}>
+                    <FormSection title="Login email">
+                      <FieldGrid>
+                        <Field
+                          label="New login email"
+                          hint={
+                            user?.new_email
+                              ? `Change pending for ${user.new_email}. Confirm the emails we sent, or enter a different address.`
+                              : 'Used to sign in. Alert email is set separately under Organisation.'
+                          }
+                        >
+                          <Input
+                            type="email"
+                            name="email"
+                            autoComplete="email"
+                            value={loginEmail}
+                            onChange={(event) => setLoginEmail(event.target.value)}
+                            required
+                            disabled={savingEmail}
+                          />
+                        </Field>
+                        <Field label="Confirm new email">
+                          <Input
+                            type="email"
+                            name="confirm_email"
+                            autoComplete="email"
+                            value={confirmEmail}
+                            onChange={(event) => setConfirmEmail(event.target.value)}
+                            required
+                            disabled={savingEmail}
+                          />
+                        </Field>
+                      </FieldGrid>
+                    </FormSection>
+
+                    <PageError>{emailError}</PageError>
+                    <PageSuccess>{emailSaved}</PageSuccess>
+                    <FormActions>
+                      <Button type="submit" disabled={savingEmail}>
+                        {savingEmail ? 'Sending…' : 'Update email'}
                       </Button>
                     </FormActions>
                   </form>
@@ -417,6 +552,47 @@ export function AccountSettings() {
       </Tabs>
 
       <LegalLinks />
+
+      <AlertDialog
+        open={alertPromptOpen}
+        onOpenChange={(open) => {
+          if (savingEmail) return
+          setAlertPromptOpen(open)
+          if (!open) setPendingAlertEmail('')
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Also update alert email?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {alertEmail.trim()
+                ? `Compliance alerts currently go to ${alertEmail.trim()}.`
+                : 'Compliance alerts currently use your login email.'}{' '}
+              Update them to {pendingAlertEmail} as well?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={savingEmail}
+              onClick={(event) => {
+                event.preventDefault()
+                submitLoginEmailChange(pendingAlertEmail, { updateAlerts: false })
+              }}
+            >
+              {savingEmail ? 'Updating…' : 'Keep current'}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={savingEmail}
+              onClick={(event) => {
+                event.preventDefault()
+                submitLoginEmailChange(pendingAlertEmail, { updateAlerts: true })
+              }}
+            >
+              {savingEmail ? 'Updating…' : 'Update alert email'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }
