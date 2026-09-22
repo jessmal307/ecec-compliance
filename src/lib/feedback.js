@@ -55,16 +55,44 @@ export async function submitFeedback({ orgId, type, message, page }) {
   return { error: null }
 }
 
+function feedbackInsertError(error) {
+  const text = error?.message ?? 'Could not save this.'
+  if (/feedback_type_check|violates check constraint/i.test(text)) {
+    return 'Could not save this yet. Re-run schema.sql so feature-interest is allowed on the feedback table.'
+  }
+  return text
+}
+
 export async function submitFeatureInterest({ orgId, feature, page }) {
   const name = String(feature ?? '').trim()
   if (!name) {
     return { error: new Error('Choose a feature.') }
   }
 
-  return submitFeedback({
-    orgId,
+  if (!orgId) {
+    return { error: new Error('No organization yet.') }
+  }
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    return { error: new Error(userError?.message ?? 'Sign in to continue.') }
+  }
+
+  const { error } = await supabase.from('feedback').insert({
+    org_id: orgId,
+    user_id: user.id,
     type: 'feature-interest',
     message: name,
     page: page || `feature:${name}`,
   })
+
+  if (error) {
+    return { error: new Error(feedbackInsertError(error)) }
+  }
+
+  return { error: null }
 }
