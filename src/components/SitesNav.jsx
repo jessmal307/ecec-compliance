@@ -129,7 +129,7 @@ export function SitesNavLinks({ onNavigate, sites, error, loading }) {
   )
 }
 
-export function SitesSidebarItem({ onNavigate, navClassName }) {
+export function SitesSidebarItem({ onNavigate, navClassName, collapsed = false }) {
   const { pathname } = useLocation()
   const { sites, error, loading } = useOrgSites()
   const [expanded, setExpanded] = useState(() => isSitesPath(pathname))
@@ -139,6 +139,20 @@ export function SitesSidebarItem({ onNavigate, navClassName }) {
   if (pathname !== seenPath) {
     setSeenPath(pathname)
     if (isSitesPath(pathname)) setExpanded(true)
+  }
+
+  if (collapsed) {
+    return (
+      <NavLink
+        to={paths.sites}
+        onClick={onNavigate}
+        data-label="Sites"
+        aria-label="Sites"
+        className={navClassName(sectionActive)}
+      >
+        <Building2 className="size-4 shrink-0" />
+      </NavLink>
+    )
   }
 
   return (

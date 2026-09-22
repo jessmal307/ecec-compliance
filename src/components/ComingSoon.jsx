@@ -16,6 +16,7 @@ export function ComingSoonNavItem({
   feature,
   className,
   onOpen,
+  collapsed = false,
 }) {
   const Icon = feature.icon
 
@@ -23,11 +24,17 @@ export function ComingSoonNavItem({
     <button
       type="button"
       className={className}
+      data-label={collapsed ? feature.label : undefined}
+      aria-label={collapsed ? feature.label : undefined}
       onClick={() => onOpen(feature)}
     >
       <Icon className="size-4 shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-left">{feature.label}</span>
-      <SoonBadge />
+      {collapsed ? null : (
+        <>
+          <span className="min-w-0 flex-1 truncate text-left">{feature.label}</span>
+          <SoonBadge />
+        </>
+      )}
     </button>
   )
 }

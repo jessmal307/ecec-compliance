@@ -79,6 +79,9 @@ export function isSettingsNavPath(pathname) {
 
 export function complianceHref(tab) {
   if (tab === 'items') return { pathname: paths.compliance, search: '?tab=items' }
+  if (tab === 'calendar') {
+    return { pathname: paths.compliance, search: '?tab=calendar' }
+  }
   return paths.compliance
 }
 

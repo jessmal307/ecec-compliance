@@ -1338,3 +1338,74 @@ create policy "Users can insert feedback in their organization"
     )
     and user_id = auth.uid()
   );
+
+-- Org calendar notes. Compliance expiries and rechecks are derived from
+-- compliance_items; this table is only for events people add themselves.
+create table if not exists public.calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  title text not null,
+  event_date date not null,
+  notes text,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists calendar_events_org_id_event_date_idx
+  on public.calendar_events (org_id, event_date);
+
+alter table public.calendar_events enable row level security;
+
+drop policy if exists "Users can view calendar events in their organization"
+  on public.calendar_events;
+create policy "Users can view calendar events in their organization"
+  on public.calendar_events
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+drop policy if exists "Users can insert calendar events in their organization"
+  on public.calendar_events;
+create policy "Users can insert calendar events in their organization"
+  on public.calendar_events
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+    and created_by = auth.uid()
+  );
+
+drop policy if exists "Users can update calendar events in their organization"
+  on public.calendar_events;
+create policy "Users can update calendar events in their organization"
+  on public.calendar_events
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+drop policy if exists "Users can delete calendar events in their organization"
+  on public.calendar_events;
+create policy "Users can delete calendar events in their organization"
+  on public.calendar_events
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );

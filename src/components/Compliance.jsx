@@ -1,16 +1,20 @@
 import { useSearchParams } from 'react-router-dom'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageHeader } from './ui/page'
+import { ComplianceCalendar } from './ComplianceCalendar'
 import { ComplianceItems } from './ComplianceItems'
 import { ComplianceMatrix } from './ComplianceMatrix'
 
+const COMPLIANCE_TABS = new Set(['matrix', 'items', 'calendar'])
+
 export function Compliance() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') === 'items' ? 'items' : 'matrix'
+  const requestedTab = searchParams.get('tab')
+  const tab = COMPLIANCE_TABS.has(requestedTab) ? requestedTab : 'matrix'
 
   function setTab(next) {
-    if (next === 'items') {
-      setSearchParams({ tab: 'items' })
+    if (next === 'items' || next === 'calendar') {
+      setSearchParams({ tab: next })
       return
     }
     setSearchParams({})
@@ -26,10 +30,14 @@ export function Compliance() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="no-print">
           <TabsTrigger value="matrix">Matrix</TabsTrigger>
+          <TabsTrigger value="calendar">Calendar</TabsTrigger>
           <TabsTrigger value="items">Items</TabsTrigger>
         </TabsList>
         <TabsContent value="matrix">
           <ComplianceMatrix />
+        </TabsContent>
+        <TabsContent value="calendar">
+          <ComplianceCalendar />
         </TabsContent>
         <TabsContent value="items">
           <ComplianceItems embedded />

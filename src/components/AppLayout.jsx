@@ -6,11 +6,14 @@ import {
   Ellipsis,
   LayoutDashboard,
   LogOut,
+  PanelLeft,
+  PanelLeftClose,
   Settings,
   ShieldCheck,
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { ComingSoonDialog, ComingSoonNavItem, RESERVED_FEATURES } from './ComingSoon'
 import { FeedbackButton } from './FeedbackDialog'
 import { SitesSidebarItem } from './SitesNav'
@@ -24,6 +27,24 @@ import {
   isSitesPath,
   paths,
 } from '../lib/paths'
+
+const SIDEBAR_COLLAPSED_KEY = 'ecec-sidebar-collapsed'
+
+function readSidebarCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeSidebarCollapsed(collapsed) {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
 
 const pages = [
   { to: paths.home, label: 'Overview', icon: LayoutDashboard, end: true },
@@ -63,16 +84,23 @@ function isOverviewPath(pathname) {
   return pathname === paths.home
 }
 
-function reservedNavClassName() {
+const collapsedTipClass =
+  'relative after:pointer-events-none after:absolute after:top-1/2 after:left-full after:z-50 after:ml-2 after:hidden after:-translate-y-1/2 after:whitespace-nowrap after:rounded-md after:bg-popover after:px-2 after:py-1 after:text-xs after:font-medium after:text-popover-foreground after:shadow-sm after:ring-1 after:ring-foreground/10 after:content-[attr(data-label)] hover:after:block'
+
+function reservedNavClassName(collapsed = false) {
   return [
-    'flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-base font-medium no-underline transition-colors md:text-sm',
+    collapsed
+      ? `flex size-11 items-center justify-center rounded-lg text-base font-medium no-underline transition-colors ${collapsedTipClass}`
+      : 'flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-base font-medium no-underline transition-colors md:text-sm',
     'text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-muted-foreground',
   ].join(' ')
 }
 
-function navClassName(isActive) {
+function navClassName(isActive, collapsed = false) {
   return [
-    'flex min-h-11 items-center gap-2.5 rounded-lg px-3 py-2 text-base font-medium no-underline transition-colors md:text-sm',
+    collapsed
+      ? `flex size-11 items-center justify-center rounded-lg text-base font-medium no-underline transition-colors ${collapsedTipClass}`
+      : 'flex min-h-11 items-center gap-2.5 rounded-lg px-3 py-2 text-base font-medium no-underline transition-colors md:text-sm',
     isActive
       ? 'bg-sidebar-accent text-sidebar-accent-foreground'
       : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground',
@@ -88,18 +116,24 @@ function tabClassName(isActive) {
   ].join(' ')
 }
 
-function SidebarNav({ onNavigate, onOpenSoon }) {
+function SidebarNav({ collapsed, onNavigate, onOpenSoon }) {
   const { pathname } = useLocation()
 
   return (
-    <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
+    <nav
+      className={cn(
+        'flex min-h-0 flex-1 flex-col gap-1 py-3',
+        collapsed ? 'items-center overflow-visible px-1.5' : 'overflow-y-auto px-3 py-4',
+      )}
+    >
       {pages.map((item) => {
         if (item.to === paths.sites) {
           return (
             <SitesSidebarItem
               key={item.to}
+              collapsed={collapsed}
               onNavigate={onNavigate}
-              navClassName={navClassName}
+              navClassName={(isActive) => navClassName(isActive, collapsed)}
             />
           )
         }
@@ -110,6 +144,8 @@ function SidebarNav({ onNavigate, onOpenSoon }) {
             key={item.to}
             to={item.to}
             end={item.end}
+            data-label={collapsed ? item.label : undefined}
+            aria-label={item.label}
             onClick={onNavigate}
             className={({ isActive }) => {
               const active =
@@ -118,20 +154,26 @@ function SidebarNav({ onNavigate, onOpenSoon }) {
                   : item.to === paths.settings
                     ? isSettingsNavPath(pathname)
                     : isActive
-              return navClassName(active)
+              return navClassName(active, collapsed)
             }}
           >
             <Icon className="size-4 shrink-0" />
-            {item.label}
+            {collapsed ? null : item.label}
           </NavLink>
         )
       })}
-      <div className="mt-2 border-t border-sidebar-border pt-2">
+      <div
+        className={cn(
+          'border-t border-sidebar-border',
+          collapsed ? 'mt-1 flex flex-col items-center pt-1' : 'mt-2 pt-2',
+        )}
+      >
         {RESERVED_FEATURES.map((feature) => (
           <ComingSoonNavItem
             key={feature.id}
             feature={feature}
-            className={reservedNavClassName()}
+            collapsed={collapsed}
+            className={reservedNavClassName(collapsed)}
             onOpen={onOpenSoon}
           />
         ))}
@@ -140,16 +182,37 @@ function SidebarNav({ onNavigate, onOpenSoon }) {
   )
 }
 
-function SidebarBrand() {
+function SidebarBrand({ collapsed, onToggle }) {
   const { user } = useAuth()
   const orgName = user?.user_metadata?.organization_name
 
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-1 border-b border-sidebar-border px-1.5 py-3">
+        <span className="flex size-9 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
+          <ShieldCheck className="size-4" />
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={collapsedTipClass}
+          data-label="Expand sidebar"
+          aria-label="Expand sidebar"
+          onClick={onToggle}
+        >
+          <PanelLeft />
+        </Button>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-4">
-      <span className="flex size-9 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
+    <div className="flex items-center gap-2 border-b border-sidebar-border px-3 py-3">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground">
         <ShieldCheck className="size-4" />
       </span>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
           ECEC
         </p>
@@ -157,6 +220,15 @@ function SidebarBrand() {
           {orgName || 'Compliance'}
         </p>
       </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Collapse sidebar"
+        onClick={onToggle}
+      >
+        <PanelLeftClose />
+      </Button>
     </div>
   )
 }
@@ -262,7 +334,16 @@ export function AppLayout() {
   const { pathname, search } = useLocation()
   const [moreForPath, setMoreForPath] = useState(null)
   const [soonFeature, setSoonFeature] = useState(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
   const moreOpen = moreForPath === pathname
+
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      const next = !current
+      writeSidebarCollapsed(next)
+      return next
+    })
+  }
 
   useEffect(() => {
     const previous = document.body.style.overflow
@@ -278,12 +359,21 @@ export function AppLayout() {
 
   return (
     <div className="app-shell flex h-svh w-full max-w-full overflow-hidden bg-background text-left">
-      <aside className="hidden h-full w-[210px] shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
-        <SidebarBrand />
-        <SidebarNav onOpenSoon={setSoonFeature} />
-        <div className="mt-auto shrink-0 border-t border-sidebar-border p-3">
-          <FeedbackButton className="w-full" />
-        </div>
+      <aside
+        className={cn(
+          'hidden h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex',
+          sidebarCollapsed
+            ? 'z-30 w-14 overflow-visible'
+            : 'w-[210px] overflow-hidden',
+        )}
+      >
+        <SidebarBrand collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+        <SidebarNav collapsed={sidebarCollapsed} onOpenSoon={setSoonFeature} />
+        {sidebarCollapsed ? null : (
+          <div className="mt-auto shrink-0 border-t border-sidebar-border p-3">
+            <FeedbackButton className="w-full" />
+          </div>
+        )}
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -310,7 +400,12 @@ export function AppLayout() {
         </header>
 
         <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
-          <div className="mx-auto w-full min-w-0 max-w-7xl px-4 py-4 md:p-6">
+          <div
+            className={cn(
+              'mx-auto w-full min-w-0 px-4 py-4 md:p-6',
+              sidebarCollapsed ? 'max-w-none' : 'max-w-7xl',
+            )}
+          >
             <Outlet />
           </div>
         </main>
