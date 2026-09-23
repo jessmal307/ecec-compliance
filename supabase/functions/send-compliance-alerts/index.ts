@@ -9,11 +9,13 @@ type ComplianceItemRow = {
   id: string
   expiry_date: string | null
   last_verified_date: string | null
+  issued_date: string | null
   created_at: string | null
   org_id: string
   label: string
   staff_id: string | null
   site_id: string | null
+  requirement_type_id: string | null
   archived_at: string | null
   document_url: string | null
   working_towards: boolean | null
@@ -45,15 +47,62 @@ type PendingAlert = {
   recheckDays?: number
 }
 
-type StaffSite = {
+type RequirementTypeRow = {
   id: string
   name: string
+  org_id: string
+  mandatory: boolean
+  applies_to: string
+  perpetual: boolean | null
+  recheck_interval_days: number | null
+  renewal_lead_days: number | null
 }
 
-type DigestSection = {
-  key: string
+type StaffDigestRow = {
+  id: string
   name: string
-  entries: PendingAlert[]
+  employment_status: string
+  sites: { id: string; name: string }[]
+}
+
+type DigestLine = {
+  key: string
+  typeName: string
+  ownerName: string
+  status: string
+  urgency: string
+}
+
+type DigestSite = {
+  id: string
+  name: string
+  expiredCount: number
+  expiringCount: number
+  missingCount: number
+  recheckDueCount: number
+  lines: DigestLine[]
+}
+
+type OrgDigest = {
+  expiredCount: number
+  expiringCount: number
+  missingCount: number
+  recheckDueCount: number
+  sites: DigestSite[]
+}
+
+const ATTENTION_STATUSES = new Set([
+  'Expired',
+  'Missing',
+  'Recheck due',
+  'Expiring soon',
+])
+
+const ATTENTION_RANK: Record<string, number> = {
+  Expired: 0,
+  Missing: 1,
+  'Recheck due': 2,
+  'Expiring soon': 3,
 }
 
 function isArchived(value: string | null | undefined): boolean {
@@ -146,6 +195,387 @@ function hasEvidenceDocument(item: ComplianceItemRow): boolean {
   return Boolean(String(item.document_url ?? '').trim())
 }
 
+function workingTowardsNeedsDocument(item: ComplianceItemRow): boolean {
+  return isWorkingTowards(item) && !hasEvidenceDocument(item)
+}
+
+// Copied from functions/_shared/dashboardCompliance.js so this function
+// deploys as a single file. Do not change status maths without updating both.
+const DASHBOARD_ATTENTION_RANK: Record<string, number> = {
+  Expired: 0,
+  'Recheck due': 1,
+  'Expiring soon': 2,
+  Missing: 3,
+}
+
+function isStaffRequirementType(requirementType: { applies_to?: string | null }) {
+  return requirementType?.applies_to !== 'site'
+}
+
+function isSiteRequirementType(requirementType: { applies_to?: string | null }) {
+  return requirementType?.applies_to === 'site'
+}
+
+function isActiveStaff(member: { employment_status?: string | null }) {
+  return member?.employment_status === 'active'
+}
+
+function sameId(left: unknown, right: unknown) {
+  return left != null && right != null && String(left) === String(right)
+}
+
+function isRequirementExcluded(
+  exclusions: { staff_id?: string; requirement_type_id?: string }[] | null | undefined,
+  staffId: string,
+  requirementTypeId: string,
+) {
+  return (exclusions ?? []).some(
+    (row) =>
+      sameId(row.staff_id, staffId) &&
+      sameId(row.requirement_type_id, requirementTypeId),
+  )
+}
+
+function isSiteRequirementExcluded(
+  exclusions: { site_id?: string; requirement_type_id?: string }[] | null | undefined,
+  siteId: string,
+  requirementTypeId: string,
+) {
+  return (exclusions ?? []).some(
+    (row) =>
+      sameId(row.site_id, siteId) &&
+      sameId(row.requirement_type_id, requirementTypeId),
+  )
+}
+
+function addDaysIso(isoDate: string, days: number) {
+  const date = new Date(`${isoDate}T00:00:00.000Z`)
+  if (Number.isNaN(date.getTime())) return null
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+function expiryStatus(
+  expiryDate: string | null | undefined,
+  todayIso: string,
+  perpetual = false,
+) {
+  if (perpetual) return 'Valid'
+  const expiry = String(expiryDate ?? '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+    return 'Expired'
+  }
+  if (expiry < todayIso) return 'Expired'
+  const soon = addDaysIso(todayIso, 30)
+  if (soon && expiry <= soon) return 'Expiring soon'
+  return 'Valid'
+}
+
+function visibleComplianceItems({
+  items,
+  activeStaff,
+  exclusions,
+  siteExclusions,
+}: {
+  items: ComplianceItemRow[]
+  activeStaff: { id: string }[]
+  exclusions: { staff_id: string; requirement_type_id: string }[]
+  siteExclusions: { site_id: string; requirement_type_id: string }[]
+}) {
+  const activeStaffIds = new Set(activeStaff.map((member) => member.id))
+
+  return (items ?? []).filter((item) => {
+    if (item.site_id) {
+      return !isSiteRequirementExcluded(
+        siteExclusions,
+        item.site_id,
+        item.requirement_type_id ?? '',
+      )
+    }
+    if (!item.staff_id) return true
+    if (!activeStaffIds.has(item.staff_id)) return false
+    return !isRequirementExcluded(
+      exclusions,
+      item.staff_id,
+      item.requirement_type_id ?? '',
+    )
+  })
+}
+
+function findRequiredItem<T>(
+  items: T[],
+  matches: (row: T) => boolean,
+) {
+  return items.find(matches) ?? null
+}
+
+function isWorkingTowardsRecheckOverdue(
+  item: { working_towards?: boolean | null; last_verified_date?: string | null; issued_date?: string | null; created_at?: string | null } | null,
+  todayIso: string,
+) {
+  if (!item?.working_towards) return false
+  const base = String(
+    item.last_verified_date || item.issued_date || item.created_at || '',
+  ).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return true
+  const due = addDaysIso(base, WORKING_TOWARDS_RECHECK_DAYS)
+  return Boolean(due && todayIso >= due)
+}
+
+function staffItemStatus(
+  item: ComplianceItemRow | null,
+  todayIso: string,
+  type: { perpetual?: boolean | null },
+) {
+  if (!item) return 'Missing'
+  if (item.working_towards && !hasEvidenceDocument(item)) return 'Missing'
+  if (isWorkingTowardsRecheckOverdue(item, todayIso)) return 'Recheck due'
+  return expiryStatus(item.expiry_date, todayIso, Boolean(type?.perpetual))
+}
+
+function staffRequiredSlots(
+  member: StaffDigestRow,
+  mandatoryStaffTypes: RequirementTypeRow[],
+  items: ComplianceItemRow[],
+  exclusions: { staff_id: string; requirement_type_id: string }[],
+  todayIso: string,
+) {
+  return mandatoryStaffTypes
+    .filter((type) => !isRequirementExcluded(exclusions, member.id, type.id))
+    .map((type) => {
+      const item = findRequiredItem(
+        items,
+        (row) =>
+          row.staff_id === member.id && row.requirement_type_id === type.id,
+      )
+      return {
+        status: staffItemStatus(item, todayIso, type),
+        ownerName: member.name,
+        ownerKind: 'staff',
+        typeName: type.name,
+        expiryDate: item?.expiry_date ?? null,
+      }
+    })
+}
+
+function siteRequiredSlots(
+  site: { id: string; name: string },
+  mandatorySiteTypes: RequirementTypeRow[],
+  items: ComplianceItemRow[],
+  siteExclusions: { site_id: string; requirement_type_id: string }[],
+  todayIso: string,
+) {
+  return mandatorySiteTypes
+    .filter(
+      (type) => !isSiteRequirementExcluded(siteExclusions, site.id, type.id),
+    )
+    .map((type) => {
+      const item = findRequiredItem(
+        items,
+        (row) =>
+          row.site_id === site.id && row.requirement_type_id === type.id,
+      )
+      return {
+        status: item
+          ? expiryStatus(item.expiry_date, todayIso, Boolean(type?.perpetual))
+          : 'Missing',
+        ownerName: site.name,
+        ownerKind: 'site',
+        typeName: type.name,
+        expiryDate: item?.expiry_date ?? null,
+      }
+    })
+}
+
+function allInCompliance(
+  slots: { status: string }[],
+) {
+  const requiredCount = slots.length
+  const currentCount = slots.filter((slot) => slot.status === 'Valid').length
+
+  return {
+    requiredCount,
+    currentCount,
+    compliantCount: currentCount,
+    expiredCount: slots.filter((slot) => slot.status === 'Expired').length,
+    expiringCount: slots.filter((slot) => slot.status === 'Expiring soon')
+      .length,
+    missingCount: slots.filter((slot) => slot.status === 'Missing').length,
+    percent:
+      requiredCount === 0
+        ? null
+        : Math.round((currentCount / requiredCount) * 100),
+  }
+}
+
+function assignedToSite(
+  member: StaffDigestRow,
+  siteId: string,
+  activeSiteIds: Set<string>,
+) {
+  return (member.sites ?? []).some(
+    (assigned) => assigned.id === siteId && activeSiteIds.has(assigned.id),
+  )
+}
+
+function attentionItems(
+  slots: {
+    status: string
+    ownerName: string
+    typeName: string
+    expiryDate: string | null
+  }[],
+) {
+  return slots
+    .filter(
+      (slot) =>
+        slot.status === 'Expired' ||
+        slot.status === 'Expiring soon' ||
+        slot.status === 'Missing' ||
+        slot.status === 'Recheck due',
+    )
+    .sort((a, b) => {
+      const rankA = DASHBOARD_ATTENTION_RANK[a.status] ?? 99
+      const rankB = DASHBOARD_ATTENTION_RANK[b.status] ?? 99
+      if (rankA !== rankB) return rankA - rankB
+      const dateA = a.expiryDate || '9999-12-31'
+      const dateB = b.expiryDate || '9999-12-31'
+      if (dateA !== dateB) return dateA.localeCompare(dateB)
+      const owner = String(a.ownerName ?? '').localeCompare(
+        String(b.ownerName ?? ''),
+      )
+      if (owner !== 0) return owner
+      return String(a.typeName ?? '').localeCompare(String(b.typeName ?? ''))
+    })
+}
+
+function sectionFromSlots(
+  id: string,
+  name: string,
+  slots: {
+    status: string
+    ownerName: string
+    typeName: string
+    expiryDate: string | null
+  }[],
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    name,
+    ...allInCompliance(slots),
+    attention: attentionItems(slots),
+    ...extra,
+  }
+}
+
+function buildProviderComplianceReport({
+  staff,
+  sites,
+  items,
+  requirementTypes,
+  exclusions,
+  siteExclusions,
+  todayIso,
+}: {
+  staff: StaffDigestRow[]
+  sites: { id: string; name: string }[]
+  items: ComplianceItemRow[]
+  requirementTypes: RequirementTypeRow[]
+  exclusions: { staff_id: string; requirement_type_id: string }[]
+  siteExclusions: { site_id: string; requirement_type_id: string }[]
+  todayIso: string
+}) {
+  const mandatoryStaffTypes = requirementTypes.filter(
+    (type) => type.mandatory && isStaffRequirementType(type),
+  )
+  const mandatorySiteTypes = requirementTypes.filter(
+    (type) => type.mandatory && isSiteRequirementType(type),
+  )
+  const activeStaff = staff.filter(isActiveStaff)
+  const visibleItems = visibleComplianceItems({
+    items,
+    activeStaff,
+    exclusions,
+    siteExclusions,
+  })
+  const activeSiteIds = new Set(sites.map((site) => site.id))
+
+  const orgSlots = [
+    ...activeStaff.flatMap((member) =>
+      staffRequiredSlots(
+        member,
+        mandatoryStaffTypes,
+        visibleItems,
+        exclusions,
+        todayIso,
+      ),
+    ),
+    ...sites.flatMap((site) =>
+      siteRequiredSlots(
+        site,
+        mandatorySiteTypes,
+        visibleItems,
+        siteExclusions,
+        todayIso,
+      ),
+    ),
+  ]
+
+  const siteSections = sites.map((site) => {
+    const staffAtSite = activeStaff.filter((member) =>
+      assignedToSite(member, site.id, activeSiteIds),
+    )
+    const slots = [
+      ...siteRequiredSlots(
+        site,
+        mandatorySiteTypes,
+        visibleItems,
+        siteExclusions,
+        todayIso,
+      ),
+      ...staffAtSite.flatMap((member) =>
+        staffRequiredSlots(
+          member,
+          mandatoryStaffTypes,
+          visibleItems,
+          exclusions,
+          todayIso,
+        ),
+      ),
+    ]
+    return sectionFromSlots(site.id, site.name, slots, {
+      staffCount: staffAtSite.length,
+    })
+  })
+
+  const unassignedStaff = activeStaff.filter(
+    (member) =>
+      !(member.sites ?? []).some((assigned) => activeSiteIds.has(assigned.id)),
+  )
+  const unassigned = sectionFromSlots(
+    'unassigned',
+    'Unassigned',
+    unassignedStaff.flatMap((member) =>
+      staffRequiredSlots(
+        member,
+        mandatoryStaffTypes,
+        visibleItems,
+        exclusions,
+        todayIso,
+      ),
+    ),
+    { staffCount: unassignedStaff.length },
+  )
+
+  return {
+    org: allInCompliance(orgSlots),
+    sites: siteSections,
+    unassigned,
+    hasUnassigned: unassignedStaff.length > 0,
+  }
+}
+
 function recheckIntervalDays(item: ComplianceItemRow): number | null {
   const fromType = asNonNegativeInt(item.requirement_types?.recheck_interval_days)
   if (fromType != null) return fromType
@@ -187,116 +617,387 @@ function timestampDate(value: string | null | undefined): string {
   return dateInTimeZone(date, ALERT_TIME_ZONE)
 }
 
-function kindLabel(kind: AlertKind): string {
-  if (kind === 'expired') return 'Expired'
-  if (kind === 'recheck') return 'Recheck due'
-  return 'Renewal due'
+function toIsoDate(value: string | null | undefined): string | null {
+  if (!value) return null
+  const iso = String(value).slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null
 }
 
-function ownerName(item: ComplianceItemRow): string {
-  return item.staff?.name ?? item.sites?.name ?? 'Unknown'
+function daysUntil(isoDate: string | null | undefined, today: string): number | null {
+  const iso = toIsoDate(isoDate)
+  if (!iso) return null
+  const expiry = new Date(`${iso}T00:00:00.000Z`)
+  const start = new Date(`${today}T00:00:00.000Z`)
+  return Math.round((expiry.getTime() - start.getTime()) / 86_400_000)
 }
 
-function requirementName(item: ComplianceItemRow): string {
-  return item.requirement_types?.name ?? item.label ?? 'Requirement'
+function typeForItem(
+  item: ComplianceItemRow,
+  requirementTypes: RequirementTypeRow[],
+): RequirementTypeRow | ComplianceItemRow['requirement_types'] | ComplianceItemRow {
+  return (
+    requirementTypes.find((type) => type.id === item.requirement_type_id) ??
+    item.requirement_types ??
+    item
+  )
 }
 
-function itemDetail(entry: PendingAlert): string {
-  if (entry.kind === 'recheck') {
-    const verifiedOn = entry.item.last_verified_date
-      ? `Last verified ${formatDate(entry.item.last_verified_date)}`
-      : entry.item.created_at
-        ? `Recorded ${formatDate(timestampDate(entry.item.created_at))}`
-        : 'Not yet verified'
-    return `${verifiedOn}. Recheck interval is ${entry.recheckDays} days.`
+function resolveAttentionRecheckDays(
+  type: { name?: string | null; recheck_interval_days?: number | null; working_towards?: boolean | null },
+  item: ComplianceItemRow,
+): number | null {
+  const fromType = Number(type?.recheck_interval_days)
+  if (Number.isInteger(fromType) && fromType > 0) return fromType
+  const fromItem = Number(item.requirement_types?.recheck_interval_days)
+  if (Number.isInteger(fromItem) && fromItem > 0) return fromItem
+  const name = String(type?.name ?? item.requirement_types?.name ?? item.label ?? '')
+    .toLowerCase()
+    .trim()
+  if (name.includes('wwcc') || name.includes('working with children')) return 90
+  if (isWorkingTowards(item) || Boolean(type?.working_towards)) {
+    return WORKING_TOWARDS_RECHECK_DAYS
   }
-
-  if (entry.kind === 'expired') {
-    return `Expired ${formatDate(entry.item.expiry_date)}.`
-  }
-
-  return `Expires ${formatDate(entry.item.expiry_date)} (within the ${entry.leadDays}-day renewal window).`
+  return null
 }
 
-function sortEntries(entries: PendingAlert[]): PendingAlert[] {
-  return [...entries].sort((a, b) => {
-    const aExpired = a.kind === 'expired' ? 0 : 1
-    const bExpired = b.kind === 'expired' ? 0 : 1
-    if (aExpired !== bExpired) return aExpired - bExpired
-    const dateDiff = a.item.expiry_date.localeCompare(b.item.expiry_date)
-    if (dateDiff !== 0) return dateDiff
-    const requirementDiff = requirementName(a.item).localeCompare(requirementName(b.item))
-    if (requirementDiff !== 0) return requirementDiff
-    return ownerName(a.item).localeCompare(ownerName(b.item))
+function attentionRecheckClock(
+  item: ComplianceItemRow,
+  type: { working_towards?: boolean | null },
+): string | null {
+  if (isWorkingTowards(item) || Boolean(type?.working_towards)) {
+    return (
+      toIsoDate(item.last_verified_date) ??
+      toIsoDate(item.issued_date) ??
+      toIsoDate(item.created_at)
+    )
+  }
+  return toIsoDate(item.last_verified_date)
+}
+
+function isAttentionRecheckOverdue(
+  item: ComplianceItemRow,
+  type: { name?: string | null; recheck_interval_days?: number | null; working_towards?: boolean | null },
+  today: string,
+): boolean {
+  const interval = resolveAttentionRecheckDays(type, item)
+  if (!interval) return false
+  const clock = attentionRecheckClock(item, type)
+  if (!clock) return true
+  const due = addDaysIso(clock, interval)
+  return Boolean(due && today >= due)
+}
+
+function attentionRenewalLeadDays(
+  type: { renewal_lead_days?: number | null; name?: string | null },
+  item: ComplianceItemRow,
+): number {
+  const fromType = Number(type?.renewal_lead_days)
+  if (Number.isInteger(fromType) && fromType > 0) return fromType
+  const fromItem = Number(item.requirement_types?.renewal_lead_days)
+  if (Number.isInteger(fromItem) && fromItem > 0) return fromItem
+  return 30
+}
+
+function isAttentionWithinRenewalWindow(
+  item: ComplianceItemRow,
+  type: { perpetual?: boolean | null; renewal_lead_days?: number | null; name?: string | null },
+  today: string,
+): boolean {
+  if (type?.perpetual || item.requirement_types?.perpetual) return false
+  const expiry = toIsoDate(item.expiry_date)
+  if (!expiry || expiry < today) return false
+  const windowStart = addDaysIso(expiry, -attentionRenewalLeadDays(type, item))
+  return Boolean(windowStart && today >= windowStart)
+}
+
+// Same rules as src/lib/compliance.js attentionStatus, using Sydney today.
+function attentionStatus(
+  item: ComplianceItemRow & { missing?: boolean },
+  type: {
+    name?: string | null
+    recheck_interval_days?: number | null
+    renewal_lead_days?: number | null
+    perpetual?: boolean | null
+    working_towards?: boolean | null
+  } | null,
+  today: string,
+): string {
+  if (item?.missing) return 'Missing'
+  if (workingTowardsNeedsDocument(item)) return 'Missing'
+  const expiry = expiryStatus(
+    item.expiry_date,
+    today,
+    Boolean(type?.perpetual || item.requirement_types?.perpetual),
+  )
+  if (expiry === 'Expired') return 'Expired'
+  if (type && isAttentionRecheckOverdue(item, type, today)) return 'Recheck due'
+  if (expiry === 'Expiring soon' || isAttentionWithinRenewalWindow(item, type ?? {}, today)) {
+    return 'Expiring soon'
+  }
+  return expiry
+}
+
+function ownerName(item: ComplianceItemRow, staffById: Map<string, StaffDigestRow>): string {
+  if (item.staff_id) {
+    return staffById.get(item.staff_id)?.name ?? item.staff?.name ?? 'Unknown'
+  }
+  return item.sites?.name ?? 'Unknown'
+}
+
+function requirementName(item: ComplianceItemRow, type?: { name?: string | null }): string {
+  return type?.name ?? item.requirement_types?.name ?? item.label ?? 'Requirement'
+}
+
+function urgencyLabel(
+  status: string,
+  item: { expiry_date?: string | null; last_verified_date?: string | null; created_at?: string | null } | null,
+  today: string,
+): string {
+  if (status === 'Missing') return 'No record'
+  if (status === 'Recheck due') {
+    const verified = toIsoDate(item?.last_verified_date)
+    if (verified) return `Last verified ${formatDate(verified)}`
+    const recorded = toIsoDate(item?.created_at)
+    if (recorded) return `Recorded ${formatDate(recorded)}`
+    return 'Recheck due'
+  }
+  const days = daysUntil(item?.expiry_date ?? null, today)
+  if (days == null) return ''
+  if (days < 0) {
+    const overdue = Math.abs(days)
+    return `${overdue} day${overdue === 1 ? '' : 's'} overdue`
+  }
+  if (days === 0) return 'Expires today'
+  return `in ${days} day${days === 1 ? '' : 's'}`
+}
+
+function compareSiteUrgency(left: DigestSite, right: DigestSite) {
+  return (
+    right.expiredCount - left.expiredCount ||
+    right.missingCount - left.missingCount ||
+    right.expiringCount - left.expiringCount ||
+    right.recheckDueCount - left.recheckDueCount
+  )
+}
+
+function sortDigestLines(lines: DigestLine[]): DigestLine[] {
+  return [...lines].sort((left, right) => {
+    const rank = (ATTENTION_RANK[left.status] ?? 99) - (ATTENTION_RANK[right.status] ?? 99)
+    if (rank !== 0) return rank
+    return (
+      left.ownerName.localeCompare(right.ownerName) ||
+      left.typeName.localeCompare(right.typeName)
+    )
   })
 }
 
-function groupEntriesBySite(
-  entries: PendingAlert[],
-  sitesByStaffId: Map<string, StaffSite[]>,
-): DigestSection[] {
-  const sections = new Map<string, DigestSection>()
-
-  function addToSection(key: string, name: string, entry: PendingAlert) {
-    const current = sections.get(key) ?? { key, name, entries: [] }
-    current.entries.push(entry)
-    sections.set(key, current)
-  }
-
-  for (const entry of entries) {
-    if (entry.item.site_id) {
-      addToSection(entry.item.site_id, entry.item.sites?.name ?? 'Unknown', entry)
-      continue
-    }
-
-    const assigned = entry.item.staff_id
-      ? (sitesByStaffId.get(entry.item.staff_id) ?? [])
-      : []
-    if (assigned.length === 0) {
-      addToSection('unassigned', 'Unassigned staff', entry)
-      continue
-    }
-
-    for (const site of assigned) {
-      addToSection(site.id, site.name, entry)
-    }
-  }
-
-  const named = [...sections.values()]
-    .filter((section) => section.key !== 'unassigned')
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const unassigned = sections.get('unassigned')
-  return unassigned ? [...named, unassigned] : named
+function countsLine(section: {
+  expiredCount: number
+  expiringCount: number
+  missingCount: number
+  recheckDueCount: number
+}) {
+  return `${section.expiredCount} expired · ${section.expiringCount} expiring · ${section.missingCount} missing · ${section.recheckDueCount} recheck due`
 }
 
-function renderEntry(entry: PendingAlert): string {
-  const status = escapeHtml(kindLabel(entry.kind))
-  const requirement = escapeHtml(requirementName(entry.item))
-  const detail = escapeHtml(itemDetail(entry))
-  const staffName = entry.item.staff_id
-    ? `${escapeHtml(ownerName(entry.item))} — `
-    : ''
-  return `<li><strong>${status}:</strong> ${staffName}${requirement} — ${detail}</li>`
+function renderLine(line: DigestLine): string {
+  const parts = [line.typeName, line.ownerName, line.status]
+  if (line.urgency) parts.push(line.urgency)
+  return `<li>${escapeHtml(parts.join(' · '))}</li>`
 }
 
-function digestHtml(
-  orgName: string,
-  entries: PendingAlert[],
-  sitesByStaffId: Map<string, StaffSite[]>,
-): string {
-  const count = entries.length
-  const itemWord = count === 1 ? 'item' : 'items'
-  const sections = groupEntriesBySite(entries, sitesByStaffId)
-    .map((section) => {
-      const rows = sortEntries(section.entries).map(renderEntry).join('')
-      return `<h2>${escapeHtml(section.name)}</h2><ul>${rows}</ul>`
+function digestHtml(orgName: string, digest: OrgDigest): string {
+  const sections = digest.sites
+    .map((site) => {
+      const rows =
+        site.lines.length === 0
+          ? '<p>Nothing needs attention.</p>'
+          : `<ul>${site.lines.map(renderLine).join('')}</ul>`
+      return `<h2>${escapeHtml(site.name)} — ${escapeHtml(countsLine(site))}</h2>${rows}`
     })
     .join('')
 
   return `
-    <p>${escapeHtml(String(count))} compliance ${itemWord} newly need attention for ${escapeHtml(orgName)}.</p>
-    ${sections}
+    <p>Compliance items needing attention for ${escapeHtml(orgName)}.</p>
+    <p><strong>${escapeHtml(countsLine(digest))}</strong></p>
+    ${sections || '<p>Nothing needs attention.</p>'}
   `
+}
+
+function itemBelongsToSite(
+  item: ComplianceItemRow,
+  siteId: string,
+  staffIdsAtSite: Set<string>,
+) {
+  if (item.site_id) return item.site_id === siteId
+  return Boolean(item.staff_id && staffIdsAtSite.has(item.staff_id))
+}
+
+function buildOrgDigest({
+  items,
+  staff,
+  sites,
+  requirementTypes,
+  exclusions,
+  siteExclusions,
+  today,
+}: {
+  items: ComplianceItemRow[]
+  staff: StaffDigestRow[]
+  sites: { id: string; name: string }[]
+  requirementTypes: RequirementTypeRow[]
+  exclusions: { staff_id: string; requirement_type_id: string }[]
+  siteExclusions: { site_id: string; requirement_type_id: string }[]
+  today: string
+}): OrgDigest {
+  const report = buildProviderComplianceReport({
+    staff,
+    sites,
+    items,
+    requirementTypes,
+    exclusions,
+    siteExclusions,
+    todayIso: today,
+  })
+  const visibleItems = visibleComplianceItems({
+    items,
+    activeStaff: staff.filter((member) => member.employment_status === 'active'),
+    exclusions,
+    siteExclusions,
+  }) as ComplianceItemRow[]
+  const staffById = new Map(staff.map((member) => [member.id, member]))
+  const activeSiteIds = new Set(sites.map((site) => site.id))
+
+  function recheckDueCountFor(
+    predicate: (item: ComplianceItemRow) => boolean,
+  ) {
+    return visibleItems.filter((item) => {
+      if (!predicate(item)) return false
+      return (
+        attentionStatus(item, typeForItem(item, requirementTypes), today) ===
+        'Recheck due'
+      )
+    }).length
+  }
+
+  function recordedLines(
+    predicate: (item: ComplianceItemRow) => boolean,
+  ): DigestLine[] {
+    return visibleItems.flatMap((item) => {
+      if (!predicate(item)) return []
+      const type = typeForItem(item, requirementTypes)
+      const status = attentionStatus(item, type, today)
+      if (!ATTENTION_STATUSES.has(status)) return []
+      return [
+        {
+          key: item.id,
+          typeName: requirementName(item, type),
+          ownerName: ownerName(item, staffById),
+          status,
+          urgency: urgencyLabel(status, item, today),
+        },
+      ]
+    })
+  }
+
+  const siteRows: DigestSite[] = report.sites.map((section) => {
+    const staffIdsAtSite = new Set(
+      staff
+        .filter(
+          (member) =>
+            member.employment_status === 'active' &&
+            member.sites.some(
+              (assigned) =>
+                assigned.id === section.id && activeSiteIds.has(assigned.id),
+            ),
+        )
+        .map((member) => member.id),
+    )
+    const atSite = (item: ComplianceItemRow) =>
+      itemBelongsToSite(item, section.id, staffIdsAtSite)
+    const lines = recordedLines(atSite)
+    const recordedKeys = new Set(
+      lines.map((line) => `${line.ownerName}::${line.typeName}::${line.status}`),
+    )
+    for (const slot of section.attention) {
+      if (slot.status !== 'Missing') continue
+      const key = `${slot.ownerName}::${slot.typeName}::Missing`
+      if (recordedKeys.has(key)) continue
+      recordedKeys.add(key)
+      lines.push({
+        key: `missing:${section.id}:${key}`,
+        typeName: slot.typeName,
+        ownerName: slot.ownerName,
+        status: 'Missing',
+        urgency: 'No record',
+      })
+    }
+
+    return {
+      id: section.id,
+      name: section.name,
+      expiredCount: section.expiredCount,
+      expiringCount: section.expiringCount,
+      missingCount: section.missingCount,
+      recheckDueCount: recheckDueCountFor(atSite),
+      lines: sortDigestLines(lines),
+    }
+  })
+
+  if (report.hasUnassigned) {
+    const assignedIds = new Set(
+      staff
+        .filter((member) =>
+          member.sites.some((assigned) => activeSiteIds.has(assigned.id)),
+        )
+        .map((member) => member.id),
+    )
+    const unassignedItems = (item: ComplianceItemRow) =>
+      Boolean(item.staff_id && !assignedIds.has(item.staff_id))
+    const lines = recordedLines(unassignedItems)
+    const recordedKeys = new Set(
+      lines.map((line) => `${line.ownerName}::${line.typeName}::${line.status}`),
+    )
+    for (const slot of report.unassigned.attention) {
+      if (slot.status !== 'Missing') continue
+      const key = `${slot.ownerName}::${slot.typeName}::Missing`
+      if (recordedKeys.has(key)) continue
+      lines.push({
+        key: `missing:unassigned:${key}`,
+        typeName: slot.typeName,
+        ownerName: slot.ownerName,
+        status: 'Missing',
+        urgency: 'No record',
+      })
+    }
+    const unassignedSite: DigestSite = {
+      id: 'unassigned',
+      name: 'Unassigned staff',
+      expiredCount: report.unassigned.expiredCount,
+      expiringCount: report.unassigned.expiringCount,
+      missingCount: report.unassigned.missingCount,
+      recheckDueCount: recheckDueCountFor(unassignedItems),
+      lines: sortDigestLines(lines),
+    }
+    if (
+      unassignedSite.expiredCount +
+        unassignedSite.expiringCount +
+        unassignedSite.missingCount +
+        unassignedSite.recheckDueCount >
+        0 ||
+      unassignedSite.lines.length > 0
+    ) {
+      siteRows.push(unassignedSite)
+    }
+  }
+
+  return {
+    expiredCount: report.org.expiredCount,
+    expiringCount: report.org.expiringCount,
+    missingCount: report.org.missingCount,
+    recheckDueCount: recheckDueCountFor(() => true),
+    sites: siteRows.sort(compareSiteUrgency),
+  }
 }
 
 function alertKey(itemId: string, kind: AlertKind) {
@@ -384,11 +1085,13 @@ Deno.serve(async () => {
       id,
       expiry_date,
       last_verified_date,
+      issued_date,
       created_at,
       org_id,
       label,
       staff_id,
       site_id,
+      requirement_type_id,
       archived_at,
       document_url,
       working_towards,
@@ -487,51 +1190,163 @@ Deno.serve(async () => {
     return json(summary)
   }
 
-  const staffIds = [
-    ...new Set(
-      pending
-        .map((entry) => entry.item.staff_id)
-        .filter((staffId): staffId is string => Boolean(staffId)),
-    ),
-  ]
-  const sitesByStaffId = new Map<string, StaffSite[]>()
+  const orgIds = [...new Set(pending.map((entry) => entry.item.org_id))]
+  const [
+    orgsResult,
+    sitesResult,
+    staffResult,
+    typesResult,
+    staffExclusionsResult,
+    siteExclusionsResult,
+  ] = await Promise.all([
+    supabase
+      .from('organizations')
+      .select('id, name, owner_id, alert_email')
+      .in('id', orgIds),
+    supabase
+      .from('sites')
+      .select('id, name, org_id, archived_at')
+      .in('org_id', orgIds)
+      .is('archived_at', null)
+      .order('name', { ascending: true }),
+    supabase
+      .from('staff')
+      .select(
+        `
+        id, name, employment_status, org_id, archived_at,
+        staff_sites (
+          site_id,
+          sites ( id, name, archived_at )
+        )
+      `,
+      )
+      .in('org_id', orgIds)
+      .is('archived_at', null),
+    supabase
+      .from('requirement_types')
+      .select(
+        'id, name, org_id, mandatory, applies_to, perpetual, recheck_interval_days, renewal_lead_days, archived_at',
+      )
+      .in('org_id', orgIds)
+      .is('archived_at', null),
+    supabase.from('staff_requirement_exclusions').select('staff_id, requirement_type_id'),
+    supabase.from('site_requirement_exclusions').select('site_id, requirement_type_id'),
+  ])
 
-  if (staffIds.length > 0) {
-    const { data: staffSites, error: staffSitesError } = await supabase
-      .from('staff_sites')
-      .select('staff_id, site_id, sites ( name, archived_at )')
-      .in('staff_id', staffIds)
-
-    if (staffSitesError) {
-      return json({ error: `Failed to load staff sites: ${staffSitesError.message}` }, 500)
-    }
-
-    for (const row of (staffSites ?? []) as {
-      staff_id: string
-      site_id: string
-      sites: { name: string; archived_at: string | null } | null
-    }[]) {
-      if (isArchived(row.sites?.archived_at)) continue
-      const assigned = sitesByStaffId.get(row.staff_id) ?? []
-      if (assigned.some((site) => site.id === row.site_id)) continue
-      assigned.push({ id: row.site_id, name: row.sites?.name ?? 'Unknown' })
-      sitesByStaffId.set(row.staff_id, assigned)
+  for (const [label, result] of [
+    ['organizations', orgsResult],
+    ['sites', sitesResult],
+    ['staff', staffResult],
+    ['requirement types', typesResult],
+    ['staff exclusions', staffExclusionsResult],
+    ['site exclusions', siteExclusionsResult],
+  ] as const) {
+    if (result.error) {
+      return json({ error: `Failed to load ${label}: ${result.error.message}` }, 500)
     }
   }
 
-  const orgIds = [...new Set(pending.map((entry) => entry.item.org_id))]
-  const { data: organizations, error: orgsError } = await supabase
-    .from('organizations')
-    .select('id, name, owner_id, alert_email')
-    .in('id', orgIds)
+  const organizations = orgsResult.data
+  const sitesByOrg = new Map<string, { id: string; name: string }[]>()
+  for (const site of sitesResult.data ?? []) {
+    const list = sitesByOrg.get(site.org_id) ?? []
+    list.push({ id: site.id, name: site.name })
+    sitesByOrg.set(site.org_id, list)
+  }
 
-  if (orgsError) {
-    return json({ error: `Failed to load organizations: ${orgsError.message}` }, 500)
+  const staffByOrg = new Map<string, StaffDigestRow[]>()
+  for (const row of staffResult.data ?? []) {
+    const sites = (
+      (row.staff_sites ?? []) as {
+        sites: { id: string; name: string; archived_at: string | null } | null
+      }[]
+    )
+      .map((link) => link.sites)
+      .filter(
+        (site): site is { id: string; name: string; archived_at: string | null } =>
+          Boolean(site) && !isArchived(site.archived_at),
+      )
+      .map((site) => ({ id: site.id, name: site.name }))
+    const list = staffByOrg.get(row.org_id) ?? []
+    list.push({
+      id: row.id,
+      name: row.name,
+      employment_status: row.employment_status ?? 'active',
+      sites,
+    })
+    staffByOrg.set(row.org_id, list)
+  }
+
+  const typesByOrg = new Map<string, RequirementTypeRow[]>()
+  for (const type of (typesResult.data ?? []) as RequirementTypeRow[]) {
+    const list = typesByOrg.get(type.org_id) ?? []
+    list.push(type)
+    typesByOrg.set(type.org_id, list)
+  }
+
+  const staffIdsByOrg = new Map<string, Set<string>>()
+  for (const [id, members] of staffByOrg) {
+    staffIdsByOrg.set(id, new Set(members.map((member) => member.id)))
+  }
+  const siteIdsByOrg = new Map<string, Set<string>>()
+  for (const [id, orgSites] of sitesByOrg) {
+    siteIdsByOrg.set(id, new Set(orgSites.map((site) => site.id)))
+  }
+
+  const staffExclusionsByOrg = new Map<
+    string,
+    { staff_id: string; requirement_type_id: string }[]
+  >()
+  for (const row of staffExclusionsResult.data ?? []) {
+    const orgId = [...staffIdsByOrg.entries()].find(([, ids]) =>
+      ids.has(row.staff_id),
+    )?.[0]
+    if (!orgId) continue
+    const list = staffExclusionsByOrg.get(orgId) ?? []
+    list.push(row)
+    staffExclusionsByOrg.set(orgId, list)
+  }
+
+  const siteExclusionsByOrg = new Map<
+    string,
+    { site_id: string; requirement_type_id: string }[]
+  >()
+  for (const row of siteExclusionsResult.data ?? []) {
+    const orgId = [...siteIdsByOrg.entries()].find(([, ids]) =>
+      ids.has(row.site_id),
+    )?.[0]
+    if (!orgId) continue
+    const list = siteExclusionsByOrg.get(orgId) ?? []
+    list.push(row)
+    siteExclusionsByOrg.set(orgId, list)
+  }
+
+  const itemsByOrg = new Map<string, ComplianceItemRow[]>()
+  for (const item of allItems) {
+    const list = itemsByOrg.get(item.org_id) ?? []
+    list.push(item)
+    itemsByOrg.set(item.org_id, list)
   }
 
   const orgById = new Map(
     ((organizations ?? []) as OrganizationRow[]).map((org) => [org.id, org]),
   )
+
+  const digestByOrg = new Map<string, OrgDigest>()
+  for (const orgId of orgIds) {
+    digestByOrg.set(
+      orgId,
+      buildOrgDigest({
+        items: itemsByOrg.get(orgId) ?? [],
+        staff: staffByOrg.get(orgId) ?? [],
+        sites: sitesByOrg.get(orgId) ?? [],
+        requirementTypes: typesByOrg.get(orgId) ?? [],
+        exclusions: staffExclusionsByOrg.get(orgId) ?? [],
+        siteExclusions: siteExclusionsByOrg.get(orgId) ?? [],
+        today,
+      }),
+    )
+  }
 
   const pendingByOrg = new Map<string, PendingAlert[]>()
   for (const entry of pending) {
@@ -558,12 +1373,18 @@ Deno.serve(async () => {
     const itemWord = count === 1 ? 'item' : 'items'
     const subject = `Compliance digest: ${count} ${itemWord} need attention — ${org.name}`
 
+    const digest = digestByOrg.get(orgId)
+    if (!digest) {
+      summary.errors.push(`Failed to build digest for org ${orgId}`)
+      continue
+    }
+
     const { error: sendError } = await sendResendEmail({
       apiKey: resendApiKey,
       from: fromEmail,
       to,
       subject,
-      html: digestHtml(org.name, entries, sitesByStaffId),
+      html: digestHtml(org.name, digest),
     })
 
     if (sendError) {
