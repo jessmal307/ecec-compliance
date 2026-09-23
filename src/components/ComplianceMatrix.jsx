@@ -19,12 +19,15 @@ import {
   EMPTY_COMPLIANCE_ITEM_VALUES,
 } from './ComplianceItemFields'
 import { PageError, PageMuted } from './ui/page'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select } from './ui/form'
 import { useAuth } from '../hooks/useAuth'
-import { isArchived } from '../lib/archive'
 import {
   filterMatrix,
+  filterSiteMatrix,
   matrixCsv,
+  matrixSites,
+  matrixSiteTypes,
   matrixStaff,
   matrixStaffTypes,
 } from '../lib/complianceMatrix'
@@ -35,7 +38,10 @@ import {
   saveComplianceItem,
   tracksVerification,
 } from '../lib/compliance'
-import { listStaffRequirementExclusionsForOrg } from '../lib/exclusions'
+import {
+  listSiteRequirementExclusionsForOrg,
+  listStaffRequirementExclusionsForOrg,
+} from '../lib/exclusions'
 import { formatDate } from '../lib/format'
 import { paths } from '../lib/paths'
 import { firstError } from '../lib/query'
@@ -131,8 +137,10 @@ export function ComplianceMatrix() {
   const [requirementTypes, setRequirementTypes] = useState([])
   const [items, setItems] = useState([])
   const [exclusions, setExclusions] = useState([])
+  const [siteExclusions, setSiteExclusions] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [view, setView] = useState('staff')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [staffFilter, setStaffFilter] = useState('')
@@ -150,12 +158,14 @@ export function ComplianceMatrix() {
       typesResult,
       itemsResult,
       exclusionsResult,
+      siteExclusionsResult,
     ] = await Promise.all([
       listSites(organizationId),
       listStaff(organizationId),
       listRequirementTypes(organizationId),
       listComplianceItems(organizationId),
       listStaffRequirementExclusionsForOrg(organizationId),
+      listSiteRequirementExclusionsForOrg(organizationId),
     ])
 
     const loadError = firstError(
@@ -164,14 +174,16 @@ export function ComplianceMatrix() {
       typesResult,
       itemsResult,
       exclusionsResult,
+      siteExclusionsResult,
     )
     if (loadError) return { error: loadError }
 
-    setSites(sitesResult.data)
+    setSites(matrixSites(sitesResult.data))
     setStaff(matrixStaff(staffResult.data))
-    setRequirementTypes(matrixStaffTypes(typesResult.data))
+    setRequirementTypes(typesResult.data ?? [])
     setItems(itemsResult.data)
     setExclusions(exclusionsResult.data)
+    setSiteExclusions(siteExclusionsResult.data)
     return { error: null }
   }, [organizationId])
 
@@ -196,33 +208,73 @@ export function ComplianceMatrix() {
     }
   }, [organizationId, refresh])
 
-  const matrix = useMemo(
-    () =>
-      filterMatrix({
-        types: requirementTypes,
-        staff,
+  const staffTypes = useMemo(
+    () => matrixStaffTypes(requirementTypes),
+    [requirementTypes],
+  )
+  const siteTypes = useMemo(
+    () => matrixSiteTypes(requirementTypes),
+    [requirementTypes],
+  )
+  const siteView = view === 'sites'
+
+  const matrix = useMemo(() => {
+    if (siteView) {
+      const result = filterSiteMatrix({
+        types: siteTypes,
+        sites,
         items,
-        exclusions,
+        exclusions: siteExclusions,
         typeId: typeFilter,
         status: statusFilter,
-        staffId: staffFilter,
         siteId: siteFilter,
-      }),
-    [
-      requirementTypes,
+      })
+      return {
+        types: result.types,
+        owners: result.sites,
+        cells: result.cells,
+      }
+    }
+
+    const result = filterMatrix({
+      types: staffTypes,
       staff,
       items,
       exclusions,
-      typeFilter,
-      statusFilter,
-      staffFilter,
-      siteFilter,
-    ],
+      typeId: typeFilter,
+      status: statusFilter,
+      staffId: staffFilter,
+      siteId: siteFilter,
+    })
+    return {
+      types: result.types,
+      owners: result.staff,
+      cells: result.cells,
+    }
+  }, [
+    siteView,
+    siteTypes,
+    sites,
+    items,
+    siteExclusions,
+    staffTypes,
+    staff,
+    exclusions,
+    typeFilter,
+    statusFilter,
+    staffFilter,
+    siteFilter,
+  ])
+
+  const viewTypes = siteView ? siteTypes : staffTypes
+  const viewOwners = siteView ? sites : staff
+  const filtering = Boolean(
+    typeFilter ||
+      statusFilter ||
+      siteFilter ||
+      (!siteView && staffFilter),
   )
 
-  const filtering = Boolean(
-    typeFilter || statusFilter || staffFilter || siteFilter,
-  )
   const showLastVerified = tracksVerification(draft?.type)
   const editingItem = draft?.cell.item ?? null
 
@@ -239,6 +291,15 @@ export function ComplianceMatrix() {
   function closeDraft() {
     setDraft(null)
     setFormValues(EMPTY_COMPLIANCE_ITEM_VALUES)
+  }
+
+  function handleViewChange(next) {
+    setView(next)
+    setTypeFilter('')
+    setStatusFilter('')
+    setStaffFilter('')
+    setSiteFilter('')
+    closeDraft()
   }
 
   async function handleSave(event) {
@@ -258,8 +319,8 @@ export function ComplianceMatrix() {
       issuer: formValues.issuer,
       status: formValues.status,
       lastVerifiedDate: showLastVerified ? formValues.lastVerifiedDate : null,
-      staffId: draft.member.id,
-      siteId: null,
+      staffId: siteView ? null : draft.member.id,
+      siteId: siteView ? draft.member.id : null,
       documentFile: formValues.documentFile,
       currentDocumentPath: formValues.documentUrl,
       orgId: organizationId,
@@ -285,34 +346,49 @@ export function ComplianceMatrix() {
 
   function handleExport() {
     downloadCsv(
-      matrixCsv(matrix),
-      `compliance-matrix-${new Date().toISOString().slice(0, 10)}.csv`,
+      matrixCsv({
+        ...matrix,
+        ownerHeader: siteView ? 'Site' : 'Staff',
+      }),
+      `compliance-${siteView ? 'site' : 'staff'}-matrix-${new Date().toISOString().slice(0, 10)}.csv`,
     )
+  }
+
+  function ownerHref(owner) {
+    return siteView ? paths.siteProfile(owner.id) : paths.staffProfile(owner.id)
   }
 
   const emptyMessage = !organizationId
     ? 'No organization yet. Sign out and back in if this persists.'
-    : staff.length === 0
-      ? 'Add staff to see the matrix.'
-      : requirementTypes.length === 0
-        ? 'Add staff requirement types to see the matrix.'
+    : viewOwners.length === 0
+      ? siteView
+        ? 'Add sites to see the matrix.'
+        : 'Add staff to see the matrix.'
+      : viewTypes.length === 0
+        ? siteView
+          ? 'Add site requirement types to see the matrix.'
+          : 'Add staff requirement types to see the matrix.'
         : filtering
-          ? 'No matching staff or requirements.'
+          ? siteView
+            ? 'No matching sites or requirements.'
+            : 'No matching staff or requirements.'
           : 'Nothing to show yet.'
 
   const isEmpty =
     !loading &&
-    (staff.length === 0 ||
-      requirementTypes.length === 0 ||
-      matrix.staff.length === 0 ||
+    (viewOwners.length === 0 ||
+      viewTypes.length === 0 ||
+      matrix.owners.length === 0 ||
       matrix.types.length === 0)
 
   return (
     <Card className="compliance-matrix">
       <CardHeader>
-        <CardTitle>Staff matrix</CardTitle>
+        <CardTitle>{siteView ? 'Site matrix' : 'Staff matrix'}</CardTitle>
         <CardDescription>
-          Staff requirement types across people. Default view is all sites.
+          {siteView
+            ? 'Site requirement types across services.'
+            : 'Staff requirement types across people. Default view is all sites.'}
         </CardDescription>
         <CardAction className="no-print flex flex-wrap gap-2">
           <Button
@@ -340,15 +416,29 @@ export function ComplianceMatrix() {
 
       {loading || !organizationId ? null : (
         <div className="no-print flex flex-col gap-3 border-b border-border px-(--card-spacing) pb-(--card-spacing)">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <Tabs value={view} onValueChange={handleViewChange}>
+            <TabsList>
+              <TabsTrigger value="staff">Staff requirements</TabsTrigger>
+              <TabsTrigger value="sites">Site requirements</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <div
+            className={
+              siteView
+                ? 'grid grid-cols-1 gap-2 sm:grid-cols-3'
+                : 'grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4'
+            }
+          >
             <Select
               value={siteFilter}
               onChange={(event) => setSiteFilter(event.target.value)}
               aria-label="Filter by site"
             >
               <option value="">All sites</option>
-              <option value="unassigned">No site assigned</option>
-              {sites.filter((site) => !isArchived(site)).map((site) => (
+              {siteView ? null : (
+                <option value="unassigned">No site assigned</option>
+              )}
+              {sites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name}
                 </option>
@@ -360,24 +450,26 @@ export function ComplianceMatrix() {
               aria-label="Filter by requirement type"
             >
               <option value="">All requirement types</option>
-              {requirementTypes.map((type) => (
+              {viewTypes.map((type) => (
                 <option key={type.id} value={type.id}>
                   {type.name}
                 </option>
               ))}
             </Select>
-            <Select
-              value={staffFilter}
-              onChange={(event) => setStaffFilter(event.target.value)}
-              aria-label="Filter by staff"
-            >
-              <option value="">All staff</option>
-              {staff.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.name}
-                </option>
-              ))}
-            </Select>
+            {siteView ? null : (
+              <Select
+                value={staffFilter}
+                onChange={(event) => setStaffFilter(event.target.value)}
+                aria-label="Filter by staff"
+              >
+                <option value="">All staff</option>
+                {staff.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
@@ -415,13 +507,13 @@ export function ComplianceMatrix() {
                       <th className="sticky top-0 left-0 z-30 min-w-40 bg-card px-3 py-2 text-xs font-medium text-muted-foreground shadow-[1px_1px_0_0_var(--border)]">
                         Requirement
                       </th>
-                      {matrix.staff.map((member) => (
+                      {matrix.owners.map((member) => (
                         <th
                           key={member.id}
                           className="sticky top-0 z-20 min-w-24 bg-card px-1.5 py-2 text-center text-xs font-medium shadow-[0_1px_0_0_var(--border)]"
                         >
                           <Link
-                            to={paths.staffProfile(member.id)}
+                            to={ownerHref(member)}
                             className="line-clamp-2 text-card-foreground no-underline hover:underline"
                           >
                             {member.name}
@@ -436,7 +528,7 @@ export function ComplianceMatrix() {
                         <th className="sticky left-0 z-10 min-w-40 bg-card px-3 py-0 text-left text-sm font-medium text-card-foreground shadow-[1px_0_0_0_var(--border)]">
                           {type.name}
                         </th>
-                        {matrix.staff.map((member) => {
+                        {matrix.owners.map((member) => {
                           const cell = matrix.cells.get(`${type.id}:${member.id}`)
                           if (!cell) return <td key={member.id} />
                           return (
@@ -458,11 +550,11 @@ export function ComplianceMatrix() {
             </div>
 
             <div className="flex flex-col gap-4 px-(--card-spacing) md:hidden print:hidden">
-              {matrix.staff.map((member) => (
+              {matrix.owners.map((member) => (
                 <section key={member.id} className="space-y-2">
                   <h3 className="text-sm font-semibold text-card-foreground">
                     <Link
-                      to={paths.staffProfile(member.id)}
+                      to={ownerHref(member)}
                       className="underline underline-offset-2"
                     >
                       {member.name}
