@@ -19,8 +19,7 @@ import { Progress } from '@/components/ui/progress'
 import { GapCategories } from './GapCategories'
 import { GetStarted, setupProgress } from './GetStarted'
 import { DashboardSkeleton } from './PageSkeletons'
-import { UrgentAttentionList } from './UrgentAttentionList'
-import { StatusLegend } from './StatusBadge'
+import { StatusBadge, StatusLegend } from './StatusBadge'
 import { PageError, PageHeader } from './ui/page'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -41,10 +40,11 @@ import {
   listSiteRequirementExclusionsForOrg,
 } from '../lib/exclusions'
 import { buildOwnerGaps } from '../lib/gaps'
+import { daysUntil } from '../lib/format'
+import { ownerRequirementPath, paths } from '../lib/paths'
 import { firstError } from '../lib/query'
 import { listSites } from '../lib/sites'
 import { isActiveStaff, listStaff } from '../lib/staff'
-import { paths } from '../lib/paths'
 
 function countLabel(count, singular, plural) {
   return `${count} ${count === 1 ? singular : plural}`
@@ -106,6 +106,69 @@ function compareSiteUrgency(left, right) {
     right.missingCount - left.missingCount ||
     right.expiringCount - left.expiringCount ||
     right.recheckDueCount - left.recheckDueCount
+  )
+}
+
+function overviewUrgency(item, status) {
+  if (status === 'Missing') return 'No record'
+  if (status === 'Recheck due') return 'Recheck due'
+  const days = daysUntil(item.expiry_date)
+  if (days == null) return ''
+  if (days < 0) {
+    const overdue = Math.abs(days)
+    return `${overdue} day${overdue === 1 ? '' : 's'} overdue`
+  }
+  if (days === 0) return 'Expires today'
+  return `in ${days} day${days === 1 ? '' : 's'}`
+}
+
+function OverviewAttentionList({ items, requirementTypes }) {
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">Nothing needs attention.</p>
+    )
+  }
+
+  return (
+    <ul className="divide-y divide-border">
+      {items.map((item) => {
+        const requirementType = requirementTypes.find(
+          (type) => type.id === item.requirement_type_id,
+        )
+        const status = attentionStatus(item, requirementType)
+        const urgency = overviewUrgency(item, status)
+        const accent =
+          status === 'Expired' ||
+          status === 'Recheck due' ||
+          status === 'Missing'
+            ? 'border-l-status-expired'
+            : 'border-l-status-soon'
+
+        return (
+          <li
+            key={item.id}
+            className={`border-l-4 py-2 pl-3 first:pt-0 last:pb-0 ${accent}`}
+          >
+            <div className="flex min-h-11 min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <Link
+                to={ownerRequirementPath(item)}
+                className="min-w-0 font-medium text-card-foreground underline underline-offset-2"
+              >
+                {item.typeName}
+                <span className="font-normal text-muted-foreground">
+                  {' '}
+                  · {item.ownerName}
+                </span>
+              </Link>
+              <StatusBadge status={status} />
+              {urgency ? (
+                <span className="text-xs text-muted-foreground">{urgency}</span>
+              ) : null}
+            </div>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -411,11 +474,9 @@ export function Overview() {
                 ) : null}
               </CardHeader>
               <CardContent>
-                <UrgentAttentionList
+                <OverviewAttentionList
                   items={previewUrgentItems}
-                  kind="all"
                   requirementTypes={requirementTypes}
-                  compact
                 />
               </CardContent>
             </Card>
