@@ -1,7 +1,8 @@
 import {
-  complianceStatus,
+  itemComplianceStatus,
   isSiteRequirementType,
   isStaffRequirementType,
+  workingTowardsNeedsDocument,
 } from './compliance'
 import {
   isRequirementExcluded,
@@ -12,7 +13,7 @@ import { paths } from './paths'
 function expiredForOwner(visibleItems, predicate) {
   return visibleItems.filter(
     (item) =>
-      predicate(item) && complianceStatus(item.expiry_date) === 'Expired',
+      predicate(item) && itemComplianceStatus(item) === 'Expired',
   )
 }
 
@@ -37,7 +38,9 @@ export function buildOwnerGaps({
         !isRequirementExcluded(exclusions, member.id, type.id) &&
         !visibleItems.some(
           (item) =>
-            item.staff_id === member.id && item.requirement_type_id === type.id,
+            item.staff_id === member.id &&
+            item.requirement_type_id === type.id &&
+            !workingTowardsNeedsDocument(item),
         ),
     )
     const expired = expiredForOwner(
@@ -97,14 +100,16 @@ export function countStaffGaps(member, { requirementTypes, items, exclusions }) 
       !isRequirementExcluded(exclusions, member.id, type.id) &&
       !items.some(
         (item) =>
-          item.staff_id === member.id && item.requirement_type_id === type.id,
+          item.staff_id === member.id &&
+          item.requirement_type_id === type.id &&
+          !workingTowardsNeedsDocument(item),
       ),
   ).length
   const expired = items.filter(
     (item) =>
       item.staff_id === member.id &&
       !isRequirementExcluded(exclusions, member.id, item.requirement_type_id) &&
-      complianceStatus(item.expiry_date) === 'Expired',
+      itemComplianceStatus(item) === 'Expired',
   ).length
 
   return missing + expired

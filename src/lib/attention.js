@@ -1,6 +1,6 @@
 import {
   attentionStatus,
-  complianceStatus,
+  itemComplianceStatus,
   isSiteRequirementType,
   isStaffRequirementType,
   recheckDueDate,
@@ -38,7 +38,8 @@ export function buildUrgentItems({
     return (
       status === 'Expired' ||
       status === 'Recheck due' ||
-      status === 'Expiring soon'
+      status === 'Expiring soon' ||
+      status === 'Missing'
     )
   })
 
@@ -149,7 +150,7 @@ function buildRequiredItemsByStatus(
           row.staff_id === member.id && row.requirement_type_id === type.id,
       )
       if (!item) continue
-      if (complianceStatus(item.expiry_date) !== status) continue
+      if (itemComplianceStatus(item, type) !== status) continue
       matched.push(item)
     }
   }
@@ -162,7 +163,7 @@ function buildRequiredItemsByStatus(
           row.site_id === site.id && row.requirement_type_id === type.id,
       )
       if (!item) continue
-      if (complianceStatus(item.expiry_date) !== status) continue
+      if (itemComplianceStatus(item, type) !== status) continue
       matched.push(item)
     }
   }

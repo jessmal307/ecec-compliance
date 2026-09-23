@@ -71,7 +71,7 @@ export function calendarEntriesFromItems(items) {
   const entries = []
 
   for (const item of items) {
-    if (item.expiry_date) {
+    if (item.expiry_date && !item.perpetual) {
       entries.push({
         id: `expiry-${item.id}`,
         date: item.expiry_date,

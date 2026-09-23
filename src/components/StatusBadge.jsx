@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge'
+import { isWorkingTowards } from '../lib/compliance'
 
 const STYLES = {
   Expired: 'border-transparent bg-status-expired text-status-expired-foreground',
@@ -17,7 +18,13 @@ const STYLES = {
 }
 
 export function StatusBadge({ status, children }) {
-  if (status === 'Not applicable' || status === 'Inactive' || status === 'Archived') {
+  if (
+    status === 'Not applicable' ||
+    status === 'Inactive' ||
+    status === 'On leave' ||
+    status === 'Archived' ||
+    status === 'Working towards'
+  ) {
     return (
       <Badge variant="secondary" className="max-w-none shrink-0">
         {children ?? status}
@@ -54,6 +61,18 @@ const LEGEND_ITEMS = [
     meaning: 'required but no record yet',
   },
 ]
+
+export function WorkingTowardsBadge({ item }) {
+  if (!isWorkingTowards(item)) return null
+  const target = String(
+    item.working_towards_target ?? item.workingTowardsTarget ?? '',
+  ).trim()
+  return (
+    <StatusBadge status="Working towards">
+      {target ? `Working towards · ${target}` : 'Working towards'}
+    </StatusBadge>
+  )
+}
 
 export function StatusLegend({ className = '' }) {
   return (

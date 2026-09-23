@@ -45,7 +45,7 @@ import { useAuth } from '../hooks/useAuth'
 import { paths } from '../lib/paths'
 import { formatDate } from '../lib/format'
 import {
-  complianceStatus,
+  attentionStatus,
   archiveComplianceItem,
   formValuesFromItem,
   hasRecheckInterval,
@@ -755,7 +755,7 @@ export function SiteProfile() {
                         ? 'Not applicable'
                         : missing
                           ? 'Missing'
-                          : complianceStatus(item.expiry_date)
+                          : attentionStatus(item, requirementType)
                       const isEditing = Boolean(item) && editingItemId === item.id
                       const isFilling =
                         missing && fillingTypeId === requirementType.id

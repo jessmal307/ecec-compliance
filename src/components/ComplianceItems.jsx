@@ -31,7 +31,7 @@ import {
   normalizeQuery,
 } from './ListFilters'
 import { DocumentActions } from './DocumentLink'
-import { StatusBadge } from './StatusBadge'
+import { StatusBadge, WorkingTowardsBadge } from './StatusBadge'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
 import {
   Choice,
@@ -44,16 +44,19 @@ import {
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
 import {
-  complianceStatus,
+  attentionStatus,
   saveComplianceItem,
   archiveComplianceItem,
   restoreComplianceItem,
   deleteComplianceItem,
   formValuesFromItem,
   hasRecheckInterval,
+  isWorkingTowards,
+  itemFormSaveFields,
   listComplianceItems,
   listRequirementTypes,
   markItemVerifiedToday,
+  showsWorkingTowards,
   suggestedExpiryFromIssuedDate,
   todayIsoDate,
   tracksVerification,
@@ -99,10 +102,16 @@ export function ComplianceItems({ embedded = false }) {
       if (!tracksVerification(nextType)) {
         next.lastVerifiedDate = ''
       }
-      const suggested = suggestedExpiryFromIssuedDate(
-        current.issuedDate,
-        nextType?.validity_months,
-      )
+      if (!showsWorkingTowards(nextType)) {
+        next.workingTowards = false
+        next.workingTowardsTarget = ''
+      }
+      const suggested = nextType?.perpetual
+        ? ''
+        : suggestedExpiryFromIssuedDate(
+            current.issuedDate,
+            nextType?.validity_months,
+          )
       if (suggested) {
         next.expiryDate = suggested
       }
@@ -219,24 +228,12 @@ export function ComplianceItems({ embedded = false }) {
     setError('')
     setSaving(true)
 
-    const payload = {
-      requirementTypeId,
-      label: formValues.label.trim(),
-      expiryDate: formValues.expiryDate,
-      referenceNumber: formValues.referenceNumber,
-      issuedDate: formValues.issuedDate,
-      issuer: formValues.issuer,
-      status: formValues.status,
-      lastVerifiedDate: showLastVerified ? formValues.lastVerifiedDate : null,
-      staffId: belongsToStaff ? staffId : null,
-      siteId: belongsToStaff ? null : siteId,
-    }
-
     const { error: saveError } = await saveComplianceItem({
       id: editingId,
-      documentFile: formValues.documentFile,
-      currentDocumentPath: formValues.documentUrl,
-      ...payload,
+      requirementTypeId,
+      ...itemFormSaveFields(formValues, selectedType),
+      staffId: belongsToStaff ? staffId : null,
+      siteId: belongsToStaff ? null : siteId,
       orgId: organizationId,
     })
 
@@ -369,7 +366,7 @@ export function ComplianceItems({ embedded = false }) {
       if (
         statusFilter &&
         statusFilter !== 'archived' &&
-        !matchesItemStatus(statusFilter, complianceStatus(item.expiry_date))
+        !matchesItemStatus(statusFilter, attentionStatus(item))
       ) {
         return false
       }
@@ -578,7 +575,7 @@ export function ComplianceItems({ embedded = false }) {
               </THead>
               <tbody>
                 {filteredItems.map((item) => {
-                  const status = complianceStatus(item.expiry_date)
+                  const status = attentionStatus(item)
                   const profilePath = item.staff_id
                     ? paths.staffProfile(item.staff_id)
                     : paths.siteProfile(item.site_id)
@@ -590,6 +587,11 @@ export function ComplianceItems({ embedded = false }) {
                         </p>
                         {item.label && item.label !== item.typeName ? (
                           <p className="text-xs text-muted-foreground">{item.label}</p>
+                        ) : null}
+                        {isWorkingTowards(item) ? (
+                          <div className="mt-1">
+                            <WorkingTowardsBadge item={item} />
+                          </div>
                         ) : null}
                         <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
                           {item.ownerName}

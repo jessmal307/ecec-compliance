@@ -6,6 +6,7 @@ export function AlertTimingHint({
   status,
   expiryDate,
   lastVerifiedDate,
+  workingTowards,
   className = '',
 }) {
   const line = alertTimingLine({
@@ -14,6 +15,7 @@ export function AlertTimingHint({
     status,
     expiryDate,
     lastVerifiedDate,
+    workingTowards,
   })
   if (!line) return null
 

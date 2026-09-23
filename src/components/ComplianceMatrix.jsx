@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card'
 import { STATUS_FILTERS } from './ListFilters'
 import { ListTableSkeleton } from './PageSkeletons'
-import { StatusBadge, StatusLegend } from './StatusBadge'
+import { StatusBadge, StatusLegend, WorkingTowardsBadge } from './StatusBadge'
 import {
   ComplianceItemForm,
   EMPTY_COMPLIANCE_ITEM_VALUES,
@@ -33,6 +33,8 @@ import {
 } from '../lib/complianceMatrix'
 import {
   formValuesFromItem,
+  isWorkingTowards,
+  itemFormSaveFields,
   listComplianceItems,
   listRequirementTypes,
   saveComplianceItem,
@@ -68,6 +70,9 @@ function cellLabel({ type, member, cell }) {
   }
   if (cell.kind === 'missing') {
     return `${type.name} for ${member.name}: missing, add record`
+  }
+  if (!cell.item.expiry_date) {
+    return `${type.name} for ${member.name}: ${cell.status}`
   }
   return `${type.name} for ${member.name}: ${cell.status}, expires ${formatDate(cell.item.expiry_date)}`
 }
@@ -312,17 +317,9 @@ export function ComplianceMatrix() {
     const { error: saveError } = await saveComplianceItem({
       id: editingItem?.id,
       requirementTypeId: draft.type.id,
-      label: formValues.label.trim(),
-      expiryDate: formValues.expiryDate,
-      referenceNumber: formValues.referenceNumber,
-      issuedDate: formValues.issuedDate,
-      issuer: formValues.issuer,
-      status: formValues.status,
-      lastVerifiedDate: showLastVerified ? formValues.lastVerifiedDate : null,
+      ...itemFormSaveFields(formValues, draft.type),
       staffId: siteView ? null : draft.member.id,
       siteId: siteView ? draft.member.id : null,
-      documentFile: formValues.documentFile,
-      currentDocumentPath: formValues.documentUrl,
       orgId: organizationId,
     })
 
@@ -595,6 +592,11 @@ export function ComplianceMatrix() {
                                         aria-hidden
                                       />
                                     ) : null}
+                                  </span>
+                                ) : null}
+                                {isWorkingTowards(cell.item) ? (
+                                  <span className="mt-1 block">
+                                    <WorkingTowardsBadge item={cell.item} />
                                   </span>
                                 ) : null}
                               </span>

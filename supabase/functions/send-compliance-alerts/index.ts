@@ -7,7 +7,7 @@ type AlertKind = 'renewal' | 'expired' | 'recheck'
 
 type ComplianceItemRow = {
   id: string
-  expiry_date: string
+  expiry_date: string | null
   last_verified_date: string | null
   created_at: string | null
   org_id: string
@@ -15,12 +15,19 @@ type ComplianceItemRow = {
   staff_id: string | null
   site_id: string | null
   archived_at: string | null
+  document_url: string | null
+  working_towards: boolean | null
   requirement_types: {
     name: string
     renewal_lead_days: number | null
     recheck_interval_days: number | null
+    perpetual: boolean | null
   } | null
-  staff: { name: string; archived_at: string | null } | null
+  staff: {
+    name: string
+    archived_at: string | null
+    employment_status: string | null
+  } | null
   sites: { name: string; archived_at: string | null } | null
 }
 
@@ -53,10 +60,17 @@ function isArchived(value: string | null | undefined): boolean {
   return value != null && value !== ''
 }
 
+function isActiveEmployment(status: string | null | undefined): boolean {
+  return (status ?? 'active') === 'active'
+}
+
 function isAlertableItem(item: ComplianceItemRow): boolean {
   if (isArchived(item.archived_at)) return false
   if (isArchived(item.staff?.archived_at)) return false
   if (isArchived(item.sites?.archived_at)) return false
+  if (item.staff_id && !isActiveEmployment(item.staff?.employment_status)) {
+    return false
+  }
   return true
 }
 
@@ -122,16 +136,32 @@ function renewalLeadDays(item: ComplianceItemRow): number | null {
   return asNonNegativeInt(item.requirement_types?.renewal_lead_days)
 }
 
+const WORKING_TOWARDS_RECHECK_DAYS = 365
+
+function isWorkingTowards(item: ComplianceItemRow): boolean {
+  return Boolean(item.working_towards)
+}
+
+function hasEvidenceDocument(item: ComplianceItemRow): boolean {
+  return Boolean(String(item.document_url ?? '').trim())
+}
+
 function recheckIntervalDays(item: ComplianceItemRow): number | null {
-  return asNonNegativeInt(item.requirement_types?.recheck_interval_days)
+  const fromType = asNonNegativeInt(item.requirement_types?.recheck_interval_days)
+  if (fromType != null) return fromType
+  if (isWorkingTowards(item)) return WORKING_TOWARDS_RECHECK_DAYS
+  return null
 }
 
 function dueExpiryKinds(item: ComplianceItemRow, today: string, leadDays: number): AlertKind[] {
+  if (item.requirement_types?.perpetual) return []
+  const expiry = item.expiry_date
+  if (!expiry) return []
   const kinds: AlertKind[] = []
-  if (item.expiry_date <= addDays(today, leadDays)) {
+  if (expiry <= addDays(today, leadDays)) {
     kinds.push('renewal')
   }
-  if (item.expiry_date <= today) {
+  if (expiry <= today) {
     kinds.push('expired')
   }
   return kinds
@@ -144,6 +174,7 @@ function recheckBaseDate(item: ComplianceItemRow): string | null {
 }
 
 function isRecheckDue(item: ComplianceItemRow, today: string, intervalDays: number): boolean {
+  if (isWorkingTowards(item) && !hasEvidenceDocument(item)) return true
   const baseDate = recheckBaseDate(item)
   if (!baseDate) return false
   return today >= addDays(baseDate, intervalDays)
@@ -359,8 +390,10 @@ Deno.serve(async () => {
       staff_id,
       site_id,
       archived_at,
-      requirement_types ( name, renewal_lead_days, recheck_interval_days ),
-      staff ( name, archived_at ),
+      document_url,
+      working_towards,
+      requirement_types ( name, renewal_lead_days, recheck_interval_days, perpetual ),
+      staff ( name, archived_at, employment_status ),
       sites ( name, archived_at )
     `,
     )

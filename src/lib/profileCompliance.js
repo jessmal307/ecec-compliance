@@ -1,11 +1,16 @@
 import { isArchived } from './archive'
-import { complianceStatus, isOtherRequirementType } from './compliance'
+import {
+  attentionStatus,
+  isOtherRequirementType,
+  itemComplianceStatus,
+} from './compliance'
 
 const URGENCY_RANK = {
   Expired: 0,
   Missing: 1,
-  'Expiring soon': 2,
-  Valid: 3,
+  'Recheck due': 2,
+  'Expiring soon': 3,
+  Valid: 4,
 }
 
 function compareUrgent(a, b) {
@@ -67,14 +72,15 @@ export function summarizeProfileRequirements(rows, isExcluded) {
     .map(({ requirementType, item }) => ({
       requirementType,
       item,
-      status: item ? complianceStatus(item.expiry_date) : 'Missing',
+      health: item ? itemComplianceStatus(item, requirementType) : 'Missing',
+      status: item ? attentionStatus(item, requirementType) : 'Missing',
     }))
 
   const counts = {
-    current: applicable.filter((row) => row.status === 'Valid').length,
-    expiring: applicable.filter((row) => row.status === 'Expiring soon').length,
-    expired: applicable.filter((row) => row.status === 'Expired').length,
-    missing: applicable.filter((row) => row.status === 'Missing').length,
+    current: applicable.filter((row) => row.health === 'Valid').length,
+    expiring: applicable.filter((row) => row.health === 'Expiring soon').length,
+    expired: applicable.filter((row) => row.health === 'Expired').length,
+    missing: applicable.filter((row) => row.health === 'Missing').length,
   }
 
   const mostUrgent =

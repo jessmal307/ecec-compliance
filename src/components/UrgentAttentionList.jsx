@@ -1,14 +1,16 @@
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { DocumentActions, DocumentLink } from './DocumentLink'
-import { StatusBadge } from './StatusBadge'
+import { StatusBadge, WorkingTowardsBadge } from './StatusBadge'
 import {
   ComplianceItemForm,
 } from './ComplianceItemFields'
 import {
   attentionStatus,
   canMarkVerifiedToday,
+  isWorkingTowards,
   recheckDueDate,
+  workingTowardsNeedsDocument,
 } from '../lib/compliance'
 import { ownerRequirementPath } from '../lib/paths'
 import { daysUntil, formatDate } from '../lib/format'
@@ -36,6 +38,9 @@ function relativeRecheck(dueDate) {
 }
 
 function attentionMeta(item, status, dueDate) {
+  if (workingTowardsNeedsDocument(item)) {
+    return 'Needs transcript or enrolment evidence'
+  }
   if (status === 'Missing') return 'No record · Recheck due'
   if (status === 'Recheck due') {
     return item.last_verified_date && dueDate
@@ -86,7 +91,9 @@ export function UrgentAttentionList({
         const canMarkVerified = canMarkVerifiedToday(item, requirementType)
         const canEdit =
           !item.missing &&
-          (status === 'Expired' || status === 'Expiring soon')
+          (status === 'Expired' ||
+            status === 'Expiring soon' ||
+            workingTowardsNeedsDocument(item))
         const dueDate = recheckDueDate(item, requirementType)
         const accent =
           status === 'Expired' ||
@@ -129,6 +136,11 @@ export function UrgentAttentionList({
                     ? ` · ${item.label}`
                     : ''}
                 </p>
+                {isWorkingTowards(item) ? (
+                  <div className="mt-1">
+                    <WorkingTowardsBadge item={item} />
+                  </div>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <StatusBadge status={status} />

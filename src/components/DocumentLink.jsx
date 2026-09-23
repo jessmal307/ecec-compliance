@@ -21,7 +21,11 @@ async function openSignedDocument(path, setBusy, setError) {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-export function DocumentAttached({ path, disabled = false }) {
+export function DocumentAttached({
+  path,
+  disabled = false,
+  label = 'Document attached',
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -30,7 +34,7 @@ export function DocumentAttached({ path, disabled = false }) {
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
       <Paperclip className="size-3 shrink-0" aria-hidden />
-      <span>Document attached</span>
+      <span>{label}</span>
       <span aria-hidden>·</span>
       <button
         type="button"

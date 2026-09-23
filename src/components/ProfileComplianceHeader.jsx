@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { DocumentAttached } from './DocumentLink'
-import { StatusBadge } from './StatusBadge'
+import { StatusBadge, WorkingTowardsBadge } from './StatusBadge'
 import { formatDate, formatRelativeExpiry } from '../lib/format'
 
 const COUNT_STATS = [
@@ -70,9 +70,16 @@ function urgentAccent(status) {
 
 function urgentDetail(row) {
   if (row.status === 'Missing') {
+    if (row.item) return 'Needs transcript or enrolment evidence'
     return row.requirementType.mandatory
       ? 'Required item has no record on file'
       : 'No record on file'
+  }
+
+  if (row.status === 'Recheck due') {
+    return row.item?.working_towards
+      ? 'Yearly progress re-check is overdue'
+      : 'Verification re-check is overdue'
   }
 
   const relative = formatRelativeExpiry(row.item.expiry_date)
@@ -154,9 +161,17 @@ export function ProfileComplianceHeader({ summary, onReviewUrgent }) {
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {urgentDetail(mostUrgent)}
                 </p>
-                <DocumentAttached path={mostUrgent.item?.document_url} />
+                <DocumentAttached
+                  path={mostUrgent.item?.document_url}
+                  label={
+                    mostUrgent.item?.working_towards
+                      ? 'Transcript attached'
+                      : 'Document attached'
+                  }
+                />
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <WorkingTowardsBadge item={mostUrgent.item} />
                 <StatusBadge status={mostUrgent.status} />
                 {onReviewUrgent ? (
                   <Button

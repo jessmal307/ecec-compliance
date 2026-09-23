@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   COMPLIANCE_ITEM_STATUSES,
+  isPerpetualType,
+  showsWorkingTowards,
   suggestedExpiryFromIssuedDate,
   todayIsoDate,
 } from '../lib/compliance'
@@ -14,6 +16,7 @@ import {
   validateComplianceDocument,
 } from '../lib/documents'
 import {
+  Choice,
   DateInput,
   Field,
   FieldGrid,
@@ -31,12 +34,15 @@ export const EMPTY_COMPLIANCE_ITEM_VALUES = {
   issuer: '',
   status: 'current',
   lastVerifiedDate: '',
+  workingTowards: false,
+  workingTowardsTarget: '',
   documentUrl: '',
   documentFile: null,
 }
 
-export function validateComplianceItemValues(values) {
+export function validateComplianceItemValues(values, requirementType) {
   const errors = {}
+  const perpetual = isPerpetualType(requirementType)
 
   if (!String(values.label ?? '').trim()) {
     errors.label = 'Enter a label.'
@@ -49,7 +55,7 @@ export function validateComplianceItemValues(values) {
   if (issuedError) errors.issuedDate = issuedError
 
   const expiryError = validateIsoDate(values.expiryDate, {
-    required: true,
+    required: !perpetual,
     emptyLabel: 'expiry date',
     invalidLabel: 'expiry date',
   })
@@ -92,13 +98,19 @@ export function ComplianceItemFields({
   const managed = errors != null
   const [fileError, setFileError] = useState('')
   const documentError = fieldErrors.document || fileError
+  const showWorkingTowards = showsWorkingTowards(requirementType)
+  const showVerified = Boolean(showLastVerified || values.workingTowards)
+  const towardsEvidence = Boolean(values.workingTowards)
+  const perpetual = isPerpetualType(requirementType)
 
   function setField(field, value) {
     if (field === 'issuedDate') {
       const next = { ...values, issuedDate: value }
-      const suggested = suggestedExpiryFromIssuedDate(value, validityMonths)
-      if (suggested) {
-        next.expiryDate = suggested
+      if (!perpetual) {
+        const suggested = suggestedExpiryFromIssuedDate(value, validityMonths)
+        if (suggested) {
+          next.expiryDate = suggested
+        }
       }
       onChange(next)
       return
@@ -170,6 +182,7 @@ export function ComplianceItemFields({
               disabled={disabled}
             />
           </Field>
+          {perpetual ? null : (
           <Field
             label="Expiry date"
             error={fieldErrors.expiryDate}
@@ -188,7 +201,8 @@ export function ComplianceItemFields({
               disabled={disabled}
             />
           </Field>
-          {showLastVerified ? (
+          )}
+          {showVerified ? (
             <Field label="Last verified date" error={fieldErrors.lastVerifiedDate}>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                 <DateInput
@@ -220,14 +234,60 @@ export function ComplianceItemFields({
           type={requirementType}
           expiryDate={values.expiryDate}
           lastVerifiedDate={values.lastVerifiedDate}
+          workingTowards={values.workingTowards}
         />
       </FormSection>
 
-      <FormSection title="Certificate file">
+      {showWorkingTowards ? (
+        <FormSection title="Working towards">
+          <Choice
+            type="checkbox"
+            checked={Boolean(values.workingTowards)}
+            onChange={(event) => {
+              const checked = event.target.checked
+              onChange({
+                ...values,
+                workingTowards: checked,
+                workingTowardsTarget: checked
+                  ? values.workingTowardsTarget
+                  : '',
+              })
+            }}
+            disabled={disabled}
+          >
+            Actively working towards this qualification
+          </Choice>
+          {values.workingTowards ? (
+            <Field
+              className="mt-3"
+              label="Target qualification"
+              hint="Optional. For example Diploma or ECT."
+            >
+              <Input
+                type="text"
+                name="working_towards_target"
+                value={values.workingTowardsTarget}
+                onChange={(event) =>
+                  setField('workingTowardsTarget', event.target.value)
+                }
+                disabled={disabled}
+              />
+            </Field>
+          ) : null}
+        </FormSection>
+      ) : null}
+
+      <FormSection
+        title={towardsEvidence ? 'Transcript / enrolment evidence' : 'Certificate file'}
+      >
         <Field
           label="PDF or image"
           error={documentError}
-          hint="PDF or image, maximum 10MB."
+          hint={
+            towardsEvidence
+              ? 'Attach a transcript or enrolment evidence. This is required while working towards the qualification. PDF or image, maximum 10MB.'
+              : 'PDF or image, maximum 10MB.'
+          }
         >
           {values.documentUrl && documentContext?.itemId ? (
             <div className="space-y-2">
@@ -305,7 +365,10 @@ export function ComplianceItemForm({
 
   function handleSubmit(event) {
     event.preventDefault()
-    const nextErrors = validateComplianceItemValues(fieldProps.values ?? {})
+    const nextErrors = validateComplianceItemValues(
+      fieldProps.values ?? {},
+      requirementType,
+    )
     if (Object.keys(nextErrors).length > 0) {
       if (!errorsProp) setLocalErrors(nextErrors)
       return

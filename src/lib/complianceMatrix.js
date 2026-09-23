@@ -1,6 +1,6 @@
 import { isArchived } from './archive'
 import {
-  complianceStatus,
+  itemComplianceStatus,
   isOtherRequirementType,
   isSiteRequirementType,
   isStaffRequirementType,
@@ -110,7 +110,7 @@ export function matrixCell({ member, type, item, exclusions }) {
 
   return {
     kind: 'item',
-    status: complianceStatus(item.expiry_date),
+    status: itemComplianceStatus(item, type),
     item,
   }
 }
@@ -150,7 +150,7 @@ export function matrixSiteCell({ site, type, item, exclusions }) {
 
   return {
     kind: 'item',
-    status: complianceStatus(item.expiry_date),
+    status: itemComplianceStatus(item, type),
     item,
   }
 }

@@ -1,7 +1,14 @@
 import { supabase } from './supabase'
 import { withArchiveScope } from './archive'
 
-const STAFF_FIELDS = 'id, name, role, employment_status, start_date, email, phone, notes, org_id, created_at, archived_at'
+const STAFF_FIELDS =
+  'id, name, role, employment_status, start_date, end_date, email, phone, notes, org_id, created_at, archived_at'
+
+export const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'on_leave', label: 'On leave' },
+]
 
 function emptyToNull(value) {
   const trimmed = typeof value === 'string' ? value.trim() : value
@@ -23,6 +30,7 @@ function mapStaffRow(row) {
     role: row.role,
     employment_status: row.employment_status ?? 'active',
     start_date: toDateInput(row.start_date),
+    end_date: toDateInput(row.end_date),
     email: row.email ?? '',
     phone: row.phone ?? '',
     notes: row.notes ?? '',
@@ -34,7 +42,13 @@ function mapStaffRow(row) {
 }
 
 export function isActiveStaff(member) {
-  return member?.employment_status !== 'inactive'
+  return member?.employment_status === 'active'
+}
+
+export function employmentStatusLabel(status) {
+  if (status === 'on_leave') return 'On leave'
+  if (status === 'inactive') return 'Inactive'
+  return 'Active'
 }
 
 export async function listStaff(orgId, { archivedOnly = false } = {}) {
@@ -114,6 +128,7 @@ export async function createStaff({
   role,
   employmentStatus = 'active',
   startDate,
+  endDate,
   email,
   phone,
   orgId,
@@ -126,6 +141,7 @@ export async function createStaff({
       role,
       employment_status: employmentStatus,
       start_date: emptyToNull(startDate),
+      end_date: emptyToNull(endDate),
       email: emptyToNull(email),
       phone: emptyToNull(phone),
       org_id: orgId,
@@ -159,6 +175,7 @@ export async function updateStaff({
   role,
   employmentStatus = 'active',
   startDate,
+  endDate,
   email,
   phone,
   notes,
@@ -171,6 +188,7 @@ export async function updateStaff({
   }
 
   if (startDate !== undefined) payload.start_date = emptyToNull(startDate)
+  if (endDate !== undefined) payload.end_date = emptyToNull(endDate)
   if (email !== undefined) payload.email = emptyToNull(email)
   if (phone !== undefined) payload.phone = emptyToNull(phone)
   if (notes !== undefined) payload.notes = emptyToNull(notes)

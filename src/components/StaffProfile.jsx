@@ -34,17 +34,16 @@ import { ProfileComplianceHeader } from './ProfileComplianceHeader'
 import { AlertTimingHint } from './AlertTimingHint'
 import { ProfileSkeleton } from './PageSkeletons'
 import { DocumentAttached } from './DocumentLink'
-import { StatusBadge } from './StatusBadge'
+import { StatusBadge, WorkingTowardsBadge } from './StatusBadge'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
 import {
-  Choice,
-  ChoiceRow,
   DateInput,
   Field,
   FieldGrid,
   FormActions,
   FormSection,
   Input,
+  Select,
   Textarea,
 } from './ui/form'
 import { PageError, PageHeader, PageMuted } from './ui/page'
@@ -54,11 +53,13 @@ import { paths } from '../lib/paths'
 import { formatDate } from '../lib/format'
 import { validateIsoDate } from '../lib/dates'
 import {
-  complianceStatus,
+  attentionStatus,
   archiveComplianceItem,
   saveComplianceItem,
   formValuesFromItem,
   hasRecheckInterval,
+  isWorkingTowards,
+  itemFormSaveFields,
   listRequirementTypes,
   listStaffComplianceItems,
   markItemVerifiedToday,
@@ -78,7 +79,16 @@ import {
 } from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { listSites } from '../lib/sites'
-import { deleteStaff, archiveStaff, restoreStaff, getStaff, isActiveStaff, updateStaff } from '../lib/staff'
+import {
+  deleteStaff,
+  archiveStaff,
+  EMPLOYMENT_STATUS_OPTIONS,
+  employmentStatusLabel,
+  restoreStaff,
+  getStaff,
+  isActiveStaff,
+  updateStaff,
+} from '../lib/staff'
 import { isArchived } from '../lib/archive'
 
 function staffInfoFromMember(member) {
@@ -87,6 +97,7 @@ function staffInfoFromMember(member) {
     role: member?.role ?? '',
     employmentStatus: member?.employment_status ?? 'active',
     startDate: member?.start_date ?? '',
+    endDate: member?.end_date ?? '',
     email: member?.email ?? '',
     phone: member?.phone ?? '',
     notes: member?.notes ?? '',
@@ -269,8 +280,14 @@ export function StaffProfile() {
     const startDateError = validateIsoDate(info.startDate, {
       invalidLabel: 'start date',
     })
-    if (startDateError) {
-      setInfoErrors({ startDate: startDateError })
+    const endDateError = validateIsoDate(info.endDate, {
+      invalidLabel: 'end date',
+    })
+    if (startDateError || endDateError) {
+      setInfoErrors({
+        ...(startDateError ? { startDate: startDateError } : {}),
+        ...(endDateError ? { endDate: endDateError } : {}),
+      })
       return
     }
 
@@ -284,6 +301,7 @@ export function StaffProfile() {
       role: info.role.trim(),
       employmentStatus: info.employmentStatus,
       startDate: info.startDate,
+      endDate: info.endDate,
       email: info.email,
       phone: info.phone,
       notes: info.notes,
@@ -308,24 +326,10 @@ export function StaffProfile() {
     setError('')
     setSaving(true)
 
-    const payload = {
-      requirementTypeId: requirementType.id,
-      label: formValues.label.trim(),
-      expiryDate: formValues.expiryDate,
-      referenceNumber: formValues.referenceNumber,
-      issuedDate: formValues.issuedDate,
-      issuer: formValues.issuer,
-      status: formValues.status,
-      lastVerifiedDate: tracksVerification(requirementType)
-        ? formValues.lastVerifiedDate
-        : null,
-    }
-
     const { error: saveError } = await saveComplianceItem({
       id: editingItemId,
-      documentFile: formValues.documentFile,
-      currentDocumentPath: formValues.documentUrl,
-      ...payload,
+      requirementTypeId: requirementType.id,
+      ...itemFormSaveFields(formValues, requirementType),
       orgId: organizationId,
       staffId,
       siteId: null,
@@ -517,7 +521,18 @@ export function StaffProfile() {
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
-        title={member?.name ?? 'Staff profile'}
+        title={
+          member && !active && !memberArchived ? (
+            <span className="inline-flex flex-wrap items-center gap-2">
+              {member.name}
+              <StatusBadge
+                status={employmentStatusLabel(member.employment_status)}
+              />
+            </span>
+          ) : (
+            (member?.name ?? 'Staff profile')
+          )
+        }
         description={
           member
             ? memberArchived
@@ -525,7 +540,9 @@ export function StaffProfile() {
               : `${member.role}. ${
                   active
                     ? 'Every requirement type for your organization, with this person’s status.'
-                    : 'This staff member is inactive, so their requirements are not tracked.'
+                    : member.employment_status === 'on_leave'
+                      ? 'This staff member is on leave, so their requirements are not tracked.'
+                      : 'This staff member is inactive, so their requirements are not tracked.'
                 }`
             : 'Staff details and requirements.'
         }
@@ -668,33 +685,21 @@ export function StaffProfile() {
 
                 <FormSection title="Employment">
                   <FieldGrid>
-                    <Field label="Status">
-                      <ChoiceRow disabled={savingInfo}>
-                        <Choice
-                          type="radio"
-                          name="employment_status"
-                          value="active"
-                          checked={info.employmentStatus === 'active'}
-                          onChange={() =>
-                            setInfoField('employmentStatus', 'active')
-                          }
-                          disabled={savingInfo}
-                        >
-                          Active
-                        </Choice>
-                        <Choice
-                          type="radio"
-                          name="employment_status"
-                          value="inactive"
-                          checked={info.employmentStatus === 'inactive'}
-                          onChange={() =>
-                            setInfoField('employmentStatus', 'inactive')
-                          }
-                          disabled={savingInfo}
-                        >
-                          Inactive
-                        </Choice>
-                      </ChoiceRow>
+                    <Field label="Employment status">
+                      <Select
+                        name="employment_status"
+                        value={info.employmentStatus}
+                        onChange={(event) =>
+                          setInfoField('employmentStatus', event.target.value)
+                        }
+                        disabled={savingInfo}
+                      >
+                        {EMPLOYMENT_STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
                     </Field>
                     <Field label="Start date" error={infoErrors.startDate}>
                       <DateInput
@@ -704,6 +709,17 @@ export function StaffProfile() {
                           setInfoField('startDate', event.target.value)
                         }
                         aria-invalid={Boolean(infoErrors.startDate)}
+                        disabled={savingInfo}
+                      />
+                    </Field>
+                    <Field label="End date" error={infoErrors.endDate}>
+                      <DateInput
+                        name="end_date"
+                        value={info.endDate}
+                        onChange={(event) =>
+                          setInfoField('endDate', event.target.value)
+                        }
+                        aria-invalid={Boolean(infoErrors.endDate)}
                         disabled={savingInfo}
                       />
                     </Field>
@@ -808,7 +824,7 @@ export function StaffProfile() {
                         ? 'Not applicable'
                         : missing
                           ? 'Missing'
-                          : complianceStatus(item.expiry_date)
+                          : attentionStatus(item, requirementType)
                       const isEditing = Boolean(item) && editingItemId === item.id
                       const isFilling =
                         missing && fillingTypeId === requirementType.id
@@ -853,8 +869,18 @@ export function StaffProfile() {
                                   {item.label}
                                 </p>
                               ) : null}
+                              {isWorkingTowards(item) ? (
+                                <div className="mt-1">
+                                  <WorkingTowardsBadge item={item} />
+                                </div>
+                              ) : null}
                               <DocumentAttached
                                 path={item?.document_url}
+                                label={
+                                  isWorkingTowards(item)
+                                    ? 'Transcript attached'
+                                    : 'Document attached'
+                                }
                                 disabled={busy}
                               />
                               <AlertTimingHint
@@ -903,7 +929,8 @@ export function StaffProfile() {
                                         Edit
                                       </Button>
                                     )}
-                                    {hasRecheckInterval(requirementType) ? (
+                                    {hasRecheckInterval(requirementType) ||
+                                    isWorkingTowards(item) ? (
                                       <MarkVerifiedButton
                                         onClick={() => handleMarkVerified(item)}
                                         disabled={busy}
@@ -941,9 +968,10 @@ export function StaffProfile() {
                                   saving={saving}
                                   values={formValues}
                                   onChange={setFormValues}
-                                  showLastVerified={tracksVerification(
-                                    requirementType,
-                                  )}
+                                  showLastVerified={
+                                    tracksVerification(requirementType) ||
+                                    Boolean(formValues.workingTowards)
+                                  }
                                   validityMonths={requirementType.validity_months}
                                   disabled={saving}
                                   item={item}
@@ -990,15 +1018,25 @@ export function StaffProfile() {
                               >
                                 {item.label || requirementType.name}
                               </button>
+                              {isWorkingTowards(item) ? (
+                                <div className="mt-1">
+                                  <WorkingTowardsBadge item={item} />
+                                </div>
+                              ) : null}
                               <DocumentAttached
                                 path={item.document_url}
+                                label={
+                                  isWorkingTowards(item)
+                                    ? 'Transcript attached'
+                                    : 'Document attached'
+                                }
                                 disabled={busy}
                               />
                               <AlertTimingHint
                                 className="mt-1"
                                 item={item}
                                 type={requirementType}
-                                status={complianceStatus(item.expiry_date)}
+                                status={attentionStatus(item, requirementType)}
                               />
                             </Td>
                             <Td
@@ -1010,7 +1048,7 @@ export function StaffProfile() {
                             </Td>
                             <Td slot="status">
                               <StatusBadge
-                                status={complianceStatus(item.expiry_date)}
+                                status={attentionStatus(item, requirementType)}
                               />
                             </Td>
                             <Td slot="action">

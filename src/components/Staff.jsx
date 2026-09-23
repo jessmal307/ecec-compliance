@@ -24,7 +24,7 @@ import {
 import { ListPagination, paginateItems } from './ListPagination'
 import { ListTableSkeleton } from './PageSkeletons'
 import { ProgressPill } from './ProgressPill'
-import { StatusBadge } from './StatusBadge'
+import { StatusBadge, WorkingTowardsBadge } from './StatusBadge'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
@@ -44,7 +44,13 @@ import {
   summarizeProfileRequirements,
 } from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
-import { isActiveStaff, listStaff, restoreStaff, deleteStaff } from '../lib/staff'
+import {
+  employmentStatusLabel,
+  isActiveStaff,
+  listStaff,
+  restoreStaff,
+  deleteStaff,
+} from '../lib/staff'
 import { listSites } from '../lib/sites'
 import { isArchived } from '../lib/archive'
 import { formatTimestamp } from '../lib/format'
@@ -177,7 +183,12 @@ export function Staff() {
       }
       if (archivedOnly) return true
       if (statusFilter === 'active' && !isActiveStaff(member)) return false
-      if (statusFilter === 'inactive' && isActiveStaff(member)) return false
+      if (statusFilter === 'inactive' && member.employment_status !== 'inactive') {
+        return false
+      }
+      if (statusFilter === 'on_leave' && member.employment_status !== 'on_leave') {
+        return false
+      }
       return true
     })
 
@@ -345,12 +356,31 @@ export function Staff() {
                       ) : null}
                       <Tr className="hover:bg-muted/40">
                         <Td slot="label" className="py-1.5">
-                          <Link
-                            to={paths.staffProfile(member.id)}
-                            className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-2"
-                          >
-                            {member.name}
-                          </Link>
+                          <span className="inline-flex min-h-11 flex-wrap items-center gap-1.5">
+                            <Link
+                              to={paths.staffProfile(member.id)}
+                              className="font-medium text-card-foreground underline underline-offset-2"
+                            >
+                              {member.name}
+                            </Link>
+                            {!isArchived(member) && inactive ? (
+                              <StatusBadge
+                                status={employmentStatusLabel(
+                                  member.employment_status,
+                                )}
+                              />
+                            ) : null}
+                            {!isArchived(member) &&
+                            items.some(
+                              (item) =>
+                                item.staff_id === member.id &&
+                                item.working_towards,
+                            ) ? (
+                              <WorkingTowardsBadge
+                                item={{ working_towards: true }}
+                              />
+                            ) : null}
+                          </span>
                           <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
                             {member.role}
                             {sitesLabel(member) ? ` · ${sitesLabel(member)}` : ''}
@@ -364,9 +394,7 @@ export function Staff() {
                             status={
                               isArchived(member)
                                 ? 'Archived'
-                                : inactive
-                                  ? 'Inactive'
-                                  : 'Active'
+                                : employmentStatusLabel(member.employment_status)
                             }
                           />
                           {isArchived(member) ? (

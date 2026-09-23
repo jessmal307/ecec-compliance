@@ -1,8 +1,9 @@
 // Shared with Overview. Do not change status maths here without updating the dashboard.
 const ATTENTION_RANK = {
   Expired: 0,
-  'Expiring soon': 1,
-  Missing: 2,
+  'Recheck due': 1,
+  'Expiring soon': 2,
+  Missing: 3,
 }
 
 export function isStaffRequirementType(requirementType) {
@@ -14,7 +15,7 @@ export function isSiteRequirementType(requirementType) {
 }
 
 export function isActiveStaff(member) {
-  return member?.employment_status !== 'inactive'
+  return member?.employment_status === 'active'
 }
 
 function sameId(left, right) {
@@ -49,9 +50,12 @@ export function addDaysIso(isoDate, days) {
 }
 
 // Same rules as Overview: expiry vs today, then within 30 days.
-export function expiryStatus(expiryDate, todayIso) {
+export function expiryStatus(expiryDate, todayIso, perpetual = false) {
+  if (perpetual) return 'Valid'
   const expiry = String(expiryDate ?? '').slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) return 'Expired'
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+    return 'Expired'
+  }
   if (expiry < todayIso) return 'Expired'
   const soon = addDaysIso(todayIso, 30)
   if (soon && expiry <= soon) return 'Expiring soon'
@@ -88,6 +92,29 @@ function findRequiredItem(visibleItems, matches) {
   return visibleItems.find(matches) ?? null
 }
 
+const WORKING_TOWARDS_RECHECK_DAYS = 365
+
+function hasEvidenceDocument(item) {
+  return Boolean(String(item?.document_url ?? '').trim())
+}
+
+function isWorkingTowardsRecheckOverdue(item, todayIso) {
+  if (!item?.working_towards) return false
+  const base = String(
+    item.last_verified_date || item.issued_date || item.created_at || '',
+  ).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return true
+  const due = addDaysIso(base, WORKING_TOWARDS_RECHECK_DAYS)
+  return Boolean(due && todayIso >= due)
+}
+
+function staffItemStatus(item, todayIso, type) {
+  if (!item) return 'Missing'
+  if (item.working_towards && !hasEvidenceDocument(item)) return 'Missing'
+  if (isWorkingTowardsRecheckOverdue(item, todayIso)) return 'Recheck due'
+  return expiryStatus(item.expiry_date, todayIso, Boolean(type?.perpetual))
+}
+
 function staffRequiredSlots(
   member,
   mandatoryStaffTypes,
@@ -104,7 +131,7 @@ function staffRequiredSlots(
           row.staff_id === member.id && row.requirement_type_id === type.id,
       )
       return {
-        status: item ? expiryStatus(item.expiry_date, todayIso) : 'Missing',
+        status: staffItemStatus(item, todayIso, type),
         ownerName: member.name,
         ownerKind: 'staff',
         typeName: type.name,
@@ -131,7 +158,9 @@ function siteRequiredSlots(
           row.site_id === site.id && row.requirement_type_id === type.id,
       )
       return {
-        status: item ? expiryStatus(item.expiry_date, todayIso) : 'Missing',
+        status: item
+          ? expiryStatus(item.expiry_date, todayIso, Boolean(type?.perpetual))
+          : 'Missing',
         ownerName: site.name,
         ownerKind: 'site',
         typeName: type.name,
@@ -171,7 +200,8 @@ function attentionItems(slots) {
       (slot) =>
         slot.status === 'Expired' ||
         slot.status === 'Expiring soon' ||
-        slot.status === 'Missing',
+        slot.status === 'Missing' ||
+        slot.status === 'Recheck due',
     )
     .sort((a, b) => {
       const rankA = ATTENTION_RANK[a.status] ?? 99

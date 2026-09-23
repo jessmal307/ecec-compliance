@@ -229,6 +229,7 @@ create table if not exists public.staff (
   role text not null,
   employment_status text not null default 'active',
   start_date date,
+  end_date date,
   email text,
   phone text,
   notes text,
@@ -236,7 +237,7 @@ create table if not exists public.staff (
   created_at timestamptz not null default now(),
   archived_at timestamptz,
   constraint staff_employment_status_check check (
-    employment_status in ('active', 'inactive')
+    employment_status in ('active', 'inactive', 'on_leave')
   )
 );
 
@@ -245,6 +246,9 @@ alter table public.staff
 
 alter table public.staff
   add column if not exists start_date date;
+
+alter table public.staff
+  add column if not exists end_date date;
 
 alter table public.staff
   add column if not exists email text;
@@ -258,9 +262,14 @@ alter table public.staff
 alter table public.staff
   add column if not exists archived_at timestamptz;
 
+update public.staff
+set employment_status = 'active'
+where employment_status is null
+   or employment_status not in ('active', 'inactive', 'on_leave');
+
 alter table public.staff drop constraint if exists staff_employment_status_check;
 alter table public.staff add constraint staff_employment_status_check
-  check (employment_status in ('active', 'inactive'));
+  check (employment_status in ('active', 'inactive', 'on_leave'));
 
 create index if not exists staff_org_id_idx on public.staff (org_id);
 create index if not exists staff_org_id_archived_at_idx
@@ -572,11 +581,11 @@ create table if not exists public.requirement_types (
   org_id uuid not null references public.organizations (id) on delete cascade,
   name text not null,
   mandatory boolean not null default true,
-  recheck_interval_months integer,
   recheck_interval_days integer,
   validity_months integer,
   renewal_lead_days integer,
   applies_to text not null default 'staff',
+  perpetual boolean not null default false,
   created_at timestamptz not null default now(),
   unique (org_id, name)
 );
@@ -585,9 +594,6 @@ create index if not exists requirement_types_org_id_idx on public.requirement_ty
 
 alter table public.requirement_types
   add column if not exists mandatory boolean not null default true;
-
-alter table public.requirement_types
-  add column if not exists recheck_interval_months integer;
 
 alter table public.requirement_types
   add column if not exists recheck_interval_days integer;
@@ -600,6 +606,12 @@ alter table public.requirement_types
 
 alter table public.requirement_types
   add column if not exists applies_to text not null default 'staff';
+
+alter table public.requirement_types
+  add column if not exists perpetual boolean not null default false;
+
+alter table public.requirement_types
+  drop column if exists recheck_interval_months;
 
 alter table public.requirement_types drop constraint if exists requirement_types_applies_to_check;
 alter table public.requirement_types add constraint requirement_types_applies_to_check
@@ -759,49 +771,50 @@ begin
     org_id,
     name,
     mandatory,
-    recheck_interval_months,
     recheck_interval_days,
     validity_months,
     renewal_lead_days,
-    applies_to
+    applies_to,
+    perpetual
   )
   select
     target_org_id,
     seed.name,
     seed.mandatory,
-    null,
     seed.recheck_interval_days,
     seed.validity_months,
     seed.renewal_lead_days,
-    seed.applies_to
+    seed.applies_to,
+    seed.perpetual
   from (
     values
-      ('First Aid', 'staff', 36, 45, null::integer, true),
-      ('CPR', 'staff', 12, 30, null::integer, true),
-      ('Anaphylaxis Management', 'staff', 36, 45, null::integer, true),
-      ('Asthma Management', 'staff', 36, 45, null::integer, true),
-      ('WWCC', 'staff', 60, 90, 90, true),
-      ('Child Protection Training', 'staff', null::integer, 60, null::integer, true),
-      ('Qualification', 'staff', null::integer, null::integer, null::integer, true),
-      ('Teacher Accreditation', 'staff', null::integer, null::integer, null::integer, false),
-      ('Police Check', 'staff', 36, 30, null::integer, true),
-      ('Other', 'staff', null::integer, null::integer, null::integer, false),
-      ('Fire Safety', 'site', 12, 45, null::integer, true),
-      ('Public Liability Insurance', 'site', 12, 30, null::integer, true),
-      ('Workers Compensation', 'site', 12, 30, null::integer, true),
-      ('Service Approval', 'site', null::integer, null::integer, null::integer, true),
-      ('QIP Review', 'site', 12, 30, null::integer, true),
-      ('Fire Equipment Servicing', 'site', null::integer, 30, 180, true),
-      ('Evacuation Drills', 'site', null::integer, null::integer, 90, true),
-      ('Electrical Test & Tag', 'site', 12, 30, null::integer, true),
-      ('Food Safety Registration', 'site', 12, 30, null::integer, false)
+      ('First Aid', 'staff', 36, 45, null::integer, true, false),
+      ('CPR', 'staff', 12, 30, null::integer, true, false),
+      ('Anaphylaxis Management', 'staff', 36, 45, null::integer, true, false),
+      ('Asthma Management', 'staff', 36, 45, null::integer, true, false),
+      ('WWCC', 'staff', 60, 90, 90, true, false),
+      ('Child Protection Training', 'staff', null::integer, 60, null::integer, true, false),
+      ('Qualification', 'staff', null::integer, null::integer, null::integer, true, true),
+      ('Teacher Accreditation', 'staff', null::integer, null::integer, null::integer, false, true),
+      ('Police Check', 'staff', 36, 30, null::integer, true, false),
+      ('Other', 'staff', null::integer, null::integer, null::integer, false, false),
+      ('Fire Safety', 'site', 12, 45, null::integer, true, false),
+      ('Public Liability Insurance', 'site', 12, 30, null::integer, true, false),
+      ('Workers Compensation', 'site', 12, 30, null::integer, true, false),
+      ('Service Approval', 'site', null::integer, null::integer, null::integer, true, true),
+      ('QIP Review', 'site', 12, 30, null::integer, true, false),
+      ('Fire Equipment Servicing', 'site', null::integer, 30, 180, true, false),
+      ('Evacuation Drills', 'site', null::integer, null::integer, 90, true, false),
+      ('Electrical Test & Tag', 'site', 12, 30, null::integer, true, false),
+      ('Food Safety Registration', 'site', 12, 30, null::integer, false, false)
   ) as seed(
     name,
     applies_to,
     validity_months,
     renewal_lead_days,
     recheck_interval_days,
-    mandatory
+    mandatory,
+    perpetual
   )
   where not exists (
     select 1
@@ -817,36 +830,37 @@ begin
     validity_months = seed.validity_months,
     renewal_lead_days = seed.renewal_lead_days,
     recheck_interval_days = seed.recheck_interval_days,
-    recheck_interval_months = null,
-    mandatory = seed.mandatory
+    mandatory = seed.mandatory,
+    perpetual = seed.perpetual
   from (
     values
-      ('First Aid', 'staff', 36, 45, null::integer, true),
-      ('CPR', 'staff', 12, 30, null::integer, true),
-      ('Anaphylaxis Management', 'staff', 36, 45, null::integer, true),
-      ('Asthma Management', 'staff', 36, 45, null::integer, true),
-      ('WWCC', 'staff', 60, 90, 90, true),
-      ('Child Protection Training', 'staff', null::integer, 60, null::integer, true),
-      ('Qualification', 'staff', null::integer, null::integer, null::integer, true),
-      ('Teacher Accreditation', 'staff', null::integer, null::integer, null::integer, false),
-      ('Police Check', 'staff', 36, 30, null::integer, true),
-      ('Other', 'staff', null::integer, null::integer, null::integer, false),
-      ('Fire Safety', 'site', 12, 45, null::integer, true),
-      ('Public Liability Insurance', 'site', 12, 30, null::integer, true),
-      ('Workers Compensation', 'site', 12, 30, null::integer, true),
-      ('Service Approval', 'site', null::integer, null::integer, null::integer, true),
-      ('QIP Review', 'site', 12, 30, null::integer, true),
-      ('Fire Equipment Servicing', 'site', null::integer, 30, 180, true),
-      ('Evacuation Drills', 'site', null::integer, null::integer, 90, true),
-      ('Electrical Test & Tag', 'site', 12, 30, null::integer, true),
-      ('Food Safety Registration', 'site', 12, 30, null::integer, false)
+      ('First Aid', 'staff', 36, 45, null::integer, true, false),
+      ('CPR', 'staff', 12, 30, null::integer, true, false),
+      ('Anaphylaxis Management', 'staff', 36, 45, null::integer, true, false),
+      ('Asthma Management', 'staff', 36, 45, null::integer, true, false),
+      ('WWCC', 'staff', 60, 90, 90, true, false),
+      ('Child Protection Training', 'staff', null::integer, 60, null::integer, true, false),
+      ('Qualification', 'staff', null::integer, null::integer, null::integer, true, true),
+      ('Teacher Accreditation', 'staff', null::integer, null::integer, null::integer, false, true),
+      ('Police Check', 'staff', 36, 30, null::integer, true, false),
+      ('Other', 'staff', null::integer, null::integer, null::integer, false, false),
+      ('Fire Safety', 'site', 12, 45, null::integer, true, false),
+      ('Public Liability Insurance', 'site', 12, 30, null::integer, true, false),
+      ('Workers Compensation', 'site', 12, 30, null::integer, true, false),
+      ('Service Approval', 'site', null::integer, null::integer, null::integer, true, true),
+      ('QIP Review', 'site', 12, 30, null::integer, true, false),
+      ('Fire Equipment Servicing', 'site', null::integer, 30, 180, true, false),
+      ('Evacuation Drills', 'site', null::integer, null::integer, 90, true, false),
+      ('Electrical Test & Tag', 'site', 12, 30, null::integer, true, false),
+      ('Food Safety Registration', 'site', 12, 30, null::integer, false, false)
   ) as seed(
     name,
     applies_to,
     validity_months,
     renewal_lead_days,
     recheck_interval_days,
-    mandatory
+    mandatory,
+    perpetual
   )
   where types.org_id = target_org_id
     and lower(public.normalized_requirement_name(types.name)) = lower(seed.name);
@@ -963,12 +977,14 @@ create table if not exists public.compliance_items (
   org_id uuid not null references public.organizations (id) on delete cascade,
   requirement_type_id uuid not null references public.requirement_types (id) on delete restrict,
   label text not null,
-  expiry_date date not null,
+  expiry_date date,
   reference_number text,
   issued_date date,
   issuer text,
   status text not null default 'current',
   last_verified_date date,
+  working_towards boolean not null default false,
+  working_towards_target text,
   staff_id uuid references public.staff (id) on delete cascade,
   site_id uuid references public.sites (id) on delete cascade,
   created_at timestamptz not null default now(),
@@ -983,13 +999,18 @@ create table if not exists public.compliance_items (
 );
 
 alter table public.compliance_items
+  alter column expiry_date drop not null;
+
+alter table public.compliance_items
   add column if not exists reference_number text,
   add column if not exists issued_date date,
   add column if not exists issuer text,
   add column if not exists status text not null default 'current',
   add column if not exists last_verified_date date,
   add column if not exists document_url text,
-  add column if not exists archived_at timestamptz;
+  add column if not exists archived_at timestamptz,
+  add column if not exists working_towards boolean not null default false,
+  add column if not exists working_towards_target text;
 
 alter table public.compliance_items drop constraint if exists compliance_items_status_check;
 alter table public.compliance_items add constraint compliance_items_status_check

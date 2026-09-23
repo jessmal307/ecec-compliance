@@ -254,13 +254,14 @@ Deno.serve(async () => {
       .is('archived_at', null),
     supabase
       .from('requirement_types')
-      .select('id, name, org_id, mandatory, applies_to, archived_at')
+      .select('id, name, org_id, mandatory, applies_to, perpetual, archived_at')
       .is('archived_at', null),
     supabase
       .from('compliance_items')
       .select(
         `
         id, org_id, staff_id, site_id, requirement_type_id, expiry_date, archived_at,
+        document_url, working_towards, last_verified_date, issued_date, created_at,
         requirement_types ( name, archived_at ),
         staff ( name, employment_status, archived_at ),
         sites ( name, archived_at )
@@ -336,6 +337,11 @@ Deno.serve(async () => {
       site_id: row.site_id,
       requirement_type_id: row.requirement_type_id,
       expiry_date: row.expiry_date,
+      document_url: row.document_url,
+      working_towards: row.working_towards,
+      last_verified_date: row.last_verified_date,
+      issued_date: row.issued_date,
+      created_at: row.created_at,
       typeName: row.requirement_types?.name ?? 'Unknown',
     })
     itemsByOrg.set(row.org_id, list)

@@ -6,25 +6,25 @@ import { isListedComplianceItem, withArchiveScope } from './archive'
 import { supabase } from './supabase'
 
 export const DEFAULT_REQUIREMENT_TYPES = [
-  { name: 'First Aid', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: 36, renewal_lead_days: 45 },
-  { name: 'CPR', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30 },
-  { name: 'Anaphylaxis Management', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: 36, renewal_lead_days: 45 },
-  { name: 'Asthma Management', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: 36, renewal_lead_days: 45 },
-  { name: 'WWCC', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: 90, validity_months: 60, renewal_lead_days: 90 },
-  { name: 'Child Protection Training', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: null, renewal_lead_days: 60 },
-  { name: 'Qualification', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: null, renewal_lead_days: null },
-  { name: 'Teacher Accreditation', mandatory: false, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: null, renewal_lead_days: null },
-  { name: 'Police Check', mandatory: true, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: 36, renewal_lead_days: 30 },
-  { name: 'Other', mandatory: false, applies_to: 'staff', recheck_interval_months: null, recheck_interval_days: null, validity_months: null, renewal_lead_days: null },
-  { name: 'Fire Safety', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: null, validity_months: 12, renewal_lead_days: 45 },
-  { name: 'Public Liability Insurance', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30 },
-  { name: 'Workers Compensation', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30 },
-  { name: 'Service Approval', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: null, validity_months: null, renewal_lead_days: null },
-  { name: 'QIP Review', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30 },
-  { name: 'Fire Equipment Servicing', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: 180, validity_months: null, renewal_lead_days: 30 },
-  { name: 'Evacuation Drills', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: 90, validity_months: null, renewal_lead_days: null },
-  { name: 'Electrical Test & Tag', mandatory: true, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30 },
-  { name: 'Food Safety Registration', mandatory: false, applies_to: 'site', recheck_interval_months: null, recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30 },
+  { name: 'First Aid', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: 36, renewal_lead_days: 45, perpetual: false },
+  { name: 'CPR', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30, perpetual: false },
+  { name: 'Anaphylaxis Management', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: 36, renewal_lead_days: 45, perpetual: false },
+  { name: 'Asthma Management', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: 36, renewal_lead_days: 45, perpetual: false },
+  { name: 'WWCC', mandatory: true, applies_to: 'staff', recheck_interval_days: 90, validity_months: 60, renewal_lead_days: 90, perpetual: false },
+  { name: 'Child Protection Training', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: null, renewal_lead_days: 60, perpetual: false },
+  { name: 'Qualification', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: null, renewal_lead_days: null, perpetual: true },
+  { name: 'Teacher Accreditation', mandatory: false, applies_to: 'staff', recheck_interval_days: null, validity_months: null, renewal_lead_days: null, perpetual: true },
+  { name: 'Police Check', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: 36, renewal_lead_days: 30, perpetual: false },
+  { name: 'Other', mandatory: false, applies_to: 'staff', recheck_interval_days: null, validity_months: null, renewal_lead_days: null, perpetual: false },
+  { name: 'Fire Safety', mandatory: true, applies_to: 'site', recheck_interval_days: null, validity_months: 12, renewal_lead_days: 45, perpetual: false },
+  { name: 'Public Liability Insurance', mandatory: true, applies_to: 'site', recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30, perpetual: false },
+  { name: 'Workers Compensation', mandatory: true, applies_to: 'site', recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30, perpetual: false },
+  { name: 'Service Approval', mandatory: true, applies_to: 'site', recheck_interval_days: null, validity_months: null, renewal_lead_days: null, perpetual: true },
+  { name: 'QIP Review', mandatory: true, applies_to: 'site', recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30, perpetual: false },
+  { name: 'Fire Equipment Servicing', mandatory: true, applies_to: 'site', recheck_interval_days: 180, validity_months: null, renewal_lead_days: 30, perpetual: false },
+  { name: 'Evacuation Drills', mandatory: true, applies_to: 'site', recheck_interval_days: 90, validity_months: null, renewal_lead_days: null, perpetual: false },
+  { name: 'Electrical Test & Tag', mandatory: true, applies_to: 'site', recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30, perpetual: false },
+  { name: 'Food Safety Registration', mandatory: false, applies_to: 'site', recheck_interval_days: null, validity_months: 12, renewal_lead_days: 30, perpetual: false },
 ]
 
 export const COMPLIANCE_ITEM_STATUSES = [
@@ -35,7 +35,7 @@ export const COMPLIANCE_ITEM_STATUSES = [
 ]
 
 const REQUIREMENT_TYPE_FIELDS =
-  'id, name, org_id, mandatory, applies_to, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days, archived_at'
+  'id, name, org_id, mandatory, applies_to, recheck_interval_days, validity_months, renewal_lead_days, perpetual, archived_at'
 
 function emptyToNull(value) {
   const trimmed = typeof value === 'string' ? value.trim() : value
@@ -98,10 +98,10 @@ export async function listRequirementTypes(
       name: requirementType.name,
       mandatory: requirementType.mandatory,
       applies_to: requirementType.applies_to,
-      recheck_interval_months: requirementType.recheck_interval_months,
       recheck_interval_days: requirementType.recheck_interval_days,
       validity_months: requirementType.validity_months,
       renewal_lead_days: requirementType.renewal_lead_days,
+      perpetual: Boolean(requirementType.perpetual),
     })),
   )
 
@@ -209,13 +209,15 @@ const ITEM_SELECT = `
   issuer,
   status,
   last_verified_date,
+  working_towards,
+  working_towards_target,
   document_url,
   created_at,
   org_id,
   staff_id,
   site_id,
   archived_at,
-  requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days ),
+  requirement_types ( id, name, recheck_interval_days, validity_months, renewal_lead_days, perpetual ),
   staff ( id, name, employment_status, archived_at ),
   sites ( id, name, archived_at )
 `
@@ -230,13 +232,15 @@ const ITEM_SELECT_AT_SITE = `
   issuer,
   status,
   last_verified_date,
+  working_towards,
+  working_towards_target,
   document_url,
   created_at,
   org_id,
   staff_id,
   site_id,
   archived_at,
-  requirement_types ( id, name, recheck_interval_months, recheck_interval_days, validity_months, renewal_lead_days ),
+  requirement_types ( id, name, recheck_interval_days, validity_months, renewal_lead_days, perpetual ),
   staff!inner (
     id,
     name,
@@ -252,10 +256,10 @@ function mapItem(row) {
     id: row.id,
     requirement_type_id: row.requirement_type_id,
     typeName: row.requirement_types?.name ?? 'Unknown',
-    recheck_interval_months: row.requirement_types?.recheck_interval_months ?? null,
     recheck_interval_days: row.requirement_types?.recheck_interval_days ?? null,
     validity_months: row.requirement_types?.validity_months ?? null,
     renewal_lead_days: row.requirement_types?.renewal_lead_days ?? null,
+    perpetual: Boolean(row.requirement_types?.perpetual),
     label: row.label,
     expiry_date: row.expiry_date,
     reference_number: row.reference_number,
@@ -263,6 +267,8 @@ function mapItem(row) {
     issuer: row.issuer,
     status: row.status ?? 'current',
     last_verified_date: row.last_verified_date,
+    working_towards: Boolean(row.working_towards),
+    working_towards_target: row.working_towards_target ?? '',
     document_url: row.document_url ?? null,
     created_at: row.created_at,
     org_id: row.org_id,
@@ -364,6 +370,37 @@ export function isOtherRequirementType(requirementType) {
   return String(requirementType?.name ?? '').trim().toLowerCase() === 'other'
 }
 
+export const WORKING_TOWARDS_RECHECK_DAYS = 365
+
+export function isQualificationType(requirementType) {
+  return (
+    String(requirementType?.name ?? requirementType?.typeName ?? '')
+      .trim()
+      .toLowerCase() === 'qualification'
+  )
+}
+
+export function isWorkingTowards(item) {
+  return Boolean(item?.working_towards || item?.workingTowards)
+}
+
+export function hasEvidenceDocument(item) {
+  return Boolean(
+    String(item?.document_url ?? '').trim() || item?.documentFile,
+  )
+}
+
+export function workingTowardsNeedsDocument(item) {
+  return isWorkingTowards(item) && !hasEvidenceDocument(item)
+}
+
+export function showsWorkingTowards(requirementType) {
+  return (
+    isQualificationType(requirementType) &&
+    isStaffRequirementType(requirementType)
+  )
+}
+
 export function suggestedExpiryFromIssuedDate(issuedDate, validityMonths) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(issuedDate ?? '')
   const months = Number(validityMonths)
@@ -385,8 +422,12 @@ export function suggestedExpiryFromIssuedDate(issuedDate, validityMonths) {
   ].join('-')
 }
 
+export function isPerpetualType(entry) {
+  return Boolean(entry?.perpetual)
+}
+
 export function tracksVerification(entry) {
-  return Boolean(entry?.recheck_interval_days || entry?.recheck_interval_months)
+  return Boolean(entry?.recheck_interval_days || entry?.working_towards)
 }
 
 export function hasRecheckInterval(entry) {
@@ -420,7 +461,10 @@ export function resolveRecheckDays(type, item = type) {
   return (
     catalogRecheckDays(name) ??
     recheckIntervalDays(type) ??
-    recheckIntervalDays(item)
+    recheckIntervalDays(item) ??
+    (isWorkingTowards(item) || isWorkingTowards(type)
+      ? WORKING_TOWARDS_RECHECK_DAYS
+      : null)
   )
 }
 
@@ -466,10 +510,16 @@ export function canMarkVerifiedToday(item, type = item) {
   return attentionStatus(item, type) === 'Recheck due'
 }
 
+function recheckClockForItem(item, type = item) {
+  return isWorkingTowards(item) || isWorkingTowards(type)
+    ? recheckBaseDate(item)
+    : recheckClockDate(item)
+}
+
 export function recheckDueDate(item, type = item) {
   const interval = resolveRecheckDays(type, item)
   if (!interval) return null
-  const clock = recheckClockDate(item)
+  const clock = recheckClockForItem(item, type)
   if (clock) return addDaysIso(clock, interval)
   return todayIsoDate()
 }
@@ -478,7 +528,7 @@ export function isRecheckOverdue(item, type = item, today = todayIsoDate()) {
   const interval = resolveRecheckDays(type, item)
   if (!interval) return false
 
-  const clock = recheckClockDate(item)
+  const clock = recheckClockForItem(item, type)
   if (!clock) return true
 
   const due = addDaysIso(clock, interval)
@@ -500,21 +550,34 @@ export function renewalLeadDays(type, item = type) {
 }
 
 export function isWithinRenewalWindow(item, type = item, today = todayIsoDate()) {
+  if (isPerpetualType(type) || isPerpetualType(item)) return false
   const expiry = toIsoDate(item?.expiry_date)
   if (!expiry || expiry < today) return false
   const windowStart = addDaysIso(expiry, -renewalLeadDays(type, item))
   return Boolean(windowStart && today >= windowStart)
 }
 
+export function itemExpiryStatus(item, type = item) {
+  if (isPerpetualType(type) || isPerpetualType(item)) return 'Valid'
+  return complianceStatus(item?.expiry_date ?? item?.expiryDate)
+}
+
 export function attentionStatus(item, type = item) {
   if (item?.missing) return 'Missing'
-  const expiryStatus = complianceStatus(item?.expiry_date)
+  if (workingTowardsNeedsDocument(item)) return 'Missing'
+  const expiryStatus = itemExpiryStatus(item, type)
   if (expiryStatus === 'Expired') return 'Expired'
   if (isRecheckOverdue(item, type)) return 'Recheck due'
   if (expiryStatus === 'Expiring soon' || isWithinRenewalWindow(item, type)) {
     return 'Expiring soon'
   }
   return expiryStatus
+}
+
+export function itemComplianceStatus(item, type = item) {
+  if (!item) return 'Missing'
+  if (workingTowardsNeedsDocument(item)) return 'Missing'
+  return itemExpiryStatus(item, type)
 }
 
 export function todayIsoDate() {
@@ -524,7 +587,9 @@ export function todayIsoDate() {
 export function complianceStatus(expiryDate) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const expiry = new Date(`${expiryDate}T00:00:00`)
+  const iso = toIsoDate(expiryDate)
+  if (!iso) return 'Expired'
+  const expiry = new Date(`${iso}T00:00:00`)
 
   if (Number.isNaN(expiry.getTime()) || expiry < today) {
     return 'Expired'
@@ -548,16 +613,50 @@ function itemWriteFields({
   issuer,
   status = 'current',
   lastVerifiedDate,
+  workingTowards = false,
+  workingTowardsTarget,
 }) {
+  const workingTowardsValue = Boolean(workingTowards)
   return {
     requirement_type_id: requirementTypeId,
     label,
-    expiry_date: expiryDate,
+    expiry_date: emptyToNull(expiryDate),
     reference_number: emptyToNull(referenceNumber),
     issued_date: emptyToNull(issuedDate),
     issuer: emptyToNull(issuer),
     status,
     last_verified_date: emptyToNull(lastVerifiedDate),
+    working_towards: workingTowardsValue,
+    working_towards_target: workingTowardsValue
+      ? emptyToNull(workingTowardsTarget)
+      : null,
+  }
+}
+
+export function lastVerifiedForSave(values, type) {
+  const workingTowards = Boolean(values?.workingTowards)
+  const tracks = tracksVerification(type) || workingTowards
+  if (!tracks) return null
+  if (values?.lastVerifiedDate) return values.lastVerifiedDate
+  if (workingTowards && hasEvidenceDocument(values)) {
+    return todayIsoDate()
+  }
+  return emptyToNull(values?.lastVerifiedDate)
+}
+
+export function itemFormSaveFields(values, type) {
+  return {
+    label: String(values?.label ?? '').trim(),
+    expiryDate: isPerpetualType(type) ? null : emptyToNull(values?.expiryDate),
+    referenceNumber: values?.referenceNumber,
+    issuedDate: values?.issuedDate,
+    issuer: values?.issuer,
+    status: values?.status,
+    lastVerifiedDate: lastVerifiedForSave(values, type),
+    workingTowards: Boolean(values?.workingTowards),
+    workingTowardsTarget: values?.workingTowardsTarget,
+    documentFile: values?.documentFile,
+    currentDocumentPath: values?.documentUrl,
   }
 }
 
@@ -574,6 +673,8 @@ export function formValuesFromItem(item) {
     issuer: item.issuer ?? '',
     status: item.status ?? 'current',
     lastVerifiedDate: toDateInput(item.last_verified_date),
+    workingTowards: Boolean(item.working_towards),
+    workingTowardsTarget: item.working_towards_target ?? '',
     documentUrl: item.document_url ?? '',
     documentFile: null,
   }
@@ -588,6 +689,8 @@ export async function createComplianceItem({
   issuer,
   status = 'current',
   lastVerifiedDate,
+  workingTowards = false,
+  workingTowardsTarget,
   orgId,
   staffId,
   siteId,
@@ -604,13 +707,15 @@ export async function createComplianceItem({
         issuer,
         status,
         lastVerifiedDate,
+        workingTowards,
+        workingTowardsTarget,
       }),
       org_id: orgId,
       staff_id: staffId,
       site_id: siteId,
     })
     .select(
-      'id, requirement_type_id, label, expiry_date, reference_number, issued_date, issuer, status, last_verified_date, document_url, org_id, staff_id, site_id',
+      'id, requirement_type_id, label, expiry_date, reference_number, issued_date, issuer, status, last_verified_date, working_towards, working_towards_target, document_url, org_id, staff_id, site_id',
     )
     .single()
 
@@ -630,6 +735,8 @@ export async function updateComplianceItem(id, {
   issuer,
   status = 'current',
   lastVerifiedDate,
+  workingTowards = false,
+  workingTowardsTarget,
   staffId,
   siteId,
 }) {
@@ -642,6 +749,8 @@ export async function updateComplianceItem(id, {
     issuer,
     status,
     lastVerifiedDate,
+    workingTowards,
+    workingTowardsTarget,
   })
 
   if (staffId !== undefined) {
@@ -654,7 +763,7 @@ export async function updateComplianceItem(id, {
     .update(payload)
     .eq('id', id)
     .select(
-      'id, requirement_type_id, label, expiry_date, reference_number, issued_date, issuer, status, last_verified_date, document_url, org_id, staff_id, site_id',
+      'id, requirement_type_id, label, expiry_date, reference_number, issued_date, issuer, status, last_verified_date, working_towards, working_towards_target, document_url, org_id, staff_id, site_id',
     )
     .single()
 
@@ -671,7 +780,7 @@ export async function markItemVerifiedToday(id) {
     .update({ last_verified_date: todayIsoDate() })
     .eq('id', id)
     .select(
-      'id, requirement_type_id, label, expiry_date, reference_number, issued_date, issuer, status, last_verified_date, document_url, org_id, staff_id, site_id',
+      'id, requirement_type_id, label, expiry_date, reference_number, issued_date, issuer, status, last_verified_date, working_towards, working_towards_target, document_url, org_id, staff_id, site_id',
     )
     .single()
 

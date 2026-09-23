@@ -13,6 +13,7 @@ export const STATUS_FILTERS = [
 export const EMPLOYMENT_FILTERS = [
   { value: '', label: 'All staff' },
   { value: 'active', label: 'Active' },
+  { value: 'on_leave', label: 'On leave' },
   { value: 'inactive', label: 'Inactive' },
   { value: 'archived', label: 'Archived' },
 ]

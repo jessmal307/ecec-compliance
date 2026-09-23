@@ -13,7 +13,7 @@ import {
   EMPTY_COMPLIANCE_ITEM_VALUES,
   validateComplianceItemValues,
 } from './ComplianceItemFields'
-import { StatusBadge } from './StatusBadge'
+import { StatusBadge, WorkingTowardsBadge } from './StatusBadge'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
 import {
   Choice,
@@ -24,11 +24,13 @@ import {
   FormActions,
   FormSection,
   Input,
+  Select,
 } from './ui/form'
 import { PageError, PageHeader } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
 import {
-  complianceStatus,
+  itemComplianceStatus,
+  itemFormSaveFields,
   saveComplianceItem,
   isStaffRequirementType,
   isOtherRequirementType,
@@ -40,13 +42,14 @@ import { firstError } from '../lib/query'
 import { validateIsoDate } from '../lib/dates'
 import { formatDate } from '../lib/format'
 import { listSites } from '../lib/sites'
-import { createStaff } from '../lib/staff'
+import { createStaff, EMPLOYMENT_STATUS_OPTIONS } from '../lib/staff'
 
 const EMPTY_STAFF_FORM = {
   name: '',
   role: '',
   employmentStatus: 'active',
   startDate: '',
+  endDate: '',
   email: '',
   phone: '',
   selectedSiteIds: [],
@@ -150,7 +153,10 @@ export function NewStaff() {
 
   function commitDraft() {
     if (!fillingTypeId) return null
-    const fieldErrors = validateComplianceItemValues(draftValues)
+    const fieldErrors = validateComplianceItemValues(
+      draftValues,
+      requirementTypes.find((type) => type.id === fillingTypeId),
+    )
     if (Object.keys(fieldErrors).length > 0) {
       setDraftErrors(fieldErrors)
       return null
@@ -172,7 +178,15 @@ export function NewStaff() {
   }
 
   function draftsToSave() {
-    if (fillingTypeId && Object.keys(validateComplianceItemValues(draftValues)).length === 0) {
+    if (
+      fillingTypeId &&
+      Object.keys(
+        validateComplianceItemValues(
+          draftValues,
+          requirementTypes.find((type) => type.id === fillingTypeId),
+        ),
+      ).length === 0
+    ) {
       return { ...drafts, [fillingTypeId]: { ...draftValues } }
     }
     return drafts
@@ -183,7 +197,10 @@ export function NewStaff() {
     if (!organizationId) return
 
     if (fillingTypeId) {
-      const fieldErrors = validateComplianceItemValues(draftValues)
+      const fieldErrors = validateComplianceItemValues(
+        draftValues,
+        requirementTypes.find((type) => type.id === fillingTypeId),
+      )
       if (Object.keys(fieldErrors).length > 0) {
         setDraftErrors(fieldErrors)
         return
@@ -193,8 +210,14 @@ export function NewStaff() {
     const startDateError = validateIsoDate(form.startDate, {
       invalidLabel: 'start date',
     })
-    if (startDateError) {
-      setStaffErrors({ startDate: startDateError })
+    const endDateError = validateIsoDate(form.endDate, {
+      invalidLabel: 'end date',
+    })
+    if (startDateError || endDateError) {
+      setStaffErrors({
+        ...(startDateError ? { startDate: startDateError } : {}),
+        ...(endDateError ? { endDate: endDateError } : {}),
+      })
       return
     }
 
@@ -207,6 +230,7 @@ export function NewStaff() {
       role: form.role.trim(),
       employmentStatus: form.employmentStatus,
       startDate: form.startDate,
+      endDate: form.endDate,
       email: form.email,
       phone: form.phone,
       siteIds: form.selectedSiteIds,
@@ -224,17 +248,11 @@ export function NewStaff() {
       if (!values) continue
 
       const { error: itemError } = await saveComplianceItem({
-        documentFile: values.documentFile,
         requirementTypeId: requirementType.id,
-        label: values.label.trim() || requirementType.name,
-        expiryDate: values.expiryDate,
-        referenceNumber: values.referenceNumber,
-        issuedDate: values.issuedDate,
-        issuer: values.issuer,
-        status: values.status,
-        lastVerifiedDate: resolveRecheckDays(requirementType)
-          ? values.lastVerifiedDate
-          : null,
+        ...itemFormSaveFields(
+          { ...values, label: values.label.trim() || requirementType.name },
+          requirementType,
+        ),
         orgId: organizationId,
         staffId: member.id,
         siteId: null,
@@ -303,29 +321,21 @@ export function NewStaff() {
 
             <FormSection title="Employment">
               <FieldGrid>
-                <Field label="Status">
-                  <ChoiceRow disabled={busy}>
-                    <Choice
-                      type="radio"
-                      name="employment_status"
-                      value="active"
-                      checked={form.employmentStatus === 'active'}
-                      onChange={() => setFormField('employmentStatus', 'active')}
-                      disabled={busy}
-                    >
-                      Active
-                    </Choice>
-                    <Choice
-                      type="radio"
-                      name="employment_status"
-                      value="inactive"
-                      checked={form.employmentStatus === 'inactive'}
-                      onChange={() => setFormField('employmentStatus', 'inactive')}
-                      disabled={busy}
-                    >
-                      Inactive
-                    </Choice>
-                  </ChoiceRow>
+                <Field label="Employment status">
+                  <Select
+                    name="employment_status"
+                    value={form.employmentStatus}
+                    onChange={(event) =>
+                      setFormField('employmentStatus', event.target.value)
+                    }
+                    disabled={busy}
+                  >
+                    {EMPLOYMENT_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
                 </Field>
                 <Field label="Start date" error={staffErrors.startDate}>
                   <DateInput
@@ -335,6 +345,17 @@ export function NewStaff() {
                       setFormField('startDate', event.target.value)
                     }
                     aria-invalid={Boolean(staffErrors.startDate)}
+                    disabled={busy}
+                  />
+                </Field>
+                <Field label="End date" error={staffErrors.endDate}>
+                  <DateInput
+                    name="end_date"
+                    value={form.endDate}
+                    onChange={(event) =>
+                      setFormField('endDate', event.target.value)
+                    }
+                    aria-invalid={Boolean(staffErrors.endDate)}
                     disabled={busy}
                   />
                 </Field>
@@ -440,6 +461,11 @@ export function NewStaff() {
                                 Optional
                               </p>
                             )}
+                            {draft ? (
+                              <div className="mt-1">
+                                <WorkingTowardsBadge item={draft} />
+                              </div>
+                            ) : null}
                           </Td>
                           <Td
                             slot="expiry"
@@ -452,7 +478,13 @@ export function NewStaff() {
                             <StatusBadge
                               status={
                                 draft
-                                  ? complianceStatus(draft.expiryDate)
+                                  ? itemComplianceStatus(
+                                      {
+                                        ...draft,
+                                        expiry_date: draft.expiryDate,
+                                      },
+                                      requirementType,
+                                    )
                                   : 'Missing'
                               }
                             />
@@ -499,6 +531,7 @@ export function NewStaff() {
                                     requirementType.validity_months
                                   }
                                   disabled={busy}
+                                  requirementType={requirementType}
                                 />
                                 <FormActions>
                                   <Button

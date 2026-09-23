@@ -1,9 +1,10 @@
 import {
   addDaysIso,
-  complianceStatus,
   hasRecheckInterval,
   isRecheckOverdue,
+  itemExpiryStatus,
   recheckDueDate,
+  workingTowardsNeedsDocument,
 } from './compliance'
 import { formatDate } from './format'
 
@@ -25,27 +26,39 @@ export function alertTimingLine({
   status,
   expiryDate,
   lastVerifiedDate,
+  workingTowards,
 } = {}) {
   if (status === 'Not applicable') return ''
 
   const expiry = expiryDate || item?.expiry_date || null
   const verified =
     lastVerifiedDate || item?.last_verified_date || null
+  const towards =
+    workingTowards ?? item?.working_towards ?? false
   const workingItem = item
     ? {
         ...item,
         expiry_date: expiry ?? item.expiry_date,
         last_verified_date: verified || item.last_verified_date,
+        working_towards: towards,
       }
-    : expiry
-      ? { expiry_date: expiry, last_verified_date: verified }
+    : expiry || towards
+      ? {
+          expiry_date: expiry,
+          last_verified_date: verified,
+          working_towards: towards,
+        }
       : null
 
   if (!workingItem) {
     return "No record on file — we'll keep flagging this until it's added."
   }
 
-  if (complianceStatus(workingItem.expiry_date) === 'Expired') {
+  if (workingTowardsNeedsDocument(workingItem)) {
+    return "This needs a transcript or enrolment evidence — we'll keep flagging it until it's attached."
+  }
+
+  if (itemExpiryStatus(workingItem, type) === 'Expired') {
     return "This has expired — we'll keep flagging it until it's updated."
   }
 

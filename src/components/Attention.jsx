@@ -22,12 +22,12 @@ import {
 import { attentionStatusFilter } from '../lib/paths'
 import {
   formValuesFromItem,
+  itemFormSaveFields,
   listComplianceItems,
   listRequirementTypes,
   markItemVerifiedToday,
   todayIsoDate,
   saveComplianceItem,
-  tracksVerification,
 } from '../lib/compliance'
 import {
   listStaffRequirementExclusionsForOrg,
@@ -140,19 +140,9 @@ export function Attention() {
 
     const { error: saveError } = await saveComplianceItem({
       id: item.id,
-      documentFile: editValues.documentFile,
-      currentDocumentPath: editValues.documentUrl,
       orgId: item.org_id ?? organizationId,
       requirementTypeId: item.requirement_type_id,
-      label: editValues.label.trim(),
-      expiryDate: editValues.expiryDate,
-      referenceNumber: editValues.referenceNumber,
-      issuedDate: editValues.issuedDate,
-      issuer: editValues.issuer,
-      status: editValues.status,
-      lastVerifiedDate: tracksVerification(item)
-        ? editValues.lastVerifiedDate
-        : null,
+      ...itemFormSaveFields(editValues, item),
     })
 
     if (saveError) {
