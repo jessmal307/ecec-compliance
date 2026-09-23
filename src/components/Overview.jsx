@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Clock,
+  RefreshCw,
   ShieldCheck,
   UserRoundX,
 } from 'lucide-react'
@@ -29,6 +30,7 @@ import {
   visibleComplianceItems,
 } from '../lib/attention'
 import {
+  attentionStatus,
   listComplianceItems,
   listRequirementTypes,
   todayIsoDate,
@@ -59,6 +61,52 @@ function missingOwnersHint(staffOwners, siteOwners) {
     parts.push(countLabel(siteOwners, 'site', 'sites'))
   }
   return `Across ${parts.join(' and ')}`
+}
+
+function typeForItem(requirementTypes, item) {
+  return (
+    requirementTypes.find((type) => type.id === item.requirement_type_id) ??
+    item
+  )
+}
+
+function isRecheckDueItem(item, requirementTypes) {
+  return attentionStatus(item, typeForItem(requirementTypes, item)) ===
+    'Recheck due'
+}
+
+function staffAssignedToSite(member, siteId, activeSiteIds) {
+  return (member.sites ?? []).some(
+    (assigned) => assigned.id === siteId && activeSiteIds.has(assigned.id),
+  )
+}
+
+function countRecheckDue(visibleItems, requirementTypes) {
+  return visibleItems.filter((item) =>
+    isRecheckDueItem(item, requirementTypes),
+  ).length
+}
+
+function countRecheckDueForSite(
+  visibleItems,
+  requirementTypes,
+  siteId,
+  staffIdsAtSite,
+) {
+  return visibleItems.filter((item) => {
+    if (!isRecheckDueItem(item, requirementTypes)) return false
+    if (item.site_id) return item.site_id === siteId
+    return staffIdsAtSite.has(item.staff_id)
+  }).length
+}
+
+function compareSiteUrgency(left, right) {
+  return (
+    right.expiredCount - left.expiredCount ||
+    right.missingCount - left.missingCount ||
+    right.expiringCount - left.expiringCount ||
+    right.recheckDueCount - left.recheckDueCount
+  )
 }
 
 function progressClass(percent) {
@@ -177,14 +225,35 @@ export function Overview() {
     })
 
     const siteById = new Map(sites.map((site) => [site.id, site]))
-    const siteRows = report.sites.map((section) => ({
-      site: siteById.get(section.id) ?? { id: section.id, name: section.name },
-      percent: section.percent,
-      expiredCount: section.expiredCount,
-      expiringCount: section.expiringCount,
-      missingCount: section.missingCount,
-      staffCount: section.staffCount,
-    }))
+    const activeSiteIds = new Set(sites.map((site) => site.id))
+    const siteRows = report.sites
+      .map((section) => {
+        const staffIdsAtSite = new Set(
+          activeStaff
+            .filter((member) =>
+              staffAssignedToSite(member, section.id, activeSiteIds),
+            )
+            .map((member) => member.id),
+        )
+        return {
+          site: siteById.get(section.id) ?? {
+            id: section.id,
+            name: section.name,
+          },
+          percent: section.percent,
+          expiredCount: section.expiredCount,
+          expiringCount: section.expiringCount,
+          missingCount: section.missingCount,
+          recheckDueCount: countRecheckDueForSite(
+            visibleItems,
+            requirementTypes,
+            section.id,
+            staffIdsAtSite,
+          ),
+          staffCount: section.staffCount,
+        }
+      })
+      .sort(compareSiteUrgency)
 
     return {
       compliancePercent: report.org.percent,
@@ -192,6 +261,7 @@ export function Overview() {
       expiredCount: report.org.expiredCount,
       expiringCount: report.org.expiringCount,
       missingCount: report.org.missingCount,
+      recheckDueCount: countRecheckDue(visibleItems, requirementTypes),
       missingStaffOwners: gaps.filter(
         (row) => row.kind === 'staff' && row.missing.length > 0,
       ).length,
@@ -240,6 +310,13 @@ export function Overview() {
           : null,
     },
     {
+      label: 'Recheck due',
+      value: dashboard.recheckDueCount,
+      hint: 'Periodic verification is overdue',
+      icon: RefreshCw,
+      href: dashboard.recheckDueCount > 0 ? paths.attention : null,
+    },
+    {
       label: 'Missing',
       value: dashboard.missingCount,
       hint:
@@ -278,7 +355,7 @@ export function Overview() {
         <>
           <StatusLegend />
 
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 xl:gap-4">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-5 xl:gap-4">
             {stats.map((stat) => {
               const Icon = stat.icon
               const body = (
@@ -414,6 +491,7 @@ export function Overview() {
                           expiredCount,
                           expiringCount,
                           missingCount,
+                          recheckDueCount,
                           staffCount,
                         }) => (
                           <li key={site.id} className="space-y-2">
@@ -455,6 +533,8 @@ export function Overview() {
                               {expiredCount} expired · {expiringCount} expiring
                               {' · '}
                               {missingCount} missing
+                              {' · '}
+                              {recheckDueCount} recheck due
                             </p>
                           </li>
                         ),
