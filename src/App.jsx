@@ -11,6 +11,7 @@ import { ResetPassword } from './components/ResetPassword'
 import { SetupScreen } from './components/SetupScreen'
 import { SiteProfile } from './components/SiteProfile'
 import { Sites } from './components/Sites'
+import { ImportStaff } from './components/ImportStaff'
 import { NewStaff } from './components/NewStaff'
 import { Staff } from './components/Staff'
 import { StaffProfile } from './components/StaffProfile'
@@ -67,6 +68,7 @@ function AppShell() {
           <Route path={paths.home} element={<Overview />} />
           <Route path={paths.staff} element={<Staff />} />
           <Route path={paths.newStaff} element={<NewStaff />} />
+          <Route path={paths.importStaff} element={<ImportStaff />} />
           <Route path="/staff/:staffId" element={<StaffProfile />} />
           <Route path={paths.sites} element={<Sites />} />
           <Route path="/sites/:siteId" element={<SiteProfile />} />

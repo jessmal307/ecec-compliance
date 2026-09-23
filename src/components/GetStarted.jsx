@@ -164,51 +164,102 @@ export function GetStarted({ steps }) {
         <ol className="divide-y divide-border">
           {STEPS.map((step, index) => {
             const done = Boolean(steps[step.key])
+            const staffStep = step.key === 'staff'
             return (
-              <li key={step.key}>
-                <Link
-                  to={step.to}
-                  className="flex min-h-11 items-start gap-3 py-3 first:pt-0 last:pb-0"
-                >
-                  <span
-                    className={[
-                      'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
-                      done
-                        ? 'bg-status-valid-muted text-status-valid'
-                        : 'bg-muted text-muted-foreground',
-                    ].join(' ')}
-                    aria-hidden
-                  >
-                    {done ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <Circle className="size-3.5" />
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        {index + 1}
-                      </span>
-                      <span
-                        className={
-                          done
-                            ? 'text-base font-medium text-muted-foreground line-through md:text-sm'
-                            : 'text-base font-medium text-card-foreground md:text-sm'
-                        }
-                      >
-                        {step.title}
-                      </span>
+              <li key={step.key} className="py-3 first:pt-0 last:pb-0">
+                {staffStep ? (
+                  <div className="flex min-h-11 items-start gap-3">
+                    <span
+                      className={[
+                        'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
+                        done
+                          ? 'bg-status-valid-muted text-status-valid'
+                          : 'bg-muted text-muted-foreground',
+                      ].join(' ')}
+                      aria-hidden
+                    >
                       {done ? (
-                        <span className="text-xs text-status-valid">Done</span>
-                      ) : null}
+                        <Check className="size-3.5" />
+                      ) : (
+                        <Circle className="size-3.5" />
+                      )}
                     </span>
-                    <span className="mt-0.5 block text-base text-muted-foreground md:text-sm">
-                      {step.description}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          {index + 1}
+                        </span>
+                        <span
+                          className={
+                            done
+                              ? 'text-base font-medium text-muted-foreground line-through md:text-sm'
+                              : 'text-base font-medium text-card-foreground md:text-sm'
+                          }
+                        >
+                          {step.title}
+                        </span>
+                        {done ? (
+                          <span className="text-xs text-status-valid">Done</span>
+                        ) : null}
+                      </span>
+                      <span className="mt-0.5 block text-base text-muted-foreground md:text-sm">
+                        {step.description}
+                      </span>
+                      <span className="mt-3 flex flex-wrap gap-2">
+                        <Button asChild size="sm">
+                          <Link to={paths.newStaff}>Add manually</Link>
+                        </Button>
+                        <Button asChild variant="outline" size="sm">
+                          <Link to={paths.importStaff}>Import staff</Link>
+                        </Button>
+                      </span>
                     </span>
-                  </span>
-                  <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                </Link>
+                  </div>
+                ) : (
+                  <Link
+                    to={step.to}
+                    className="flex min-h-11 items-start gap-3"
+                  >
+                    <span
+                      className={[
+                        'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
+                        done
+                          ? 'bg-status-valid-muted text-status-valid'
+                          : 'bg-muted text-muted-foreground',
+                      ].join(' ')}
+                      aria-hidden
+                    >
+                      {done ? (
+                        <Check className="size-3.5" />
+                      ) : (
+                        <Circle className="size-3.5" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs tabular-nums text-muted-foreground">
+                          {index + 1}
+                        </span>
+                        <span
+                          className={
+                            done
+                              ? 'text-base font-medium text-muted-foreground line-through md:text-sm'
+                              : 'text-base font-medium text-card-foreground md:text-sm'
+                          }
+                        >
+                          {step.title}
+                        </span>
+                        {done ? (
+                          <span className="text-xs text-status-valid">Done</span>
+                        ) : null}
+                      </span>
+                      <span className="mt-0.5 block text-base text-muted-foreground md:text-sm">
+                        {step.description}
+                      </span>
+                    </span>
+                    <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                  </Link>
+                )}
               </li>
             )
           })}

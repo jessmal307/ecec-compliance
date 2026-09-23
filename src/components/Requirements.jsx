@@ -11,11 +11,8 @@ import {
 } from '@/components/ui/card'
 import {
   ConfirmDeleteDialog,
-  PERMANENT_DELETE_PHRASE,
   TYPE_ARCHIVE_WARNING,
-  TYPE_DELETE_WARNING,
   typeArchiveTitle,
-  typeDeleteTitle,
 } from './ConfirmDeleteDialog'
 import {
   ARCHIVE_VIEW_FILTERS,
@@ -39,7 +36,7 @@ import { isArchived } from '../lib/archive'
 import {
   archiveRequirementType,
   countComplianceItemsForRequirementType,
-  deleteRequirementType,
+  createRequirementType,
   listRequirementTypes,
   restoreRequirementType,
   updateRequirementType,
@@ -54,11 +51,118 @@ function valuesFromType(type) {
     validity_months: type?.validity_months ?? '',
     renewal_lead_days: type?.renewal_lead_days ?? '',
     recheck_interval_days: type?.recheck_interval_days ?? '',
+    perpetual: Boolean(type?.perpetual),
   }
 }
 
 function levelLabel(appliesTo) {
   return appliesTo === 'site' ? 'Site' : 'Staff'
+}
+
+function TypeFormFields({ values, setValues, saving, allowLevel = true }) {
+  return (
+    <FieldGrid>
+      <Field label="Name">
+        <Input
+          value={values.name}
+          onChange={(event) =>
+            setValues((current) => ({
+              ...current,
+              name: event.target.value,
+            }))
+          }
+          required
+          disabled={saving}
+        />
+      </Field>
+      {allowLevel ? (
+        <Field label="Level">
+          <Select
+            value={values.applies_to}
+            onChange={(event) =>
+              setValues((current) => ({
+                ...current,
+                applies_to: event.target.value,
+              }))
+            }
+            disabled={saving}
+            aria-label="Level"
+          >
+            <option value="staff">Staff</option>
+            <option value="site">Site</option>
+          </Select>
+        </Field>
+      ) : null}
+      <NumberPhraseField
+        prefix="Valid for"
+        suffix="months"
+        ariaLabel="Valid for months"
+        value={values.validity_months}
+        onChange={(event) =>
+          setValues((current) => ({
+            ...current,
+            validity_months: event.target.value,
+          }))
+        }
+        disabled={saving || values.perpetual}
+      />
+      <NumberPhraseField
+        prefix="Remind me"
+        suffix="days before expiry"
+        ariaLabel="Remind me days before expiry"
+        value={values.renewal_lead_days}
+        onChange={(event) =>
+          setValues((current) => ({
+            ...current,
+            renewal_lead_days: event.target.value,
+          }))
+        }
+        disabled={saving || values.perpetual}
+      />
+      <NumberPhraseField
+        prefix="Re-check every"
+        suffix="days"
+        ariaLabel="Re-check every days"
+        value={values.recheck_interval_days}
+        onChange={(event) =>
+          setValues((current) => ({
+            ...current,
+            recheck_interval_days: event.target.value,
+          }))
+        }
+        disabled={saving}
+      />
+      <Choice
+        type="checkbox"
+        checked={values.mandatory}
+        onChange={(event) =>
+          setValues((current) => ({
+            ...current,
+            mandatory: event.target.checked,
+          }))
+        }
+        disabled={saving}
+      >
+        Required
+      </Choice>
+      <Choice
+        type="checkbox"
+        checked={values.perpetual}
+        onChange={(event) =>
+          setValues((current) => ({
+            ...current,
+            perpetual: event.target.checked,
+            ...(event.target.checked
+              ? { validity_months: '', renewal_lead_days: '' }
+              : {}),
+          }))
+        }
+        disabled={saving}
+      >
+        No expiry
+      </Choice>
+    </FieldGrid>
+  )
 }
 
 function NumberPhraseField({
@@ -98,11 +202,11 @@ export function Requirements({ embedded = false }) {
   const [viewFilter, setViewFilter] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editValues, setEditValues] = useState(valuesFromType(null))
+  const [adding, setAdding] = useState(false)
+  const [addValues, setAddValues] = useState(valuesFromType(null))
   const [saving, setSaving] = useState(false)
   const [pendingLevelChange, setPendingLevelChange] = useState(null)
   const [pendingArchive, setPendingArchive] = useState(null)
-  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
-  const [blockedDelete, setBlockedDelete] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const archivedOnly = viewFilter === 'archived'
 
@@ -156,6 +260,7 @@ export function Requirements({ embedded = false }) {
   }, [types, query])
 
   function startEdit(type) {
+    setAdding(false)
     setEditingId(type.id)
     setEditValues(valuesFromType(type))
     setError('')
@@ -165,6 +270,18 @@ export function Requirements({ embedded = false }) {
     setEditingId(null)
     setEditValues(valuesFromType(null))
     setPendingLevelChange(null)
+  }
+
+  function startAdd() {
+    setAdding(true)
+    setAddValues(valuesFromType(null))
+    setEditingId(null)
+    setError('')
+  }
+
+  function cancelAdd() {
+    setAdding(false)
+    setAddValues(valuesFromType(null))
   }
 
   async function saveType(type, values) {
@@ -186,6 +303,37 @@ export function Requirements({ embedded = false }) {
     }
 
     cancelEdit()
+    setSaving(false)
+  }
+
+  async function handleCreate(event) {
+    event.preventDefault()
+    if (!addValues.name.trim()) {
+      setError('Name is required.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+
+    const { error: createError } = await createRequirementType(
+      organizationId,
+      addValues,
+    )
+    if (createError) {
+      setError(createError.message)
+      setSaving(false)
+      return
+    }
+
+    const { error: reloadError } = await loadTypes()
+    if (reloadError) {
+      setError(reloadError.message)
+      setSaving(false)
+      return
+    }
+
+    cancelAdd()
     setSaving(false)
   }
 
@@ -249,41 +397,6 @@ export function Requirements({ embedded = false }) {
     setBusyId(null)
   }
 
-  async function requestDelete(type) {
-    setError('')
-    const { count, error: countError } =
-      await countComplianceItemsForRequirementType(type.id)
-    if (countError) {
-      setError(countError.message)
-      return
-    }
-    if (count > 0) {
-      setBlockedDelete({ type, count })
-      return
-    }
-    setPendingPermanentDelete(type)
-  }
-
-  async function handleDelete() {
-    if (!pendingPermanentDelete) return
-    setBusyId(pendingPermanentDelete.id)
-    setError('')
-
-    const { error: deleteError } = await deleteRequirementType(
-      pendingPermanentDelete.id,
-    )
-    if (deleteError) {
-      setError(deleteError.message)
-      setBusyId(null)
-      return
-    }
-
-    setPendingPermanentDelete(null)
-    const { error: reloadError } = await loadTypes()
-    if (reloadError) setError(reloadError.message)
-    setBusyId(null)
-  }
-
   const editingType = types.find((type) => type.id === editingId) ?? null
 
   return (
@@ -306,15 +419,27 @@ export function Requirements({ embedded = false }) {
           <CardTitle>Types</CardTitle>
           <CardDescription>
             {archivedOnly
-              ? 'Restore a type or delete it permanently if nothing is recorded against it.'
-              : 'Required types appear as gaps on Overview when missing. Archive retires a type that is already in use.'}
+              ? 'Archived types stay on existing records. Restore to offer them again when adding items.'
+              : 'Required types appear as gaps on Overview when missing. Delete archives a type — existing items stay.'}
           </CardDescription>
           <CardAction>
-            <span className="text-sm tabular-nums text-muted-foreground">
-              {types.length === 0 || !query.trim()
-                ? types.length
-                : `${filteredTypes.length} of ${types.length}`}
-            </span>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {archivedOnly ? null : (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={startAdd}
+                  disabled={saving || adding}
+                >
+                  Add type
+                </Button>
+              )}
+              <span className="text-sm tabular-nums text-muted-foreground">
+                {types.length === 0 || !query.trim()
+                  ? types.length
+                  : `${filteredTypes.length} of ${types.length}`}
+              </span>
+            </div>
           </CardAction>
         </CardHeader>
         {!loading && organizationId ? (
@@ -387,9 +512,11 @@ export function Requirements({ embedded = false }) {
                       label="Valid for"
                       className="text-muted-foreground"
                     >
-                      {type.validity_months
-                        ? `${type.validity_months} months`
-                        : '—'}
+                      {type.perpetual
+                        ? 'No expiry'
+                        : type.validity_months
+                          ? `${type.validity_months} months`
+                          : '—'}
                     </Td>
                     <Td slot="extra" label="Remind me" className="text-muted-foreground">
                       {type.renewal_lead_days
@@ -408,25 +535,14 @@ export function Requirements({ embedded = false }) {
                     <Td slot="action">
                       <div className="flex flex-wrap justify-end gap-2 max-md:justify-start">
                         {archivedOnly ? (
-                          <>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => handleRestore(type)}
-                              disabled={busyId === type.id}
-                            >
-                              {busyId === type.id ? 'Restoring…' : 'Restore'}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => requestDelete(type)}
-                              disabled={busyId === type.id}
-                            >
-                              Delete permanently
-                            </Button>
-                          </>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleRestore(type)}
+                            disabled={busyId === type.id}
+                          >
+                            {busyId === type.id ? 'Restoring…' : 'Restore'}
+                          </Button>
                         ) : (
                           <>
                             <Button
@@ -445,16 +561,7 @@ export function Requirements({ embedded = false }) {
                               onClick={() => setPendingArchive(type)}
                               disabled={saving || busyId === type.id}
                             >
-                              Archive
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => requestDelete(type)}
-                              disabled={saving || busyId === type.id}
-                            >
-                              Delete permanently
+                              Delete
                             </Button>
                           </>
                         )}
@@ -468,13 +575,47 @@ export function Requirements({ embedded = false }) {
         </CardContent>
       </Card>
 
+      {adding && !archivedOnly ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add type</CardTitle>
+            <CardDescription>
+              Custom types are kept when the default catalog is re-seeded.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-5" onSubmit={handleCreate}>
+              <TypeFormFields
+                values={addValues}
+                setValues={setAddValues}
+                saving={saving}
+              />
+              <FormActions>
+                <Button type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : 'Add type'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={cancelAdd}
+                  disabled={saving}
+                >
+                  Cancel
+                </Button>
+              </FormActions>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {editingType && !archivedOnly ? (
         <Card>
           <CardHeader>
             <CardTitle>Edit {editingType.name}</CardTitle>
             <CardDescription>
               Changing the level on a type that already has records needs
-              confirmation first.
+              confirmation first. Saving a default type marks it customized so
+              seed will not overwrite it.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -482,89 +623,11 @@ export function Requirements({ embedded = false }) {
               className="space-y-5"
               onSubmit={(event) => handleSave(event, editingType)}
             >
-              <FieldGrid>
-                <Field label="Name">
-                  <Input
-                    value={editValues.name}
-                    onChange={(event) =>
-                      setEditValues((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    required
-                    disabled={saving}
-                  />
-                </Field>
-                <Field label="Level">
-                  <Select
-                    value={editValues.applies_to}
-                    onChange={(event) =>
-                      setEditValues((current) => ({
-                        ...current,
-                        applies_to: event.target.value,
-                      }))
-                    }
-                    disabled={saving}
-                    aria-label="Level"
-                  >
-                    <option value="staff">Staff</option>
-                    <option value="site">Site</option>
-                  </Select>
-                </Field>
-                <NumberPhraseField
-                  prefix="Valid for"
-                  suffix="months"
-                  ariaLabel="Valid for months"
-                  value={editValues.validity_months}
-                  onChange={(event) =>
-                    setEditValues((current) => ({
-                      ...current,
-                      validity_months: event.target.value,
-                    }))
-                  }
-                  disabled={saving}
-                />
-                <NumberPhraseField
-                  prefix="Remind me"
-                  suffix="days before expiry"
-                  ariaLabel="Remind me days before expiry"
-                  value={editValues.renewal_lead_days}
-                  onChange={(event) =>
-                    setEditValues((current) => ({
-                      ...current,
-                      renewal_lead_days: event.target.value,
-                    }))
-                  }
-                  disabled={saving}
-                />
-                <NumberPhraseField
-                  prefix="Re-check every"
-                  suffix="days"
-                  ariaLabel="Re-check every days"
-                  value={editValues.recheck_interval_days}
-                  onChange={(event) =>
-                    setEditValues((current) => ({
-                      ...current,
-                      recheck_interval_days: event.target.value,
-                    }))
-                  }
-                  disabled={saving}
-                />
-                <Choice
-                  type="checkbox"
-                  checked={editValues.mandatory}
-                  onChange={(event) =>
-                    setEditValues((current) => ({
-                      ...current,
-                      mandatory: event.target.checked,
-                    }))
-                  }
-                  disabled={saving}
-                >
-                  Required
-                </Choice>
-              </FieldGrid>
+              <TypeFormFields
+                values={editValues}
+                setValues={setEditValues}
+                saving={saving}
+              />
               <FormActions>
                 <Button type="submit" disabled={saving}>
                   {saving ? 'Saving…' : 'Save'}
@@ -623,53 +686,6 @@ export function Requirements({ embedded = false }) {
         confirmingLabel="Archiving…"
       />
 
-      <ConfirmDeleteDialog
-        open={Boolean(blockedDelete)}
-        onOpenChange={(open) => {
-          if (!open) setBlockedDelete(null)
-        }}
-        title={
-          blockedDelete
-            ? `Cannot delete ${blockedDelete.type.name}`
-            : 'Cannot delete'
-        }
-        description={
-          blockedDelete
-            ? `This type has ${blockedDelete.count} recorded ${blockedDelete.count === 1 ? 'item' : 'items'}. Delete is blocked so those records are not lost. Archive it instead.`
-            : ''
-        }
-        confirming={Boolean(
-          blockedDelete && busyId === blockedDelete.type.id,
-        )}
-        onConfirm={() => {
-          const type = blockedDelete?.type
-          setBlockedDelete(null)
-          if (type) setPendingArchive(type)
-        }}
-        confirmLabel="Archive instead"
-        confirmingLabel="Archiving…"
-        variant="default"
-      />
-
-      <ConfirmDeleteDialog
-        open={Boolean(pendingPermanentDelete)}
-        onOpenChange={(open) => {
-          if (!open) setPendingPermanentDelete(null)
-        }}
-        title={
-          pendingPermanentDelete
-            ? typeDeleteTitle(pendingPermanentDelete.name)
-            : 'Delete permanently?'
-        }
-        description={TYPE_DELETE_WARNING}
-        confirming={Boolean(
-          pendingPermanentDelete &&
-            busyId === pendingPermanentDelete.id,
-        )}
-        onConfirm={handleDelete}
-        confirmLabel="Delete permanently"
-        confirmPhrase={PERMANENT_DELETE_PHRASE}
-      />
     </section>
   )
 }

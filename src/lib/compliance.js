@@ -35,7 +35,7 @@ export const COMPLIANCE_ITEM_STATUSES = [
 ]
 
 const REQUIREMENT_TYPE_FIELDS =
-  'id, name, org_id, mandatory, applies_to, recheck_interval_days, validity_months, renewal_lead_days, perpetual, archived_at'
+  'id, name, org_id, mandatory, applies_to, recheck_interval_days, validity_months, renewal_lead_days, perpetual, archived_at, is_custom, customized'
 
 function emptyToNull(value) {
   const trimmed = typeof value === 'string' ? value.trim() : value
@@ -52,6 +52,9 @@ function mapRequirementType(row) {
   return {
     ...row,
     archived_at: row.archived_at ?? null,
+    is_custom: Boolean(row.is_custom),
+    customized: Boolean(row.customized),
+    perpetual: Boolean(row.perpetual),
   }
 }
 
@@ -102,6 +105,8 @@ export async function listRequirementTypes(
       validity_months: requirementType.validity_months,
       renewal_lead_days: requirementType.renewal_lead_days,
       perpetual: Boolean(requirementType.perpetual),
+      is_custom: false,
+      customized: false,
     })),
   )
 
@@ -135,7 +140,42 @@ export async function countComplianceItemsForRequirementType(typeId) {
   return { count: count ?? 0, error: null }
 }
 
+export async function createRequirementType(orgId, values) {
+  const { data, error } = await supabase
+    .from('requirement_types')
+    .insert({
+      org_id: orgId,
+      name: values.name.trim(),
+      applies_to: values.applies_to === 'site' ? 'site' : 'staff',
+      mandatory: Boolean(values.mandatory),
+      validity_months: optionalInt(values.validity_months),
+      renewal_lead_days: optionalInt(values.renewal_lead_days),
+      recheck_interval_days: optionalInt(values.recheck_interval_days),
+      perpetual: Boolean(values.perpetual),
+      is_custom: true,
+      customized: false,
+    })
+    .select(REQUIREMENT_TYPE_FIELDS)
+    .single()
+
+  if (error) {
+    return { data: null, error }
+  }
+
+  return { data: mapRequirementType(data), error: null }
+}
+
 export async function updateRequirementType(id, values) {
+  const { data: current, error: currentError } = await supabase
+    .from('requirement_types')
+    .select('is_custom')
+    .eq('id', id)
+    .single()
+
+  if (currentError) {
+    return { data: null, error: currentError }
+  }
+
   const { data, error } = await supabase
     .from('requirement_types')
     .update({
@@ -145,6 +185,8 @@ export async function updateRequirementType(id, values) {
       validity_months: optionalInt(values.validity_months),
       renewal_lead_days: optionalInt(values.renewal_lead_days),
       recheck_interval_days: optionalInt(values.recheck_interval_days),
+      perpetual: Boolean(values.perpetual),
+      ...(current?.is_custom ? {} : { customized: true }),
     })
     .eq('id', id)
     .select(REQUIREMENT_TYPE_FIELDS)
@@ -177,26 +219,7 @@ export async function restoreRequirementType(id) {
 }
 
 export async function deleteRequirementType(id) {
-  const { count, error: countError } =
-    await countComplianceItemsForRequirementType(id)
-  if (countError) {
-    return { error: countError }
-  }
-  if (count > 0) {
-    return {
-      error: {
-        message:
-          'This type has recorded items. Archive it instead of deleting.',
-      },
-    }
-  }
-
-  const { error } = await supabase
-    .from('requirement_types')
-    .delete()
-    .eq('id', id)
-
-  return { error: error ?? null }
+  return archiveRequirementType(id)
 }
 
 const ITEM_SELECT = `

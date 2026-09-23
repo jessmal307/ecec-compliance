@@ -265,9 +265,14 @@ export function Staff() {
             : 'Open a person to view their profile. Add people with New staff.'
         }
         actions={
-          <Button asChild disabled={!organizationId}>
-            <Link to={paths.newStaff}>New staff</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline" disabled={!organizationId}>
+              <Link to={paths.importStaff}>Import staff</Link>
+            </Button>
+            <Button asChild disabled={!organizationId}>
+              <Link to={paths.newStaff}>New staff</Link>
+            </Button>
+          </>
         }
       />
 

@@ -59,6 +59,7 @@ function pageTitle(pathname, search = '') {
   if (pathname === paths.compliance) return 'Compliance'
   if (pathname === paths.staff) return 'Staff'
   if (pathname === paths.newStaff) return 'New staff'
+  if (pathname === paths.importStaff) return 'Import staff'
   if (pathname.startsWith(`${paths.staff}/`)) return 'Staff profile'
   if (pathname === paths.sites) return 'Sites'
   if (pathname.startsWith(`${paths.sites}/`)) return 'Site profile'

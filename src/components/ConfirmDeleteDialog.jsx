@@ -32,15 +32,14 @@ export const ITEM_DELETE_WARNING =
 export const TYPE_ARCHIVE_WARNING =
   'This hides the type from add-requirement pickers and gap calculations. Existing recorded items stay on staff and site profiles. You can restore it later from Archived.'
 
-export const TYPE_DELETE_WARNING =
-  'This permanently deletes the requirement type. This cannot be undone. Only unused types can be deleted.'
+export const TYPE_DELETE_WARNING = TYPE_ARCHIVE_WARNING
 
 export function typeArchiveTitle(name) {
   return `Archive ${name}?`
 }
 
 export function typeDeleteTitle(name) {
-  return `Delete ${name} permanently?`
+  return typeArchiveTitle(name)
 }
 
 export const PERMANENT_DELETE_PHRASE = 'DELETE'

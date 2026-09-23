@@ -2,6 +2,7 @@ export const paths = {
   home: '/',
   staff: '/staff',
   newStaff: '/staff/new',
+  importStaff: '/staff/import',
   staffProfile: (staffId) => `/staff/${staffId}`,
   sites: '/sites',
   siteProfile: (siteId) => `/sites/${siteId}`,

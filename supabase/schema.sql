@@ -644,6 +644,12 @@ create policy "Users can insert requirement types in their organization"
 alter table public.requirement_types
   add column if not exists archived_at timestamptz;
 
+alter table public.requirement_types
+  add column if not exists is_custom boolean not null default false;
+
+alter table public.requirement_types
+  add column if not exists customized boolean not null default false;
+
 create index if not exists requirement_types_org_id_archived_at_idx
   on public.requirement_types (org_id, archived_at);
 
@@ -714,6 +720,8 @@ begin
     with ranked as (
       select
         types.id,
+        types.is_custom,
+        types.customized,
         lower(public.normalized_requirement_name(types.name)) as name_key,
         row_number() over (
           partition by lower(public.normalized_requirement_name(types.name))
@@ -735,6 +743,8 @@ begin
       on winner.name_key = loser.name_key
      and winner.rn = 1
     where loser.rn > 1
+      and loser.is_custom = false
+      and loser.customized = false
   loop
     update public.compliance_items
     set requirement_type_id = rec.winner_id
@@ -759,7 +769,9 @@ begin
     where requirement_type_id = rec.loser_id;
 
     delete from public.requirement_types
-    where id = rec.loser_id;
+    where id = rec.loser_id
+      and is_custom = false
+      and customized = false;
   end loop;
 
   update public.requirement_types as types
@@ -775,7 +787,9 @@ begin
     validity_months,
     renewal_lead_days,
     applies_to,
-    perpetual
+    perpetual,
+    is_custom,
+    customized
   )
   select
     target_org_id,
@@ -785,7 +799,9 @@ begin
     seed.validity_months,
     seed.renewal_lead_days,
     seed.applies_to,
-    seed.perpetual
+    seed.perpetual,
+    false,
+    false
   from (
     values
       ('First Aid', 'staff', 36, 45, null::integer, true, false),
@@ -863,6 +879,8 @@ begin
     perpetual
   )
   where types.org_id = target_org_id
+    and types.is_custom = false
+    and types.customized = false
     and lower(public.normalized_requirement_name(types.name)) = lower(seed.name);
 
   update public.compliance_items as items
@@ -872,6 +890,8 @@ begin
     on kept.org_id = obsolete.org_id
    and lower(public.normalized_requirement_name(kept.name)) = 'anaphylaxis management'
   where obsolete.org_id = target_org_id
+    and obsolete.is_custom = false
+    and obsolete.customized = false
     and items.requirement_type_id = obsolete.id
     and lower(public.normalized_requirement_name(obsolete.name)) = 'anaphylaxis';
 
@@ -880,6 +900,8 @@ begin
   from public.staff_requirement_exclusions as exclusions
   join public.requirement_types as obsolete
     on obsolete.id = exclusions.requirement_type_id
+   and obsolete.is_custom = false
+   and obsolete.customized = false
   join public.requirement_types as kept
     on kept.org_id = obsolete.org_id
    and lower(public.normalized_requirement_name(kept.name)) = 'anaphylaxis management'
@@ -892,6 +914,8 @@ begin
   from public.site_requirement_exclusions as exclusions
   join public.requirement_types as obsolete
     on obsolete.id = exclusions.requirement_type_id
+   and obsolete.is_custom = false
+   and obsolete.customized = false
   join public.requirement_types as kept
     on kept.org_id = obsolete.org_id
    and lower(public.normalized_requirement_name(kept.name)) = 'anaphylaxis management'
@@ -899,34 +923,10 @@ begin
     and lower(public.normalized_requirement_name(obsolete.name)) = 'anaphylaxis'
   on conflict do nothing;
 
-  delete from public.compliance_items as items
-  using public.requirement_types as types
-  where items.requirement_type_id = types.id
-    and types.org_id = target_org_id
-    and lower(public.normalized_requirement_name(types.name)) not in (
-      'first aid',
-      'cpr',
-      'anaphylaxis management',
-      'asthma management',
-      'wwcc',
-      'child protection training',
-      'qualification',
-      'teacher accreditation',
-      'police check',
-      'other',
-      'fire safety',
-      'public liability insurance',
-      'workers compensation',
-      'service approval',
-      'qip review',
-      'fire equipment servicing',
-      'evacuation drills',
-      'electrical test & tag',
-      'food safety registration'
-    );
-
   delete from public.requirement_types as types
   where types.org_id = target_org_id
+    and types.is_custom = false
+    and types.customized = false
     and lower(public.normalized_requirement_name(types.name)) not in (
       'first aid',
       'cpr',
@@ -947,6 +947,11 @@ begin
       'evacuation drills',
       'electrical test & tag',
       'food safety registration'
+    )
+    and not exists (
+      select 1
+      from public.compliance_items as items
+      where items.requirement_type_id = types.id
     );
 end;
 $$;

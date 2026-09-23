@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Paperclip } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { FileDropZone } from './FileDropZone'
 import {
   DOCUMENT_ACCEPT,
   getComplianceDocumentUrl,
@@ -61,7 +62,6 @@ export function DocumentActions({
   disabled = false,
   compact = false,
 }) {
-  const inputRef = useRef(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
@@ -125,39 +125,33 @@ export function DocumentActions({
           {busy === 'view' ? 'Opening…' : 'View document'}
         </Button>
         {compact ? null : (
-          <>
-            <input
-              ref={inputRef}
-              type="file"
-              accept={DOCUMENT_ACCEPT}
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                event.target.value = ''
-                if (file) replaceDocument(file)
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => inputRef.current?.click()}
-              disabled={locked || !itemId || !orgId}
-            >
-              {busy === 'replace' ? 'Replacing…' : 'Replace'}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={removeDocument}
-              disabled={locked || !itemId}
-            >
-              {busy === 'remove' ? 'Removing…' : 'Remove'}
-            </Button>
-          </>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={removeDocument}
+            disabled={locked || !itemId}
+          >
+            {busy === 'remove' ? 'Removing…' : 'Remove'}
+          </Button>
         )}
       </span>
+      {compact ? null : (
+        <FileDropZone
+          accept={DOCUMENT_ACCEPT}
+          disabled={locked || !itemId || !orgId}
+          inputLabel="Replace document"
+          invalid={Boolean(error)}
+          label={
+            busy === 'replace'
+              ? 'Replacing…'
+              : 'Drop a file to replace, or click to browse'
+          }
+          hint="PDF or image, maximum 10MB"
+          className="min-h-20 w-full min-w-56"
+          onFile={replaceDocument}
+        />
+      )}
       {error ? (
         <span className="text-xs text-status-expired" role="alert">
           {error}

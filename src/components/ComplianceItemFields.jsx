@@ -9,6 +9,7 @@ import {
 } from '../lib/compliance'
 import { isIsoDate, validateIsoDate } from '../lib/dates'
 import { DocumentActions } from './DocumentLink'
+import { FileDropZone } from './FileDropZone'
 import { AlertTimingHint } from './AlertTimingHint'
 import {
   DOCUMENT_ACCEPT,
@@ -310,16 +311,15 @@ export function ComplianceItemFields({
               />
             </div>
           ) : (
-            <Input
-              type="file"
-              name="document"
+            <FileDropZone
               accept={DOCUMENT_ACCEPT}
-              aria-invalid={Boolean(documentError)}
               disabled={disabled}
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null
-                event.target.value = ''
-                if (!file) return
+              inputLabel="Certificate file"
+              invalid={Boolean(documentError)}
+              label="Drop a PDF or image here, or click to browse"
+              hint="PDF or image, maximum 10MB"
+              fileName={values.documentFile?.name}
+              onFile={(file) => {
                 const { error } = validateComplianceDocument(file)
                 setFileError(error ?? '')
                 onChange({
