@@ -111,6 +111,7 @@ export async function dataUrlToBlob(dataUrl) {
 
 function friendlyGatewayError(status, payload) {
   if (status === 401) return INACTIVE_MESSAGE
+  if (status === 404) return 'The forms service is not available. Try again later.'
   if (status === 409) {
     const message = String(payload?.error || '')
     if (/locked/i.test(message)) return 'This form is already completed.'
@@ -119,8 +120,11 @@ function friendlyGatewayError(status, payload) {
   if (status === 429) return 'Too many tries. Wait a minute and try again.'
   if (status === 403) return 'This form is not available on this link.'
   if (status === 400) return String(payload?.error || 'Check the form and try again.')
+  if (payload?.error) return String(payload.error)
   return 'Something went wrong. Try again.'
 }
+
+const REQUEST_TIMEOUT_MS = 15000
 
 async function siteFormsRequest(token, { method, body } = {}) {
   const url = siteFormsUrl()
@@ -129,24 +133,50 @@ async function siteFormsRequest(token, { method, body } = {}) {
     return { data: null, error: { message: INACTIVE_MESSAGE, status: 401 } }
   }
 
-  const response = await fetch(url, {
-    method: method || 'GET',
-    headers: {
-      apikey: anonKey,
-      'x-site-token': token,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  const requestUrl =
+    (method || 'GET') === 'GET'
+      ? `${url}?token=${encodeURIComponent(token)}`
+      : url
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    return {
-      data: payload,
-      error: { message: friendlyGatewayError(response.status, payload), status: response.status },
+  try {
+    const response = await fetch(requestUrl, {
+      method: method || 'GET',
+      headers: {
+        apikey: anonKey,
+        'x-site-token': token,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
+
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      return {
+        data: payload,
+        error: {
+          message: friendlyGatewayError(response.status, payload),
+          status: response.status,
+        },
+      }
     }
+    return { data: payload, error: null }
+  } catch (error) {
+    const timedOut = error?.name === 'AbortError'
+    return {
+      data: null,
+      error: {
+        message: timedOut
+          ? 'The forms service timed out. Try again.'
+          : 'Could not reach the forms service. Try again.',
+        status: timedOut ? 408 : 0,
+      },
+    }
+  } finally {
+    clearTimeout(timer)
   }
-  return { data: payload, error: null }
 }
 
 export async function getSiteForms(token) {

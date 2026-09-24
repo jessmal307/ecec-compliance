@@ -16,6 +16,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, apikey, content-type, x-site-token',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
 }
 
 type Supabase = ReturnType<typeof createClient>
@@ -704,25 +705,25 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { status: 200, headers: corsHeaders })
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  if (!supabaseUrl || !serviceRoleKey) {
-    return json({ error: 'Server is not configured.' }, 500)
-  }
-
-  if (req.method !== 'GET' && req.method !== 'POST') {
-    return json({ error: 'Method not allowed.' }, 405)
-  }
-
-  const url = new URL(req.url)
-  const rawToken = readToken(req, url)
-  if (!rawToken) return json({ error: 'Invalid token.' }, 401)
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey)
   try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!supabaseUrl || !serviceRoleKey) {
+      return json({ error: 'Server is not configured.' }, 500)
+    }
+
+    if (req.method !== 'GET' && req.method !== 'POST') {
+      return json({ error: 'Method not allowed.' }, 405)
+    }
+
+    const url = new URL(req.url)
+    const rawToken = readToken(req, url)
+    if (!rawToken) return json({ error: 'Invalid token.' }, 401)
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey)
     const ipKey = `ip:${await sha256Hex(clientIp(req))}`
     if (!(await allowRate(supabase, ipKey, IP_WINDOW_MAX))) {
       return json({ error: 'Too many requests.' }, 429)

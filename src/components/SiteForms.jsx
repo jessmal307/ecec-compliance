@@ -68,22 +68,28 @@ export function SiteForms() {
   const [saving, setSaving] = useState(false)
 
   async function loadList() {
-    const result = await getSiteForms(token)
-    if (result.error?.status === 401) {
-      setInactive(true)
+    setLoading(true)
+    try {
+      const result = await getSiteForms(token)
+      if (result.error?.status === 401) {
+        setInactive(true)
+        setError('')
+        return
+      }
+      if (result.error) {
+        setError(result.error.message)
+        return
+      }
+      setSiteName(result.data?.site_name || '')
+      setToday(result.data?.today || '')
+      setForms(result.data?.forms || [])
+      setInactive(false)
+      setError('')
+    } catch {
+      setError('Could not reach the forms service. Try again.')
+    } finally {
       setLoading(false)
-      return
     }
-    if (result.error) {
-      setError(result.error.message)
-      setLoading(false)
-      return
-    }
-    setSiteName(result.data.site_name || '')
-    setToday(result.data.today || '')
-    setForms(result.data.forms || [])
-    setInactive(false)
-    setLoading(false)
   }
 
   useEffect(() => {
@@ -278,7 +284,11 @@ export function SiteForms() {
       </header>
       <PageError>{error}</PageError>
       <PageSuccess>{saved}</PageSuccess>
-      {forms.length === 0 ? (
+      {error ? (
+        <Button type="button" className="min-h-12 w-full" onClick={loadList}>
+          Try again
+        </Button>
+      ) : forms.length === 0 ? (
         <PageMuted>No forms to complete today.</PageMuted>
       ) : (
         <ul className="flex flex-col gap-3">
