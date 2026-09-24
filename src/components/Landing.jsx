@@ -58,6 +58,50 @@ function CopyEmailButton() {
   )
 }
 
+const FAQ_ITEMS = [
+  {
+    question: 'Do we have to replace our current childcare software?',
+    answer:
+      'No. RoadToComply sits alongside the platform you already use for billing, subsidies and attendance. It adds the compliance oversight and expiry alerting those platforms treat as an afterthought — you keep everything else exactly as it is.',
+  },
+  {
+    question: 'What counts as a "centre"?',
+    answer:
+      'Each service you operate. Pricing is per centre, per month, and the rate per centre drops as you add more.',
+  },
+  {
+    question: 'Where is our data stored, and who can see it?',
+    answer:
+      "In Australian data centres — it doesn't leave the country. Each operator's information is fully separated, so no other account can ever see your records. We only hold what's needed for compliance, not your billing, families or payroll.",
+  },
+  {
+    question: 'How does the free month work?',
+    answer:
+      "Your first month is free, with full access and no card required. After that it's the per-centre pricing above, invoiced monthly. No lock-in — you can leave any time.",
+  },
+  {
+    question: 'What does it actually track?',
+    answer:
+      'Every staff certificate — First Aid, CPR, Working With Children Check, qualifications — and every centre requirement, like public liability, fire safety and evacuation drills, each with its own renewal cycle. You choose how far ahead you want to be warned.',
+  },
+  {
+    question: 'How long does setup take?',
+    answer:
+      'Add your centres and staff, or import your whole roster from a spreadsheet in one step. Once your requirements are in, it tracks everything from then on.',
+  },
+  {
+    question: 'Are we locked into a contract?',
+    answer:
+      "No. It's month to month, and the first month is free.",
+  },
+  {
+    question:
+      'How is this different from the compliance features already in our platform?',
+    answer:
+      'Those store your compliance records as a list you have to remember to check. RoadToComply watches every date for you and warns you before anything lapses — and shows every centre in one view, worst first — so nothing sits expired without you knowing.',
+  },
+]
+
 function scrollToId(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
 }
@@ -348,6 +392,26 @@ export function Landing() {
                 </p>
               </aside>
             </div>
+          </div>
+        </section>
+
+        <section
+          id="faq"
+          className="landing-wrap landing-faq scroll-mt-24 py-16 md:py-20"
+        >
+          <p className="text-sm font-medium tracking-wide text-[var(--landing-teal)] uppercase">
+            Questions
+          </p>
+          <h2 className="mt-3 max-w-2xl text-3xl md:text-4xl">
+            The things operators ask first.
+          </h2>
+          <div className="mt-10">
+            {FAQ_ITEMS.map((item) => (
+              <details key={item.question}>
+                <summary>{item.question}</summary>
+                <p className="landing-faq-answer">{item.answer}</p>
+              </details>
+            ))}
           </div>
         </section>
 

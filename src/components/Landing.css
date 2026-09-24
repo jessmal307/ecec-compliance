@@ -106,3 +106,57 @@
 [data-theme='dark'] .landing-nav-link:hover {
   color: #eef4f3;
 }
+
+.landing-faq details {
+  border-bottom: 1px solid var(--landing-line);
+}
+
+.landing-faq summary {
+  display: flex;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 0;
+  font-family: var(--landing-heading);
+  font-size: 1.15rem;
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  color: var(--landing-navy);
+}
+
+[data-theme='dark'] .landing-faq summary {
+  color: #eef4f3;
+}
+
+.landing-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.landing-faq summary:focus-visible {
+  outline: 2px solid var(--landing-teal);
+  outline-offset: 4px;
+}
+
+.landing-faq summary::after {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  content: '+';
+  font-family: var(--landing-body);
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--landing-teal);
+}
+
+.landing-faq details[open] summary::after {
+  content: '−';
+}
+
+.landing-faq-answer {
+  max-width: 40rem;
+  padding-bottom: 1.15rem;
+  line-height: 1.6;
+}
