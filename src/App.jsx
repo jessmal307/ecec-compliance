@@ -11,6 +11,7 @@ import { ResetPassword } from './components/ResetPassword'
 import { SetupScreen } from './components/SetupScreen'
 import { SiteProfile } from './components/SiteProfile'
 import { Sites } from './components/Sites'
+import { Landing } from './components/Landing'
 import { ImportStaff } from './components/ImportStaff'
 import { NewStaff } from './components/NewStaff'
 import { Staff } from './components/Staff'
@@ -92,6 +93,23 @@ function AppShell() {
         </Route>
       ) : (
         <>
+          <Route path={paths.home} element={<Landing />} />
+          <Route
+            path={paths.login}
+            element={
+              <GuestShell>
+                <AuthForm mode="login" />
+              </GuestShell>
+            }
+          />
+          <Route
+            path={paths.signup}
+            element={
+              <GuestShell>
+                <AuthForm mode="signup" />
+              </GuestShell>
+            }
+          />
           <Route
             path={paths.privacy}
             element={
@@ -124,14 +142,7 @@ function AppShell() {
               </GuestShell>
             }
           />
-          <Route
-            path="*"
-            element={
-              <GuestShell>
-                <AuthForm />
-              </GuestShell>
-            }
-          />
+          <Route path="*" element={<Navigate to={paths.home} replace />} />
         </>
       )}
     </Routes>

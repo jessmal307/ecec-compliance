@@ -13,10 +13,11 @@ import { PageError, PageSuccess } from './ui/page'
 import { paths } from '../lib/paths'
 import { supabase } from '../lib/supabase'
 
-export function AuthForm() {
-  const [mode, setMode] = useState('login')
+export function AuthForm({ mode = 'login' }) {
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [organizationName, setOrganizationName] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -42,12 +43,14 @@ export function AuthForm() {
 
     try {
       if (isSignUp) {
-        const organizationName = `${email.split('@')[0]}'s organization`
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            data: { organization_name: organizationName },
+            data: {
+              display_name: name.trim(),
+              organization_name: organizationName.trim(),
+            },
           },
         })
         if (signUpError) throw signUpError
@@ -68,14 +71,6 @@ export function AuthForm() {
     }
   }
 
-  function switchMode() {
-    setMode(isSignUp ? 'login' : 'signup')
-    setError('')
-    setMessage('')
-    setAcceptedLegal(false)
-    setConsentError('')
-  }
-
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
@@ -84,7 +79,7 @@ export function AuthForm() {
         </CardTitle>
         <CardDescription>
           {isSignUp
-            ? 'Sign up with email and password. An organization will be created for you.'
+            ? 'Your organisation name creates your workspace. Your first month is free — no card required.'
             : 'Welcome back. Use your email and password to continue.'}
         </CardDescription>
       </CardHeader>
@@ -92,7 +87,20 @@ export function AuthForm() {
         <form className="space-y-5" onSubmit={handleSubmit}>
           <FormSection title="Details">
             <div className="grid grid-cols-1 gap-4">
-              <Field label="Email">
+              {isSignUp ? (
+                <Field label="Your name">
+                  <Input
+                    type="text"
+                    name="name"
+                    autoComplete="name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                    disabled={submitting}
+                  />
+                </Field>
+              ) : null}
+              <Field label={isSignUp ? 'Work email' : 'Email'}>
                 <Input
                   type="email"
                   name="email"
@@ -114,7 +122,21 @@ export function AuthForm() {
                   disabled={submitting}
                 />
               </Field>
-              {isSignUp ? null : (
+              {isSignUp ? (
+                <Field label="Organisation / provider name">
+                  <Input
+                    type="text"
+                    name="organization_name"
+                    autoComplete="organization"
+                    value={organizationName}
+                    onChange={(event) =>
+                      setOrganizationName(event.target.value)
+                    }
+                    required
+                    disabled={submitting}
+                  />
+                </Field>
+              ) : (
                 <p className="-mt-2 text-right text-sm">
                   <Link
                     to={paths.forgotPassword}
@@ -155,7 +177,8 @@ export function AuthForm() {
                     className="font-medium text-card-foreground underline underline-offset-4"
                   >
                     Privacy Policy
-                  </Link>,{' '}
+                  </Link>
+                  ,{' '}
                   <Link
                     to={paths.terms}
                     target="_blank"
@@ -163,7 +186,8 @@ export function AuthForm() {
                     className="font-medium text-card-foreground underline underline-offset-4"
                   >
                     Terms of Service
-                  </Link>, and{' '}
+                  </Link>
+                  , and{' '}
                   <Link
                     to={paths.security}
                     target="_blank"
@@ -184,20 +208,37 @@ export function AuthForm() {
               className="w-full"
               disabled={submitting || (isSignUp && !acceptedLegal)}
             >
-              {submitting ? 'Please wait…' : isSignUp ? 'Sign up' : 'Log in'}
+              {submitting
+                ? 'Please wait…'
+                : isSignUp
+                  ? 'Start your free month'
+                  : 'Log in'}
             </Button>
           </FormActions>
         </form>
 
         <p className="mt-4 text-center text-base text-muted-foreground md:text-sm">
-          {isSignUp ? 'Already have an account?' : 'Need an account?'}{' '}
-          <button
-            type="button"
-            className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
-            onClick={switchMode}
-          >
-            {isSignUp ? 'Log in' : 'Sign up'}
-          </button>
+          {isSignUp ? (
+            <>
+              Already have an account?{' '}
+              <Link
+                to={paths.login}
+                className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
+              >
+                Log in
+              </Link>
+            </>
+          ) : (
+            <>
+              New here?{' '}
+              <Link
+                to={paths.signup}
+                className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
+              >
+                Create an account
+              </Link>
+            </>
+          )}
         </p>
       </CardContent>
     </Card>

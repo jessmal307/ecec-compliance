@@ -46,7 +46,7 @@ export function LegalDocument({ title, updated, contactEmail, sections, session 
         actions={
           session ? null : (
             <Button asChild variant="outline" size="sm">
-              <Link to={paths.home}>Back to log in</Link>
+              <Link to={paths.login}>Back to log in</Link>
             </Button>
           )
         }

@@ -1,5 +1,11 @@
 export const paths = {
   home: '/',
+  login: '/login',
+  signup: '/signup',
+  landingHow: { pathname: '/', hash: '#how' },
+  landingPricing: { pathname: '/', hash: '#pricing' },
+  landingDemo: { pathname: '/', hash: '#demo' },
+  contactEmail: 'hello@roadtocomply.com.au',
   staff: '/staff',
   newStaff: '/staff/new',
   importStaff: '/staff/import',

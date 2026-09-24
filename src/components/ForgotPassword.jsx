@@ -81,7 +81,7 @@ export function ForgotPassword() {
         <p className="mt-4 text-center text-base text-muted-foreground md:text-sm">
           Remembered your password?{' '}
           <Link
-            to={paths.home}
+            to={paths.login}
             className="inline-flex min-h-11 items-center font-medium text-card-foreground underline underline-offset-4"
           >
             Log in

@@ -1,0 +1,108 @@
+.landing {
+  --landing-navy: #14303f;
+  --landing-green: #12855a;
+  --landing-teal: #1f6f82;
+  --landing-ground: #f2f6f5;
+  --landing-slate: #3f5560;
+  --landing-paper: #ffffff;
+  --landing-line: #d5e0de;
+  --landing-heading: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --landing-body: 'Figtree', system-ui, sans-serif;
+  --landing-expired: #b42318;
+  --landing-expired-bg: #f8e8e6;
+  --landing-valid: #12855a;
+  --landing-valid-bg: #e6f4ee;
+  --landing-soon: #c47b14;
+
+  min-height: 100svh;
+  background: var(--landing-ground);
+  color: var(--landing-slate);
+  font-family: var(--landing-body);
+}
+
+[data-theme='dark'] .landing {
+  --landing-ground: #0e1c24;
+  --landing-slate: #c5d0d4;
+  --landing-paper: #14303f;
+  --landing-line: #2a4552;
+  --landing-expired-bg: #3a1d1c;
+  --landing-valid-bg: #14382c;
+}
+
+.landing h1,
+.landing h2,
+.landing h3 {
+  font-family: var(--landing-heading);
+  font-weight: 560;
+  letter-spacing: -0.02em;
+  color: var(--landing-navy);
+}
+
+[data-theme='dark'] .landing h1,
+[data-theme='dark'] .landing h2,
+[data-theme='dark'] .landing h3 {
+  color: #eef4f3;
+}
+
+.landing-wrap {
+  width: min(1120px, calc(100% - 2rem));
+  margin-inline: auto;
+}
+
+.landing-btn {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 1.15rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.landing-btn-primary {
+  background: var(--landing-green);
+  color: #fff;
+}
+
+.landing-btn-primary:hover {
+  background: #0f734d;
+}
+
+.landing-btn-quiet {
+  color: var(--landing-navy);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+[data-theme='dark'] .landing-btn-quiet {
+  color: #eef4f3;
+}
+
+.landing-nav-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  color: var(--landing-slate);
+  text-decoration: none;
+}
+
+.landing-brand {
+  font-family: var(--landing-heading);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--landing-navy);
+}
+
+[data-theme='dark'] .landing-brand {
+  color: #eef4f3;
+}
+
+.landing-nav-link:hover {
+  color: var(--landing-navy);
+}
+
+[data-theme='dark'] .landing-nav-link:hover {
+  color: #eef4f3;
+}
