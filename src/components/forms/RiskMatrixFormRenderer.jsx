@@ -46,7 +46,12 @@ export function emptyHazardRow() {
   }
 }
 
-export function RiskMatrixFormRenderer({ schema, rows, onChange }) {
+export function RiskMatrixFormRenderer({
+  schema,
+  rows,
+  onChange,
+  readOnly = false,
+}) {
   const likelihood = scaleOptions(schema, 'likelihood', DEFAULT_LIKELIHOOD)
   const consequence = scaleOptions(schema, 'consequence', DEFAULT_CONSEQUENCE)
 
@@ -85,6 +90,8 @@ export function RiskMatrixFormRenderer({ schema, rows, onChange }) {
                   updateRow(row.id, { hazard: event.target.value })
                 }
                 className="min-h-20"
+                disabled={readOnly}
+                readOnly={readOnly}
               />
             </Field>
             <Field label="Likelihood">
@@ -93,6 +100,7 @@ export function RiskMatrixFormRenderer({ schema, rows, onChange }) {
                 onChange={(event) =>
                   updateRow(row.id, { likelihood: event.target.value })
                 }
+                disabled={readOnly}
               >
                 <option value="">Select…</option>
                 {likelihood.map((option) => (
@@ -108,6 +116,7 @@ export function RiskMatrixFormRenderer({ schema, rows, onChange }) {
                 onChange={(event) =>
                   updateRow(row.id, { consequence: event.target.value })
                 }
+                disabled={readOnly}
               >
                 <option value="">Select…</option>
                 {consequence.map((option) => (
@@ -127,19 +136,23 @@ export function RiskMatrixFormRenderer({ schema, rows, onChange }) {
                   updateRow(row.id, { controls: event.target.value })
                 }
                 className="min-h-20"
+                disabled={readOnly}
+                readOnly={readOnly}
               />
             </Field>
           </div>
         )
       })}
 
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => onChange([...rows, emptyHazardRow()])}
-      >
-        Add hazard
-      </Button>
+      {readOnly ? null : (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onChange([...rows, emptyHazardRow()])}
+        >
+          Add hazard
+        </Button>
+      )}
     </div>
   )
 }

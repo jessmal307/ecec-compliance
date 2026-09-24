@@ -10,6 +10,8 @@ export function ChecklistFormRenderer({
   onChange,
   onNoteChange,
   onSignoffChange,
+  readOnly = false,
+  signatureUrls = {},
 }) {
   const items = Array.isArray(schema?.items) ? schema.items : []
   const signoffRequired = Boolean(schema?.signoff?.required)
@@ -30,6 +32,7 @@ export function ChecklistFormRenderer({
             note={notes[item.id]}
             onChange={(next) => onChange(item.id, next)}
             onNoteChange={(next) => onNoteChange(item.id, next)}
+            readOnly={readOnly}
           />
         ))
       )}
@@ -45,6 +48,8 @@ export function ChecklistFormRenderer({
               onChange={(event) =>
                 onSignoffChange({ ...signoff, name: event.target.value })
               }
+              disabled={readOnly}
+              readOnly={readOnly}
             />
           </Field>
           {showSignature ? (
@@ -56,6 +61,8 @@ export function ChecklistFormRenderer({
                 onChange={(next) =>
                   onSignoffChange({ ...signoff, signature: next })
                 }
+                readOnly={readOnly}
+                imageUrl={signatureUrls.signoff}
               />
             </Field>
           ) : null}
@@ -65,6 +72,8 @@ export function ChecklistFormRenderer({
               onChange={(event) =>
                 onSignoffChange({ ...signoff, date: event.target.value })
               }
+              disabled={readOnly}
+              readOnly={readOnly}
             />
           </Field>
           {schema?.signoff?.note ? (
@@ -74,6 +83,8 @@ export function ChecklistFormRenderer({
                 onChange={(event) =>
                   onSignoffChange({ ...signoff, note: event.target.value })
                 }
+                disabled={readOnly}
+                readOnly={readOnly}
               />
             </Field>
           ) : null}

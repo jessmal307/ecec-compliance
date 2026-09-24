@@ -1,5 +1,6 @@
 import { todayIsoDate } from './compliance'
 import { isIsoDate } from './dates'
+import { isSignatureDataUrl } from './formUploads'
 import { supabase } from './supabase'
 
 export const FORM_CADENCES = [
@@ -197,4 +198,166 @@ export async function setAssignmentActive(id, active) {
 
   if (error) return { data: null, error }
   return { data: mapAssignment(data), error: null }
+}
+
+const SUBMISSION_FIELDS =
+  'id, org_id, assignment_id, template_id, site_id, staff_id, submitted_by, data, status, signed_off_by, signed_off_at, evidence, submitted_at, created_at'
+
+function mapSubmission(row) {
+  const payload = row.data && typeof row.data === 'object' ? row.data : {}
+  return {
+    id: row.id,
+    org_id: row.org_id,
+    assignment_id: row.assignment_id,
+    template_id: row.template_id,
+    template_name: row.form_templates?.name || 'Form',
+    site_id: row.site_id,
+    site_name: row.sites?.name || '',
+    staff_id: row.staff_id,
+    submitted_by: row.submitted_by,
+    data: payload,
+    room: payload.room || '',
+    values: payload.values || {},
+    notes: payload.notes || {},
+    signoff: payload.signoff || { name: '', date: '', note: '', signature: '' },
+    rows: Array.isArray(payload.rows) ? payload.rows : [],
+    status: row.status,
+    signed_off_by: row.signed_off_by,
+    signed_off_at: row.signed_off_at,
+    evidence: Array.isArray(row.evidence) ? row.evidence : [],
+    submitted_at: row.submitted_at,
+    created_at: row.created_at,
+  }
+}
+
+export function emptyFormState() {
+  return {
+    values: {},
+    notes: {},
+    signoff: { name: '', date: todayIsoDate(), note: '', signature: '' },
+    rows: [],
+  }
+}
+
+export function buildSubmissionData({ room, values, notes, signoff, rows }) {
+  return {
+    room: String(room || '').trim(),
+    values: values || {},
+    notes: notes || {},
+    signoff: {
+      name: signoff?.name || '',
+      date: signoff?.date || '',
+      note: signoff?.note || '',
+      signature: signoff?.signature || '',
+    },
+    rows: rows || [],
+  }
+}
+
+function fieldFilled(field, value) {
+  if (field.type === 'checkbox') return Boolean(value)
+  if (field.type === 'signature') {
+    return isSignatureDataUrl(value) || Boolean(String(value || '').trim())
+  }
+  return String(value ?? '').trim() !== ''
+}
+
+export function validateFormSubmission(schema, archetype, state) {
+  const errors = []
+  const fields =
+    archetype === 'checklist'
+      ? (schema?.items ?? []).map((item) => ({ ...item, type: 'checkbox' }))
+      : Array.isArray(schema?.fields)
+        ? schema.fields
+        : Array.isArray(schema?.items)
+          ? schema.items
+          : []
+
+  for (const field of fields) {
+    if (!field.required) continue
+    if (!fieldFilled(field, state.values?.[field.id])) {
+      errors.push(`Fill ${field.label || 'required fields'}.`)
+    }
+  }
+
+  if (schema?.signoff?.required) {
+    if (!String(state.signoff?.name || '').trim()) {
+      errors.push('Enter the sign-off name.')
+    }
+    if (!state.signoff?.date) {
+      errors.push('Enter the sign-off date.')
+    }
+    if (
+      schema.signoff.signature !== false &&
+      !fieldFilled({ type: 'signature' }, state.signoff?.signature)
+    ) {
+      errors.push('Draw the sign-off signature.')
+    }
+  }
+
+  return [...new Set(errors)]
+}
+
+export async function listFormSubmissions(
+  orgId,
+  { templateId = '', siteId = '' } = {},
+) {
+  if (!orgId) return { data: [], error: null }
+
+  let query = supabase
+    .from('form_submissions')
+    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (templateId) query = query.eq('template_id', templateId)
+  if (siteId) query = query.eq('site_id', siteId)
+
+  const { data, error } = await query
+  if (error) return { data: [], error }
+  return { data: (data ?? []).map(mapSubmission), error: null }
+}
+
+export async function getFormSubmission(id) {
+  const { data, error } = await supabase
+    .from('form_submissions')
+    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error) return { data: null, error }
+  if (!data) return { data: null, error: null }
+  return { data: mapSubmission(data), error: null }
+}
+
+export async function createFormSubmission(orgId, { templateId, siteId, userId }) {
+  const { data, error } = await supabase
+    .from('form_submissions')
+    .insert({
+      org_id: orgId,
+      template_id: templateId,
+      site_id: siteId || null,
+      submitted_by: userId || null,
+      data: {},
+      status: 'draft',
+      evidence: [],
+    })
+    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+    .single()
+
+  if (error) return { data: null, error }
+  return { data: mapSubmission(data), error: null }
+}
+
+export async function updateFormSubmission(id, payload) {
+  const { data, error } = await supabase
+    .from('form_submissions')
+    .update(payload)
+    .eq('id', id)
+    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+    .single()
+
+  if (error) return { data: null, error }
+  return { data: mapSubmission(data), error: null }
 }

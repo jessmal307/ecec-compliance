@@ -6,7 +6,15 @@ export function schemaFields(schema) {
   return []
 }
 
-export function SimpleFormRenderer({ schema, values, notes, onChange, onNoteChange }) {
+export function SimpleFormRenderer({
+  schema,
+  values,
+  notes,
+  onChange,
+  onNoteChange,
+  readOnly = false,
+  signatureUrls = {},
+}) {
   const fields = schemaFields(schema)
 
   if (fields.length === 0) {
@@ -27,6 +35,8 @@ export function SimpleFormRenderer({ schema, values, notes, onChange, onNoteChan
           note={notes[field.id]}
           onChange={(next) => onChange(field.id, next)}
           onNoteChange={(next) => onNoteChange(field.id, next)}
+          readOnly={readOnly}
+          signatureUrl={signatureUrls[field.id]}
         />
       ))}
     </div>

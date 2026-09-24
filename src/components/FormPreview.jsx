@@ -59,9 +59,14 @@ export function FormPreview() {
         actions={
           <div className="flex flex-wrap gap-2">
             {template ? (
-              <Button asChild>
-                <Link to={formsHref({ assign: template.id })}>Assign</Link>
-              </Button>
+              <>
+                <Button asChild>
+                  <Link to={paths.formComplete(template.id)}>Complete</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to={formsHref({ assign: template.id })}>Assign</Link>
+                </Button>
+              </>
             ) : null}
             <Button asChild variant="outline">
               <Link to={paths.forms}>Back to forms</Link>

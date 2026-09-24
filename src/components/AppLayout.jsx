@@ -63,6 +63,8 @@ function pageTitle(pathname, search = '') {
   if (pathname === paths.home) return 'Overview'
   if (pathname === paths.compliance) return 'Compliance'
   if (pathname === paths.forms) return 'Forms'
+  if (pathname.startsWith(`${paths.forms}/submissions/`)) return 'Submission'
+  if (pathname.endsWith('/complete')) return 'Complete form'
   if (pathname.startsWith(`${paths.forms}/`)) return 'Form preview'
   if (pathname === paths.staff) return 'Staff'
   if (pathname === paths.newStaff) return 'New staff'

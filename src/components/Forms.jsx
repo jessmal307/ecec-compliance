@@ -11,6 +11,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AssignForm } from './forms/AssignForm'
 import { FormAssignments } from './forms/FormAssignments'
+import { FormSubmissions } from './forms/FormSubmissions'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
 import { archetypeLabel, getFormTemplate, listFormTemplates } from '../lib/forms'
@@ -59,7 +60,11 @@ export function Forms() {
   const { organizationId } = useAuth()
   const { allowed, loading: accessLoading } = useFormsAccess()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') === 'assigned' ? 'assigned' : 'templates'
+  const requestedTab = searchParams.get('tab')
+  const tab =
+    requestedTab === 'assigned' || requestedTab === 'submissions'
+      ? requestedTab
+      : 'templates'
   const assignId = searchParams.get('assign')
   const [templates, setTemplates] = useState([])
   const [assignTemplate, setAssignTemplate] = useState(null)
@@ -118,8 +123,11 @@ export function Forms() {
   }, [assignId, templates, accessLoading, allowed])
 
   function setTab(next) {
-    if (next === 'assigned') setSearchParams({ tab: 'assigned' })
-    else setSearchParams({})
+    if (next === 'assigned' || next === 'submissions') {
+      setSearchParams({ tab: next })
+      return
+    }
+    setSearchParams({})
   }
 
   function openAssign(template) {
@@ -129,7 +137,7 @@ export function Forms() {
 
   function closeAssign() {
     setAssignTemplate(null)
-    if (tab === 'assigned') setSearchParams({ tab: 'assigned' })
+    if (tab === 'assigned' || tab === 'submissions') setSearchParams({ tab })
     else setSearchParams({})
   }
 
@@ -151,7 +159,7 @@ export function Forms() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Forms"
-        description="Preview templates and assign them to a site, person, role, or the whole organisation."
+        description="Preview, complete, and review saved forms."
       />
 
       {assignTemplate ? (
@@ -167,6 +175,7 @@ export function Forms() {
         <TabsList>
           <TabsTrigger value="templates">Templates</TabsTrigger>
           <TabsTrigger value="assigned">Assigned</TabsTrigger>
+          <TabsTrigger value="submissions">Submissions</TabsTrigger>
         </TabsList>
 
         <TabsContent value="templates">
@@ -191,11 +200,15 @@ export function Forms() {
                         <CardDescription>{template.description}</CardDescription>
                       ) : null}
                       <div className="flex flex-wrap gap-2 pt-2">
+                        <Button asChild>
+                          <Link to={paths.formComplete(template.id)}>Complete</Link>
+                        </Button>
                         <Button asChild variant="outline">
                           <Link to={paths.formPreview(template.id)}>Preview</Link>
                         </Button>
                         <Button
                           type="button"
+                          variant="outline"
                           onClick={() => openAssign(template)}
                         >
                           Assign
@@ -214,6 +227,10 @@ export function Forms() {
             key={assignmentTick}
             organizationId={organizationId}
           />
+        </TabsContent>
+
+        <TabsContent value="submissions">
+          <FormSubmissions organizationId={organizationId} />
         </TabsContent>
       </Tabs>
     </section>

@@ -1884,7 +1884,8 @@ create policy "Plus users can update form submissions"
   for update
   to authenticated
   using (
-    org_id in (
+    status = 'draft'
+    and org_id in (
       select public.user_plus_org_ids()
     )
   )
@@ -1903,6 +1904,72 @@ create policy "Plus users can delete form submissions"
   using (
     org_id in (
       select public.user_plus_org_ids()
+    )
+  );
+
+drop trigger if exists audit_form_submissions_change on public.form_submissions;
+create trigger audit_form_submissions_change
+  after insert or update or delete on public.form_submissions
+  for each row execute function public.audit_log_change();
+
+-- Private form signatures and evidence. Object keys: {org_id}/{submission_id}/...
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'form-uploads',
+  'form-uploads',
+  false,
+  10485760,
+  array[
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/heic'
+  ]
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  name = excluded.name,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Plus users can view form uploads in their organization"
+  on storage.objects;
+create policy "Plus users can view form uploads in their organization"
+  on storage.objects
+  for select
+  to authenticated
+  using (
+    bucket_id = 'form-uploads'
+    and split_part(name, '/', 1) in (
+      select org_id::text from public.user_plus_org_ids() as org_id
+    )
+  );
+
+drop policy if exists "Plus users can upload form files in their organization"
+  on storage.objects;
+create policy "Plus users can upload form files in their organization"
+  on storage.objects
+  for insert
+  to authenticated
+  with check (
+    bucket_id = 'form-uploads'
+    and split_part(name, '/', 1) in (
+      select org_id::text from public.user_plus_org_ids() as org_id
+    )
+  );
+
+drop policy if exists "Plus users can delete form uploads in their organization"
+  on storage.objects;
+create policy "Plus users can delete form uploads in their organization"
+  on storage.objects
+  for delete
+  to authenticated
+  using (
+    bucket_id = 'form-uploads'
+    and split_part(name, '/', 1) in (
+      select org_id::text from public.user_plus_org_ids() as org_id
     )
   );
 

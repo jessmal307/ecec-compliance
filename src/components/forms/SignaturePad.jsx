@@ -24,10 +24,32 @@ function resizeCanvas(canvas, pad) {
 export function SignaturePad({
   label = 'Signature',
   value = '',
+  imageUrl = '',
   onChange,
   required = false,
+  readOnly = false,
   className,
 }) {
+  if (readOnly) {
+    const src = imageUrl || (value?.startsWith('data:image/') ? value : '')
+    return (
+      <div className={cn('space-y-2', className)}>
+        <div className="overflow-hidden rounded-lg border border-input bg-background">
+          {src ? (
+            <img
+              src={src}
+              alt={label}
+              className="block h-40 w-full object-contain"
+            />
+          ) : (
+            <p className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+              No signature
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
   const canvasRef = useRef(null)
   const padRef = useRef(null)
   const onChangeRef = useRef(onChange)

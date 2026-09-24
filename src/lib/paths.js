@@ -14,6 +14,8 @@ export const paths = {
   siteProfile: (siteId) => `/sites/${siteId}`,
   forms: '/forms',
   formPreview: (templateId) => `/forms/${templateId}`,
+  formComplete: (templateId) => `/forms/${templateId}/complete`,
+  formSubmission: (submissionId) => `/forms/submissions/${submissionId}`,
   compliance: '/compliance',
   requirements: '/requirements',
   gaps: '/gaps',

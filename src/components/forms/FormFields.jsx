@@ -17,7 +17,15 @@ function fieldOptions(field) {
   )
 }
 
-export function FormFieldControl({ field, value, note, onChange, onNoteChange }) {
+export function FormFieldControl({
+  field,
+  value,
+  note,
+  onChange,
+  onNoteChange,
+  readOnly = false,
+  signatureUrl = '',
+}) {
   const requiredMark = field.required ? (
     <span className="font-normal text-muted-foreground"> (required)</span>
   ) : null
@@ -38,6 +46,8 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
         required={field.required}
+        disabled={readOnly}
+        readOnly={readOnly}
       />
     )
   } else if (field.type === 'number') {
@@ -48,6 +58,8 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
         required={field.required}
+        disabled={readOnly}
+        readOnly={readOnly}
       />
     )
   } else if (field.type === 'date') {
@@ -56,6 +68,8 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
         required={field.required}
+        disabled={readOnly}
+        readOnly={readOnly}
       />
     )
   } else if (field.type === 'checkbox') {
@@ -65,6 +79,7 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
         checked={Boolean(value)}
         onChange={(event) => onChange(event.target.checked)}
         required={field.required}
+        disabled={readOnly}
       >
         {field.label}
         {requiredMark}
@@ -76,6 +91,7 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
         required={field.required}
+        disabled={readOnly}
       >
         <option value="">Select…</option>
         {options.map((option) => (
@@ -92,6 +108,8 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
         value={typeof value === 'string' ? value : ''}
         onChange={onChange}
         required={field.required}
+        readOnly={readOnly}
+        imageUrl={signatureUrl}
       />
     )
   } else if (field.type === 'radio') {
@@ -106,6 +124,7 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
             checked={value === option.value}
             onChange={() => onChange(option.value)}
             required={field.required}
+            disabled={readOnly}
           >
             {option.label}
           </Choice>
@@ -119,6 +138,8 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
         required={field.required}
+        disabled={readOnly}
+        readOnly={readOnly}
       />
     )
   }
@@ -141,6 +162,8 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
             value={note ?? ''}
             onChange={(event) => onNoteChange(event.target.value)}
             className="min-h-20"
+            disabled={readOnly}
+            readOnly={readOnly}
           />
         </Field>
       ) : null}
