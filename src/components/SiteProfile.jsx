@@ -74,6 +74,7 @@ import {
 } from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { isActiveStaff, listStaffBySite } from '../lib/staff'
+import { SiteFloorLinks } from './SiteFloorLinks'
 import { SiteHoursSettings } from './SiteHoursSettings'
 import {
   archiveSite,
@@ -747,6 +748,11 @@ export function SiteProfile() {
                   </Button>
                 </FormActions>
               </form>
+              <SiteFloorLinks
+                organizationId={organizationId}
+                siteId={siteId}
+                disabled={infoBusy || siteArchived}
+              />
             </CardContent>
           </Card>
             </TabsContent>

@@ -9,6 +9,7 @@ import { Gaps } from './components/Gaps'
 import { Overview } from './components/Overview'
 import { ResetPassword } from './components/ResetPassword'
 import { SetupScreen } from './components/SetupScreen'
+import { SiteForms } from './components/SiteForms'
 import { SiteProfile } from './components/SiteProfile'
 import { Sites } from './components/Sites'
 import { FormComplete } from './components/FormComplete'
@@ -31,6 +32,10 @@ import { isSupabaseConfigured } from './lib/supabase'
 import { paths } from './lib/paths'
 import './App.css'
 
+function KioskShell({ children }) {
+  return <div className="kiosk-shell">{children}</div>
+}
+
 function GuestShell({ children }) {
   return (
     <div className="guest-shell">
@@ -50,16 +55,39 @@ function AppShell() {
 
   if (loading) {
     return (
-      <GuestShell>
-        <p className="status" role="status" aria-live="polite">
-          Loading…
-        </p>
-      </GuestShell>
+      <Routes>
+        <Route
+          path="/s/:token"
+          element={
+            <KioskShell>
+              <SiteForms />
+            </KioskShell>
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <GuestShell>
+              <p className="status" role="status" aria-live="polite">
+                Loading…
+              </p>
+            </GuestShell>
+          }
+        />
+      </Routes>
     )
   }
 
   return (
     <Routes>
+      <Route
+        path="/s/:token"
+        element={
+          <KioskShell>
+            <SiteForms />
+          </KioskShell>
+        }
+      />
       <Route
         path={paths.resetPassword}
         element={

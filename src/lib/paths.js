@@ -23,6 +23,7 @@ export const paths = {
   settings: '/settings',
   forgotPassword: '/forgot-password',
   resetPassword: '/reset-password',
+  siteForms: (token) => `/s/${encodeURIComponent(token)}`,
   privacy: '/privacy',
   terms: '/terms',
   security: '/security',
