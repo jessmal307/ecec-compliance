@@ -65,7 +65,7 @@ export function FormDue({ organizationId }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Current period as of {formatDate(today)}. Scheduled forms only — due or done, not overdue.
+        Current period as of {formatDate(today)}. Scheduled forms only — due, done, or missed.
       </p>
       <PageError>{error}</PageError>
       {loading ? (
@@ -83,6 +83,8 @@ export function FormDue({ organizationId }) {
                     {group.rows.filter((row) => row.status === 'due').length} due
                     {' · '}
                     {group.rows.filter((row) => row.status === 'done').length} done
+                    {' · '}
+                    {group.rows.filter((row) => row.status === 'missed').length} missed
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -95,9 +97,22 @@ export function FormDue({ organizationId }) {
                         <div className="flex flex-wrap items-center gap-2">
                           <span>{row.template_name}</span>
                           <Badge variant="outline">{cadenceLabel(row.cadence)}</Badge>
-                          <Badge variant={row.status === 'done' ? 'secondary' : 'default'}>
-                            {row.status === 'done' ? 'Done' : 'Due'}
+                          <Badge
+                            variant={
+                              row.status === 'done'
+                                ? 'secondary'
+                                : row.status === 'missed'
+                                  ? 'outline'
+                                  : 'default'
+                            }
+                          >
+                            {row.status === 'done'
+                              ? 'Done'
+                              : row.status === 'missed'
+                                ? 'Missed'
+                                : 'Due'}
                           </Badge>
+                          {row.late ? <Badge variant="outline">Late</Badge> : null}
                         </div>
                         {row.status === 'due' ? (
                           <Button asChild size="sm">

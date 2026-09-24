@@ -7,17 +7,21 @@ import { FileDropZone } from './FileDropZone'
 import { FormRenderer } from './forms/FormRenderer'
 import { useFormsAccess } from './Forms'
 import { useAuth } from '../hooks/useAuth'
-import { Field, Input, Select } from './ui/form'
+import { DateInput, Field, Input, Select, Textarea } from './ui/form'
 import { PageError, PageHeader, PageMuted, PageSuccess } from './ui/page'
 import {
   buildSubmissionData,
   createFormSubmission,
+  createMissedSubmission,
   emptyFormState,
   getFormSubmission,
   getFormTemplate,
+  isScheduledAllSitesTemplate,
   updateFormSubmission,
   validateFormSubmission,
 } from '../lib/forms'
+import { todayIsoDate } from '../lib/compliance'
+import { validateIsoDate } from '../lib/dates'
 import {
   dataUrlToFile,
   FORM_EVIDENCE_ACCEPT,
@@ -47,6 +51,8 @@ export function FormComplete() {
   const [template, setTemplate] = useState(null)
   const [sites, setSites] = useState([])
   const [siteId, setSiteId] = useState('')
+  const [forDate, setForDate] = useState(todayIsoDate)
+  const [missedReason, setMissedReason] = useState('')
   const [room, setRoom] = useState('')
   const [formState, setFormState] = useState(() => emptyFormState())
   const [draftId, setDraftId] = useState(draftParam)
@@ -78,7 +84,10 @@ export function FormComplete() {
         setLoading(false)
         return
       }
-      if (draftResult.data?.status === 'complete') {
+      if (
+        draftResult.data?.status === 'complete' ||
+        draftResult.data?.status === 'missed'
+      ) {
         navigate(paths.formSubmission(draftResult.data.id), { replace: true })
         return
       }
@@ -87,6 +96,8 @@ export function FormComplete() {
       if (draftResult.data) {
         setDraftId(draftResult.data.id)
         setSiteId(draftResult.data.site_id || '')
+        setForDate(draftResult.data.for_date || todayIsoDate())
+        setMissedReason(draftResult.data.missed_reason || '')
         setRoom(draftResult.data.room || '')
         setFormState({
           values: draftResult.data.values,
@@ -156,6 +167,19 @@ export function FormComplete() {
       setError('Choose a site.')
       return
     }
+    const coversScheduled = isScheduledAllSitesTemplate(template)
+    const dateError = coversScheduled
+      ? validateIsoDate(forDate, {
+          required: true,
+          allowFuture: false,
+          emptyLabel: 'date this covers',
+          invalidLabel: 'date',
+        })
+      : null
+    if (dateError) {
+      setError(dateError)
+      return
+    }
     if (status === 'complete') {
       const issues = validateFormSubmission(template.schema, template.archetype, formState)
       if (issues.length) {
@@ -172,6 +196,7 @@ export function FormComplete() {
         templateId: template.id,
         siteId,
         userId: user?.id,
+        forDate: coversScheduled ? forDate : null,
       })
       if (created.error) {
         setError(created.error.message)
@@ -237,6 +262,7 @@ export function FormComplete() {
     const now = new Date().toISOString()
     const { data, error: saveError } = await updateFormSubmission(submissionId, {
       site_id: siteId,
+      for_date: coversScheduled ? forDate : null,
       data: buildSubmissionData({
         room,
         values: nextValues,
@@ -273,6 +299,61 @@ export function FormComplete() {
     }
 
     setSaved('Draft saved.')
+  }
+
+  async function markMissed() {
+    setError('')
+    setSaved('')
+    if (!siteId) {
+      setError('Choose a site.')
+      return
+    }
+    const dateError = validateIsoDate(forDate, {
+      required: true,
+      allowFuture: false,
+      emptyLabel: 'date this covers',
+      invalidLabel: 'date',
+    })
+    if (dateError) {
+      setError(dateError)
+      return
+    }
+    const reason = missedReason.trim()
+    if (!reason) {
+      setError('Enter a reason.')
+      return
+    }
+
+    setSaving(true)
+    const now = new Date().toISOString()
+    let result
+    if (draftId) {
+      result = await updateFormSubmission(draftId, {
+        site_id: siteId,
+        for_date: forDate,
+        status: 'missed',
+        submitted_by: user?.id ?? null,
+        submitted_at: now,
+        data: { missedReason: reason },
+        evidence: [],
+      })
+    } else {
+      result = await createMissedSubmission(organizationId, {
+        templateId: template.id,
+        siteId,
+        userId: user?.id,
+        forDate,
+        reason,
+      })
+    }
+
+    if (result.error) {
+      setError(result.error.message)
+      setSaving(false)
+      return
+    }
+
+    navigate(paths.formSubmission(result.data.id))
   }
 
   function handleEvidence(file) {
@@ -326,6 +407,19 @@ export function FormComplete() {
                 ))}
               </Select>
             </Field>
+            {isScheduledAllSitesTemplate(template) ? (
+              <Field
+                label="Covers"
+                hint="The day this form is for. Choose an earlier day to backfill."
+              >
+                <DateInput
+                  allowFuture={false}
+                  value={forDate}
+                  onChange={(event) => setForDate(event.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+            ) : null}
             <Field label="Room or area" hint="Optional">
               <Input
                 value={room}
@@ -359,6 +453,17 @@ export function FormComplete() {
               />
             </Field>
 
+            {isScheduledAllSitesTemplate(template) ? (
+              <Field label="If this day was missed" hint="Required to mark as missed.">
+                <Textarea
+                  value={missedReason}
+                  onChange={(event) => setMissedReason(event.target.value)}
+                  disabled={saving}
+                  rows={3}
+                />
+              </Field>
+            ) : null}
+
             <div className="flex flex-wrap gap-2 border-t border-border pt-5">
               <Button
                 type="button"
@@ -371,6 +476,16 @@ export function FormComplete() {
               <Button type="button" disabled={saving} onClick={() => persist('complete')}>
                 {saving ? 'Submitting…' : 'Submit'}
               </Button>
+              {isScheduledAllSitesTemplate(template) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={markMissed}
+                >
+                  Mark as missed
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>

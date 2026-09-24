@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormRenderer } from './forms/FormRenderer'
 import { useFormsAccess } from './Forms'
 import { PageError, PageHeader, PageMuted } from './ui/page'
-import { formatTimestamp } from '../lib/format'
+import { formatDate, formatTimestamp } from '../lib/format'
 import { getFormSubmission, getFormTemplate } from '../lib/forms'
 import { getFormUploadUrl, isSignatureDataUrl } from '../lib/formUploads'
 import { firstError } from '../lib/query'
@@ -119,7 +119,7 @@ export function FormSubmissionView() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title={submission?.template_name || 'Submission'}
-        description="Completed submissions cannot be edited."
+        description="Completed and missed submissions cannot be edited."
         actions={
           <Button asChild variant="outline">
             <Link to={formsHref({ tab: 'submissions' })}>Back to forms</Link>
@@ -135,20 +135,35 @@ export function FormSubmissionView() {
         <Card>
           <CardHeader className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">Complete</Badge>
+              <Badge variant={submission.status === 'missed' ? 'outline' : 'secondary'}>
+                {submission.status === 'missed' ? 'Missed' : 'Complete'}
+              </Badge>
+              {submission.late ? <Badge variant="outline">Late</Badge> : null}
               <Badge variant="outline">{template.archetype}</Badge>
             </div>
             <CardTitle>{submission.template_name}</CardTitle>
             <p className="text-base text-muted-foreground md:text-sm">
               {submission.site_name || 'No site'}
               {submission.room ? ` · ${submission.room}` : ''}
-              {' · '}
-              {submission.signoff.name || 'Unsigned'}
+              {submission.for_date ? ` · covers ${formatDate(submission.for_date)}` : ''}
+              {submission.status === 'missed'
+                ? ''
+                : ` · ${submission.signoff.name || 'Unsigned'}`}
               {' · '}
               {formatTimestamp(submission.submitted_at || submission.created_at)}
             </p>
+            {submission.status === 'missed' && submission.missed_reason ? (
+              <p className="text-base text-muted-foreground md:text-sm">
+                Reason: {submission.missed_reason}
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-5">
+            {submission.status === 'missed' ? (
+              <p className="text-sm text-muted-foreground">
+                This occurrence was recorded as missed. No form was completed.
+              </p>
+            ) : (
             <FormRenderer
               archetype={template.archetype}
               schema={template.schema}
@@ -161,6 +176,7 @@ export function FormSubmissionView() {
               readOnly
               signatureUrls={signatureUrls}
             />
+            )}
             {evidenceUrls.length ? (
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">Photos</h3>

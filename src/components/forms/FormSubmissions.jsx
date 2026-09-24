@@ -13,6 +13,7 @@ import { Select } from '../ui/form'
 import { PageError, PageMuted } from '../ui/page'
 import { formatTimestamp } from '../../lib/format'
 import { listFormSubmissions, listFormTemplates } from '../../lib/forms'
+import { formatDate } from '../../lib/format'
 import { firstError } from '../../lib/query'
 import { listSites } from '../../lib/sites'
 import { paths } from '../../lib/paths'
@@ -123,10 +124,11 @@ export function FormSubmissions({ organizationId }) {
       ) : (
         <ul className="grid grid-cols-1 gap-3">
           {submissions.map((submission) => {
-            const href =
-              submission.status === 'complete'
-                ? paths.formSubmission(submission.id)
-                : `${paths.formComplete(submission.template_id)}?draft=${submission.id}`
+            const locked =
+              submission.status === 'complete' || submission.status === 'missed'
+            const href = locked
+              ? paths.formSubmission(submission.id)
+              : `${paths.formComplete(submission.template_id)}?draft=${submission.id}`
 
             return (
               <li key={submission.id}>
@@ -134,15 +136,27 @@ export function FormSubmissions({ organizationId }) {
                   <CardHeader>
                     <div className="flex flex-wrap items-center gap-2">
                       <CardTitle>{submission.template_name}</CardTitle>
-                      <Badge variant={submission.status === 'complete' ? 'secondary' : 'outline'}>
-                        {submission.status === 'complete' ? 'Complete' : 'Draft'}
+                      <Badge
+                        variant={
+                          submission.status === 'complete' ? 'secondary' : 'outline'
+                        }
+                      >
+                        {submission.status === 'complete'
+                          ? 'Complete'
+                          : submission.status === 'missed'
+                            ? 'Missed'
+                            : 'Draft'}
                       </Badge>
+                      {submission.late ? <Badge variant="outline">Late</Badge> : null}
                     </div>
                     <CardDescription>
-                      {submission.signoff.name || 'No name yet'}
+                      {submission.status === 'missed'
+                        ? submission.missed_reason || 'Marked missed'
+                        : submission.signoff.name || 'No name yet'}
                       {' · '}
                       {submission.site_name || 'No site'}
                       {submission.room ? ` · ${submission.room}` : ''}
+                      {submission.for_date ? ` · covers ${formatDate(submission.for_date)}` : ''}
                       {' · '}
                       {formatTimestamp(submission.submitted_at || submission.created_at)}
                     </CardDescription>
@@ -150,7 +164,7 @@ export function FormSubmissions({ organizationId }) {
                   <CardContent>
                     <Button asChild variant="outline">
                       <Link to={href}>
-                        {submission.status === 'complete' ? 'Open' : 'Continue draft'}
+                        {locked ? 'Open' : 'Continue draft'}
                       </Link>
                     </Button>
                   </CardContent>

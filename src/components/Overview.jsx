@@ -119,7 +119,8 @@ function summarizeDueBySite(rows) {
     if (existing) {
       existing.total += 1
       if (row.status === 'due') existing.due += 1
-      else existing.done += 1
+      else if (row.status === 'done') existing.done += 1
+      else if (row.status === 'missed') existing.missed += 1
     } else {
       bySite.set(row.site_id, {
         site_id: row.site_id,
@@ -127,6 +128,7 @@ function summarizeDueBySite(rows) {
         total: 1,
         due: row.status === 'due' ? 1 : 0,
         done: row.status === 'done' ? 1 : 0,
+        missed: row.status === 'missed' ? 1 : 0,
       })
     }
   }
@@ -138,10 +140,15 @@ function summarizeDueBySite(rows) {
 }
 
 function formsDueCountLabel(row) {
-  if (row.due === 0 || row.done > 0) {
-    return `${row.done} of ${row.total} done`
+  const parts = []
+  if (row.due > 0 && row.done === 0 && row.missed === 0) {
+    return countLabel(row.due, 'due', 'due')
   }
-  return countLabel(row.due, 'due', 'due')
+  if (row.done > 0 || row.due > 0) {
+    parts.push(`${row.done} of ${row.total} done`)
+  }
+  if (row.missed > 0) parts.push(countLabel(row.missed, 'missed', 'missed'))
+  return parts.join(' · ') || `${row.done} of ${row.total} done`
 }
 
 function overviewUrgency(item, status) {

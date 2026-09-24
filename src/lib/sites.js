@@ -236,7 +236,7 @@ export async function deleteSiteClosure(id) {
   return { error }
 }
 
-export async function listSiteClosuresForSites(siteIds, { date } = {}) {
+export async function listSiteClosuresForSites(siteIds, { date, from, to } = {}) {
   if (!siteIds?.length) return { data: [], error: null }
 
   let query = supabase
@@ -246,6 +246,8 @@ export async function listSiteClosuresForSites(siteIds, { date } = {}) {
     .order('closure_date', { ascending: true })
 
   if (date) query = query.eq('closure_date', date)
+  if (from) query = query.gte('closure_date', from)
+  if (to) query = query.lte('closure_date', to)
 
   const { data, error } = await query
   if (error) return { data: [], error }

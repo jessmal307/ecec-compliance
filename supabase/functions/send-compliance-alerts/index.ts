@@ -38,6 +38,13 @@ type OrganizationRow = {
   name: string
   owner_id: string
   alert_email: string | null
+  plan: string | null
+}
+
+type OverdueFormRow = {
+  site_id: string
+  template_name: string
+  label: string
 }
 
 type PendingAlert = {
@@ -806,14 +813,32 @@ function renderLine(line: DigestLine): string {
   return `<li>${escapeHtml(parts.join(' · '))}</li>`
 }
 
-function digestHtml(orgName: string, digest: OrgDigest): string {
+function orgHasForms(org: { plan?: string | null }) {
+  return org.plan === 'plus' || org.plan === 'pro'
+}
+
+function digestHtml(
+  orgName: string,
+  digest: OrgDigest,
+  overdueBySite?: Map<string, OverdueFormRow[]>,
+): string {
   const sections = digest.sites
     .map((site) => {
       const rows =
         site.lines.length === 0
           ? '<p>Nothing needs attention.</p>'
           : `<ul>${site.lines.map(renderLine).join('')}</ul>`
-      return `<h2>${escapeHtml(site.name)} — ${escapeHtml(countsLine(site))}</h2>${rows}`
+      const overdue = overdueBySite?.get(site.id) ?? []
+      const forms =
+        overdue.length === 0
+          ? ''
+          : `<h3>Overdue forms</h3><ul>${overdue
+              .map(
+                (row) =>
+                  `<li>${escapeHtml(row.template_name)} — ${escapeHtml(row.label)}</li>`,
+              )
+              .join('')}</ul>`
+      return `<h2>${escapeHtml(site.name)} — ${escapeHtml(countsLine(site))}</h2>${rows}${forms}`
     })
     .join('')
 
@@ -1002,6 +1027,378 @@ function buildOrgDigest({
 
 function alertKey(itemId: string, kind: AlertKind) {
   return `${itemId}:${kind}`
+}
+
+// Copied from src/lib/formPeriods.js so this function deploys as a single
+// file. Keep period maths identical. submitted_at / created_at dates use
+// Australia/Sydney (same as the rest of this digest).
+const FORM_DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
+const FORM_MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
+const FORM_MONTHS_SHORT = FORM_MONTHS.map((name) => name.slice(0, 3))
+
+function formIsIsoDate(value: unknown): value is string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))
+}
+
+function formPad2(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+function formFormatIso(year: number, month: number, day: number) {
+  return `${year}-${formPad2(month)}-${formPad2(day)}`
+}
+
+function formDaysInMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate()
+}
+
+function formAddDaysIso(isoDate: string, days: number) {
+  const date = new Date(`${isoDate}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return formFormatIso(date.getFullYear(), date.getMonth() + 1, date.getDate())
+}
+
+function formIsoWeekday(isoDate: string) {
+  if (!formIsIsoDate(isoDate)) return null
+  const day = new Date(`${isoDate}T00:00:00`).getDay()
+  return day === 0 ? 7 : day
+}
+
+function formPeriodBounds(cadence: string, today: string) {
+  if (!formIsIsoDate(today)) return null
+  const [year, month] = today.split('-').map(Number)
+
+  if (cadence === 'daily') return { start: today, end: today }
+  if (cadence === 'weekly') {
+    const weekday = formIsoWeekday(today)
+    if (weekday == null) return null
+    const start = formAddDaysIso(today, 1 - weekday)
+    return { start, end: formAddDaysIso(start, 6) }
+  }
+  if (cadence === 'monthly') {
+    return {
+      start: formFormatIso(year, month, 1),
+      end: formFormatIso(year, month, formDaysInMonth(year, month)),
+    }
+  }
+  if (cadence === 'quarterly') {
+    const startMonth = Math.floor((month - 1) / 3) * 3 + 1
+    const endMonth = startMonth + 2
+    return {
+      start: formFormatIso(year, startMonth, 1),
+      end: formFormatIso(year, endMonth, formDaysInMonth(year, endMonth)),
+    }
+  }
+  if (cadence === 'annual') {
+    return { start: formFormatIso(year, 1, 1), end: formFormatIso(year, 12, 31) }
+  }
+  if (cadence === 'once') return { start: null, end: null }
+  return null
+}
+
+function formPreviousPeriodBounds(cadence: string, today: string) {
+  const current = formPeriodBounds(cadence, today)
+  if (!current?.start) return null
+  if (cadence === 'daily') {
+    const day = formAddDaysIso(today, -1)
+    return { start: day, end: day }
+  }
+  return formPeriodBounds(cadence, formAddDaysIso(current.start, -1))
+}
+
+function formSubmissionDate(value: string | null | undefined) {
+  if (!value) return null
+  if (formIsIsoDate(value)) return value
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return dateInTimeZone(date, ALERT_TIME_ZONE)
+}
+
+function formIsSiteOpenOn(
+  site: { id: string; operating_days?: number[] },
+  closures: { site_id: string; closure_date: string }[],
+  day: string,
+) {
+  const weekday = formIsoWeekday(day)
+  const operating = site.operating_days?.length
+    ? site.operating_days
+    : FORM_DEFAULT_OPERATING_DAYS
+  if (weekday == null || !operating.includes(weekday)) return false
+  return !closures.some(
+    (row) => sameId(row.site_id, site.id) && row.closure_date === day,
+  )
+}
+
+function formHasCompleteInPeriod(
+  submissions: { status: string; site_id: string; template_id: string; submitted_at: string | null }[],
+  siteId: string,
+  templateId: string,
+  bounds: { start: string | null; end: string | null } | null,
+) {
+  return submissions.some((row) => {
+    if (row.status !== 'complete') return false
+    if (!sameId(row.site_id, siteId) || !sameId(row.template_id, templateId)) {
+      return false
+    }
+    if (!bounds || (!bounds.start && !bounds.end)) return true
+    const dated = formSubmissionDate(row.submitted_at)
+    if (!dated) return false
+    if (bounds.start && dated < bounds.start) return false
+    if (bounds.end && dated > bounds.end) return false
+    return true
+  })
+}
+
+function formEachDateInclusive(start: string, end: string) {
+  const days: string[] = []
+  let cursor: string | null = start
+  while (cursor && cursor <= end) {
+    days.push(cursor)
+    cursor = formAddDaysIso(cursor, 1)
+  }
+  return days
+}
+
+function formPeriodHasOpenDay(
+  site: { id: string; operating_days?: number[] },
+  closures: { site_id: string; closure_date: string }[],
+  bounds: { start: string | null; end: string | null } | null,
+) {
+  if (!bounds?.start || !bounds?.end) return false
+  return formEachDateInclusive(bounds.start, bounds.end).some((day) =>
+    formIsSiteOpenOn(site, closures, day),
+  )
+}
+
+function formPreviousOpenDay(
+  site: { id: string; operating_days?: number[] },
+  closures: { site_id: string; closure_date: string }[],
+  today: string,
+  notBefore: string,
+) {
+  let cursor: string | null = formAddDaysIso(today, -1)
+  while (cursor && cursor >= notBefore) {
+    if (formIsSiteOpenOn(site, closures, cursor)) return cursor
+    cursor = formAddDaysIso(cursor, -1)
+  }
+  return null
+}
+
+function formNotBeforeIso(
+  site: { created_at?: string | null },
+  template: { created_at?: string | null },
+) {
+  const dates = [formSubmissionDate(site.created_at), formSubmissionDate(template.created_at)].filter(
+    (value): value is string => Boolean(value),
+  )
+  return dates.length
+    ? dates.reduce((latest, date) => (date > latest ? date : latest))
+    : null
+}
+
+function formFormatDayLabel(isoDate: string) {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  return `${day} ${FORM_MONTHS_SHORT[month - 1]} ${year}`
+}
+
+function formMissedPeriodLabel(
+  cadence: string,
+  bounds: { start: string | null; end: string | null } | null,
+  today: string,
+) {
+  if (!bounds?.start) return 'missed last period'
+  if (cadence === 'daily') {
+    return bounds.start === formAddDaysIso(today, -1)
+      ? 'missed yesterday'
+      : `missed ${formFormatDayLabel(bounds.start)}`
+  }
+  if (cadence === 'weekly') return `missed week of ${formFormatDayLabel(bounds.start)}`
+  if (cadence === 'monthly') {
+    const [year, month] = bounds.start.split('-').map(Number)
+    return `missed ${FORM_MONTHS[month - 1]} ${year}`
+  }
+  if (cadence === 'quarterly') {
+    const [year, month] = bounds.start.split('-').map(Number)
+    return `missed ${FORM_MONTHS_SHORT[month - 1]}–${FORM_MONTHS_SHORT[month + 1]} ${year}`
+  }
+  if (cadence === 'annual') return `missed ${bounds.start.slice(0, 4)}`
+  return `missed ${formFormatDayLabel(bounds.start)}`
+}
+
+function findOverdueForms({
+  sites,
+  templates,
+  exclusions,
+  closures,
+  submissions,
+  today,
+}: {
+  sites: { id: string; name: string; operating_days?: number[]; created_at?: string | null }[]
+  templates: { id: string; name: string; cadence: string | null; scope: string; created_at?: string | null }[]
+  exclusions: { site_id: string; template_id: string }[]
+  closures: { site_id: string; closure_date: string }[]
+  submissions: { status: string; site_id: string; template_id: string; submitted_at: string | null }[]
+  today: string
+}): OverdueFormRow[] {
+  if (!formIsIsoDate(today)) return []
+
+  const rows: OverdueFormRow[] = []
+  for (const site of sites) {
+    for (const template of templates) {
+      if (template.cadence === 'once' || !template.cadence) continue
+      if (template.scope !== 'all_sites') continue
+      if (
+        exclusions.some(
+          (row) =>
+            sameId(row.site_id, site.id) && sameId(row.template_id, template.id),
+        )
+      ) {
+        continue
+      }
+
+      const notBefore = formNotBeforeIso(site, template)
+      let bounds: { start: string | null; end: string | null } | null = null
+
+      if (template.cadence === 'daily') {
+        const day = formPreviousOpenDay(
+          site,
+          closures,
+          today,
+          notBefore || '2000-01-01',
+        )
+        if (!day) continue
+        bounds = { start: day, end: day }
+      } else {
+        bounds = formPreviousPeriodBounds(template.cadence, today)
+        if (!bounds?.start) continue
+        if (notBefore && bounds.start < notBefore) continue
+        if (!formPeriodHasOpenDay(site, closures, bounds)) continue
+      }
+
+      if (formHasCompleteInPeriod(submissions, site.id, template.id, bounds)) {
+        continue
+      }
+
+      rows.push({
+        site_id: site.id,
+        template_name: template.name,
+        label: formMissedPeriodLabel(template.cadence, bounds, today),
+      })
+    }
+  }
+
+  return rows
+}
+
+async function loadOverdueFormsForOrg(
+  supabase: ReturnType<typeof createClient>,
+  orgId: string,
+  today: string,
+): Promise<Map<string, OverdueFormRow[]>> {
+  const [sitesResult, templatesResult, exclusionsResult] = await Promise.all([
+    supabase
+      .from('sites')
+      .select('id, name, operating_days, created_at, archived_at')
+      .eq('org_id', orgId)
+      .is('archived_at', null),
+    supabase
+      .from('form_templates')
+      .select('id, name, cadence, scope, org_id, archived_at, created_at')
+      .is('archived_at', null)
+      .or(`org_id.eq.${orgId},org_id.is.null`),
+    supabase
+      .from('form_site_exclusions')
+      .select('site_id, template_id')
+      .eq('org_id', orgId),
+  ])
+
+  if (sitesResult.error) throw sitesResult.error
+  if (templatesResult.error) throw templatesResult.error
+  if (exclusionsResult.error) throw exclusionsResult.error
+
+  const sites = (sitesResult.data ?? []).map((site) => ({
+    id: site.id as string,
+    name: site.name as string,
+    created_at: site.created_at as string | null,
+    operating_days:
+      Array.isArray(site.operating_days) && site.operating_days.length
+        ? site.operating_days.map(Number)
+        : FORM_DEFAULT_OPERATING_DAYS,
+  }))
+  const templates = (templatesResult.data ?? []).filter(
+    (template) =>
+      Boolean(template.cadence) &&
+      template.cadence !== 'once' &&
+      template.scope === 'all_sites',
+  )
+
+  if (!sites.length || !templates.length) return new Map()
+
+  const [closuresResult, submissionsResult] = await Promise.all([
+    supabase
+      .from('site_closures')
+      .select('site_id, closure_date')
+      .in(
+        'site_id',
+        sites.map((site) => site.id),
+      ),
+    supabase
+      .from('form_submissions')
+      .select('site_id, template_id, status, submitted_at')
+      .eq('org_id', orgId)
+      .eq('status', 'complete')
+      .in(
+        'template_id',
+        templates.map((template) => template.id),
+      ),
+  ])
+
+  if (closuresResult.error) throw closuresResult.error
+  if (submissionsResult.error) throw submissionsResult.error
+
+  const rows = findOverdueForms({
+    sites,
+    templates: templates as {
+      id: string
+      name: string
+      cadence: string | null
+      scope: string
+      created_at?: string | null
+    }[],
+    exclusions: exclusionsResult.data ?? [],
+    closures: (closuresResult.data ?? []).map((row) => ({
+      site_id: row.site_id,
+      closure_date: String(row.closure_date).slice(0, 10),
+    })),
+    submissions: (submissionsResult.data ?? []).map((row) => ({
+      status: row.status,
+      site_id: row.site_id,
+      template_id: row.template_id,
+      submitted_at: row.submitted_at,
+    })),
+    today,
+  })
+
+  const bySite = new Map<string, OverdueFormRow[]>()
+  for (const row of rows) {
+    const list = bySite.get(row.site_id) ?? []
+    list.push(row)
+    bySite.set(row.site_id, list)
+  }
+  return bySite
 }
 
 async function sendResendEmail({
@@ -1201,7 +1598,7 @@ Deno.serve(async () => {
   ] = await Promise.all([
     supabase
       .from('organizations')
-      .select('id, name, owner_id, alert_email')
+      .select('id, name, owner_id, alert_email, plan')
       .in('id', orgIds),
     supabase
       .from('sites')
@@ -1379,12 +1776,22 @@ Deno.serve(async () => {
       continue
     }
 
+    let overdueBySite: Map<string, OverdueFormRow[]> | undefined
+    if (orgHasForms(org)) {
+      try {
+        overdueBySite = await loadOverdueFormsForOrg(supabase, orgId, today)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        summary.errors.push(`Skipped overdue forms for org ${orgId}: ${message}`)
+      }
+    }
+
     const { error: sendError } = await sendResendEmail({
       apiKey: resendApiKey,
       from: fromEmail,
       to,
       subject,
-      html: digestHtml(org.name, digest),
+      html: digestHtml(org.name, digest, overdueBySite),
     })
 
     if (sendError) {

@@ -1,9 +1,26 @@
 import { todayIsoDate } from './compliance'
 import { isIsoDate } from './dates'
+import {
+  addCalendarMonthsIso,
+  addDaysIso,
+  findOverdueForms,
+  isLateInPeriod,
+  isSiteOpenOn,
+  isSubmissionLate,
+  periodBounds,
+  periodStatus,
+} from './formPeriods'
 import { isSignatureDataUrl } from './formUploads'
 import { firstError } from './query'
 import { listSiteClosuresForSites, listSites } from './sites'
 import { supabase } from './supabase'
+
+export {
+  isoWeekday,
+  isSubmissionLate,
+  periodBounds,
+  submissionLocalDate,
+} from './formPeriods'
 
 export const FORM_CADENCES = [
   { value: 'once', label: 'Once' },
@@ -82,33 +99,6 @@ export async function getFormTemplate(id) {
   return { data: mapTemplate(data), error: null }
 }
 
-function pad2(value) {
-  return String(value).padStart(2, '0')
-}
-
-function formatIso(year, month, day) {
-  return `${year}-${pad2(month)}-${pad2(day)}`
-}
-
-function daysInMonth(year, month) {
-  return new Date(year, month, 0).getDate()
-}
-
-function addDaysIso(isoDate, days) {
-  const date = new Date(`${isoDate}T00:00:00`)
-  date.setDate(date.getDate() + days)
-  return formatIso(date.getFullYear(), date.getMonth() + 1, date.getDate())
-}
-
-function addCalendarMonthsIso(isoDate, months) {
-  const [year, month, day] = isoDate.split('-').map(Number)
-  const total = year * 12 + (month - 1) + months
-  const nextYear = Math.floor(total / 12)
-  const nextMonth = (total % 12) + 1
-  const nextDay = Math.min(day, daysInMonth(nextYear, nextMonth))
-  return formatIso(nextYear, nextMonth, nextDay)
-}
-
 export function computeNextDue(cadence, fromDate = todayIsoDate()) {
   if (!isIsoDate(fromDate)) return null
   if (cadence === 'daily') return addDaysIso(fromDate, 1)
@@ -117,51 +107,6 @@ export function computeNextDue(cadence, fromDate = todayIsoDate()) {
   if (cadence === 'quarterly') return addCalendarMonthsIso(fromDate, 3)
   if (cadence === 'annual') return addCalendarMonthsIso(fromDate, 12)
   return fromDate
-}
-
-export function isoWeekday(isoDate) {
-  if (!isIsoDate(isoDate)) return null
-  const day = new Date(`${isoDate}T00:00:00`).getDay()
-  return day === 0 ? 7 : day
-}
-
-export function periodBounds(cadence, today = todayIsoDate()) {
-  if (!isIsoDate(today)) return null
-  const [year, month] = today.split('-').map(Number)
-
-  if (cadence === 'daily') return { start: today, end: today }
-  if (cadence === 'weekly') {
-    const weekday = isoWeekday(today)
-    const start = addDaysIso(today, 1 - weekday)
-    return { start, end: addDaysIso(start, 6) }
-  }
-  if (cadence === 'monthly') {
-    return {
-      start: formatIso(year, month, 1),
-      end: formatIso(year, month, daysInMonth(year, month)),
-    }
-  }
-  if (cadence === 'quarterly') {
-    const startMonth = Math.floor((month - 1) / 3) * 3 + 1
-    const endMonth = startMonth + 2
-    return {
-      start: formatIso(year, startMonth, 1),
-      end: formatIso(year, endMonth, daysInMonth(year, endMonth)),
-    }
-  }
-  if (cadence === 'annual') {
-    return { start: formatIso(year, 1, 1), end: formatIso(year, 12, 31) }
-  }
-  if (cadence === 'once') return { start: null, end: null }
-  return null
-}
-
-export function submissionLocalDate(value) {
-  if (!value) return null
-  if (isIsoDate(value)) return value
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return formatIso(date.getFullYear(), date.getMonth() + 1, date.getDate())
 }
 
 export function cadenceLabel(cadence) {
@@ -212,29 +157,6 @@ export async function removeFormSiteExclusion(orgId, siteId, templateId) {
   return { error }
 }
 
-function isSiteOpenOn(site, closures, today) {
-  const weekday = isoWeekday(today)
-  if (!site.operating_days?.includes(weekday)) return false
-  return !closures.some(
-    (row) => sameId(row.site_id, site.id) && row.closure_date === today,
-  )
-}
-
-function hasCompleteInPeriod(submissions, siteId, templateId, bounds) {
-  return submissions.some((row) => {
-    if (row.status !== 'complete') return false
-    if (!sameId(row.site_id, siteId) || !sameId(row.template_id, templateId)) {
-      return false
-    }
-    if (!bounds || (!bounds.start && !bounds.end)) return true
-    const dated = submissionLocalDate(row.submitted_at)
-    if (!dated) return false
-    if (bounds.start && dated < bounds.start) return false
-    if (bounds.end && dated > bounds.end) return false
-    return true
-  })
-}
-
 export async function computeDueForms(orgId, today = todayIsoDate()) {
   if (!orgId) return { data: [], error: null }
   if (!isIsoDate(today)) {
@@ -264,7 +186,7 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
       .from('form_submissions')
       .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
       .eq('org_id', orgId)
-      .eq('status', 'complete')
+      .in('status', ['complete', 'missed'])
       .in(
         'template_id',
         templates.map((template) => template.id),
@@ -286,20 +208,69 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
       }
 
       const bounds = periodBounds(template.cadence, today)
+      const status = periodStatus(submissions, site.id, template.id, bounds)
       rows.push({
         site_id: site.id,
         site_name: site.name,
         template_id: template.id,
         template_name: template.name,
         cadence: template.cadence,
-        status: hasCompleteInPeriod(submissions, site.id, template.id, bounds)
-          ? 'done'
-          : 'due',
+        status,
+        late: status === 'done' && isLateInPeriod(submissions, site.id, template.id, bounds),
       })
     }
   }
 
   return { data: rows, error: null }
+}
+
+export async function computeOverdueForms(orgId, today = todayIsoDate()) {
+  if (!orgId) return { data: [], error: null }
+  if (!isIsoDate(today)) {
+    return { data: [], error: { message: 'Enter a valid date.' } }
+  }
+
+  const [sitesResult, templatesResult, exclusionsResult] = await Promise.all([
+    listSites(orgId),
+    listFormTemplates(),
+    listFormSiteExclusions(orgId),
+  ])
+  const setupError = firstError(sitesResult, templatesResult, exclusionsResult)
+  if (setupError) return { data: [], error: setupError }
+
+  const sites = sitesResult.data ?? []
+  const templates = (templatesResult.data ?? []).filter(isScheduledAllSitesTemplate)
+  const exclusions = exclusionsResult.data ?? []
+
+  if (!sites.length || !templates.length) return { data: [], error: null }
+
+  const [closuresResult, submissionsResult] = await Promise.all([
+    listSiteClosuresForSites(sites.map((site) => site.id)),
+    supabase
+      .from('form_submissions')
+      .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+      .eq('org_id', orgId)
+      .eq('status', 'complete')
+      .in(
+        'template_id',
+        templates.map((template) => template.id),
+      ),
+  ])
+
+  if (closuresResult.error) return { data: [], error: closuresResult.error }
+  if (submissionsResult.error) return { data: [], error: submissionsResult.error }
+
+  return {
+    data: findOverdueForms({
+      sites,
+      templates,
+      exclusions,
+      closures: closuresResult.data ?? [],
+      submissions: (submissionsResult.data ?? []).map(mapSubmission),
+      today,
+    }),
+    error: null,
+  }
 }
 
 export function assignmentTargetLabel(assignment, { sites = [], staff = [] } = {}) {
@@ -390,10 +361,11 @@ export async function setAssignmentActive(id, active) {
 }
 
 const SUBMISSION_FIELDS =
-  'id, org_id, assignment_id, template_id, site_id, staff_id, submitted_by, data, status, signed_off_by, signed_off_at, evidence, submitted_at, created_at'
+  'id, org_id, assignment_id, template_id, site_id, staff_id, submitted_by, data, status, signed_off_by, signed_off_at, evidence, submitted_at, for_date, created_at'
 
 function mapSubmission(row) {
   const payload = row.data && typeof row.data === 'object' ? row.data : {}
+  const forDate = row.for_date ? String(row.for_date).slice(0, 10) : ''
   return {
     id: row.id,
     org_id: row.org_id,
@@ -410,11 +382,14 @@ function mapSubmission(row) {
     notes: payload.notes || {},
     signoff: payload.signoff || { name: '', date: '', note: '', signature: '' },
     rows: Array.isArray(payload.rows) ? payload.rows : [],
+    missed_reason: String(payload.missedReason || '').trim(),
     status: row.status,
     signed_off_by: row.signed_off_by,
     signed_off_at: row.signed_off_at,
     evidence: Array.isArray(row.evidence) ? row.evidence : [],
     submitted_at: row.submitted_at,
+    for_date: forDate,
+    late: isSubmissionLate({ ...row, for_date: forDate, status: row.status }),
     created_at: row.created_at,
   }
 }
@@ -520,7 +495,7 @@ export async function getFormSubmission(id) {
   return { data: mapSubmission(data), error: null }
 }
 
-export async function createFormSubmission(orgId, { templateId, siteId, userId }) {
+export async function createFormSubmission(orgId, { templateId, siteId, userId, forDate }) {
   const { data, error } = await supabase
     .from('form_submissions')
     .insert({
@@ -528,6 +503,7 @@ export async function createFormSubmission(orgId, { templateId, siteId, userId }
       template_id: templateId,
       site_id: siteId || null,
       submitted_by: userId || null,
+      for_date: forDate || null,
       data: {},
       status: 'draft',
       evidence: [],
@@ -544,6 +520,43 @@ export async function updateFormSubmission(id, payload) {
     .from('form_submissions')
     .update(payload)
     .eq('id', id)
+    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+    .single()
+
+  if (error) return { data: null, error }
+  return { data: mapSubmission(data), error: null }
+}
+
+export async function createMissedSubmission(orgId, {
+  templateId,
+  siteId,
+  userId,
+  forDate,
+  reason,
+}) {
+  const missedReason = String(reason || '').trim()
+  if (!siteId) return { data: null, error: { message: 'Choose a site.' } }
+  if (!isIsoDate(forDate)) {
+    return { data: null, error: { message: 'Enter the date this covers.' } }
+  }
+  if (forDate > todayIsoDate()) {
+    return { data: null, error: { message: 'Cannot be in the future.' } }
+  }
+  if (!missedReason) return { data: null, error: { message: 'Enter a reason.' } }
+
+  const { data, error } = await supabase
+    .from('form_submissions')
+    .insert({
+      org_id: orgId,
+      template_id: templateId,
+      site_id: siteId,
+      submitted_by: userId || null,
+      for_date: forDate,
+      status: 'missed',
+      submitted_at: new Date().toISOString(),
+      data: { missedReason },
+      evidence: [],
+    })
     .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
     .single()
 

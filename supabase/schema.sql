@@ -1819,6 +1819,21 @@ create table if not exists public.form_submissions (
     check (status in ('draft', 'complete'))
 );
 
+alter table public.form_submissions
+  add column if not exists for_date date;
+
+alter table public.form_submissions drop constraint if exists form_submissions_status_check;
+alter table public.form_submissions add constraint form_submissions_status_check
+  check (status in ('draft', 'complete', 'missed'));
+
+update public.form_submissions
+set for_date = coalesce(
+  (submitted_at at time zone 'Australia/Sydney')::date,
+  (created_at at time zone 'Australia/Sydney')::date
+)
+where status = 'complete'
+  and for_date is null;
+
 create index if not exists form_submissions_org_id_template_id_idx
   on public.form_submissions (org_id, template_id);
 
