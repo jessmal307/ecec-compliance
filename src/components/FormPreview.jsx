@@ -7,7 +7,7 @@ import { FormRenderer } from './forms/FormRenderer'
 import { useFormsAccess } from './Forms'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { archetypeLabel, getFormTemplate } from '../lib/forms'
-import { paths } from '../lib/paths'
+import { formsHref, paths } from '../lib/paths'
 
 export function FormPreview() {
   const { templateId } = useParams()
@@ -57,9 +57,16 @@ export function FormPreview() {
         title={template?.name || 'Form'}
         description="Interactive preview — nothing is saved."
         actions={
-          <Button asChild variant="outline">
-            <Link to={paths.forms}>Back to forms</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {template ? (
+              <Button asChild>
+                <Link to={formsHref({ assign: template.id })}>Assign</Link>
+              </Button>
+            ) : null}
+            <Button asChild variant="outline">
+              <Link to={paths.forms}>Back to forms</Link>
+            </Button>
+          </div>
         }
       />
 

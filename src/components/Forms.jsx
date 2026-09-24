@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AssignForm } from './forms/AssignForm'
+import { FormAssignments } from './forms/FormAssignments'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
-import { archetypeLabel, listFormTemplates } from '../lib/forms'
+import { archetypeLabel, getFormTemplate, listFormTemplates } from '../lib/forms'
 import { getOrganization } from '../lib/organizations'
 import { paths } from '../lib/paths'
 import { can } from '../lib/plans'
@@ -45,16 +49,23 @@ export function useFormsAccess() {
 
   return {
     organization,
+    organizationId,
     loading,
     allowed: can(organization, 'forms'),
   }
 }
 
 export function Forms() {
+  const { organizationId } = useAuth()
   const { allowed, loading: accessLoading } = useFormsAccess()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') === 'assigned' ? 'assigned' : 'templates'
+  const assignId = searchParams.get('assign')
   const [templates, setTemplates] = useState([])
+  const [assignTemplate, setAssignTemplate] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [assignmentTick, setAssignmentTick] = useState(0)
 
   useEffect(() => {
     if (accessLoading || !allowed) return
@@ -83,6 +94,51 @@ export function Forms() {
     }
   }, [accessLoading, allowed])
 
+  useEffect(() => {
+    if (!assignId || accessLoading || !allowed) {
+      if (!assignId) setAssignTemplate(null)
+      return
+    }
+
+    const fromList = templates.find((template) => template.id === assignId)
+    if (fromList) {
+      setAssignTemplate(fromList)
+      return
+    }
+
+    let cancelled = false
+
+    getFormTemplate(assignId).then(({ data }) => {
+      if (!cancelled) setAssignTemplate(data)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [assignId, templates, accessLoading, allowed])
+
+  function setTab(next) {
+    if (next === 'assigned') setSearchParams({ tab: 'assigned' })
+    else setSearchParams({})
+  }
+
+  function openAssign(template) {
+    setAssignTemplate(template)
+    setSearchParams({ assign: template.id })
+  }
+
+  function closeAssign() {
+    setAssignTemplate(null)
+    if (tab === 'assigned') setSearchParams({ tab: 'assigned' })
+    else setSearchParams({})
+  }
+
+  function handleAssigned() {
+    setAssignTemplate(null)
+    setAssignmentTick((current) => current + 1)
+    setSearchParams({ tab: 'assigned' })
+  }
+
   if (accessLoading) {
     return <PageMuted>Loading forms…</PageMuted>
   }
@@ -95,41 +151,71 @@ export function Forms() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Forms"
-        description="Preview templates. Nothing you enter here is saved."
+        description="Preview templates and assign them to a site, person, role, or the whole organisation."
       />
 
-      <PageError>{error}</PageError>
+      {assignTemplate ? (
+        <AssignForm
+          organizationId={organizationId}
+          template={assignTemplate}
+          onCancel={closeAssign}
+          onSaved={handleAssigned}
+        />
+      ) : null}
 
-      {loading ? (
-        <PageMuted>Loading forms…</PageMuted>
-      ) : templates.length === 0 ? (
-        <PageMuted>No form templates available yet.</PageMuted>
-      ) : (
-        <ul className="grid grid-cols-1 gap-3">
-          {templates.map((template) => (
-            <li key={template.id}>
-              <Link
-                to={paths.formPreview(template.id)}
-                className="block rounded-xl no-underline"
-              >
-                <Card className="transition-colors hover:bg-muted/40">
-                  <CardHeader>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <CardTitle>{template.name}</CardTitle>
-                      <Badge variant="outline">
-                        {archetypeLabel(template.archetype)}
-                      </Badge>
-                    </div>
-                    {template.description ? (
-                      <CardDescription>{template.description}</CardDescription>
-                    ) : null}
-                  </CardHeader>
-                </Card>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="assigned">Assigned</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="templates">
+          <PageError>{error}</PageError>
+          {loading ? (
+            <PageMuted>Loading forms…</PageMuted>
+          ) : templates.length === 0 ? (
+            <PageMuted>No form templates available yet.</PageMuted>
+          ) : (
+            <ul className="grid grid-cols-1 gap-3">
+              {templates.map((template) => (
+                <li key={template.id}>
+                  <Card>
+                    <CardHeader>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CardTitle>{template.name}</CardTitle>
+                        <Badge variant="outline">
+                          {archetypeLabel(template.archetype)}
+                        </Badge>
+                      </div>
+                      {template.description ? (
+                        <CardDescription>{template.description}</CardDescription>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        <Button asChild variant="outline">
+                          <Link to={paths.formPreview(template.id)}>Preview</Link>
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => openAssign(template)}
+                        >
+                          Assign
+                        </Button>
+                      </div>
+                    </CardHeader>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          )}
+        </TabsContent>
+
+        <TabsContent value="assigned">
+          <FormAssignments
+            key={assignmentTick}
+            organizationId={organizationId}
+          />
+        </TabsContent>
+      </Tabs>
     </section>
   )
 }
