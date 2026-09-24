@@ -74,7 +74,15 @@ import {
 } from '../lib/profileCompliance'
 import { firstError } from '../lib/query'
 import { isActiveStaff, listStaffBySite } from '../lib/staff'
-import { archiveSite, deleteSite, getSite, restoreSite, updateSite } from '../lib/sites'
+import { SiteHoursSettings } from './SiteHoursSettings'
+import {
+  archiveSite,
+  DEFAULT_OPERATING_DAYS,
+  deleteSite,
+  getSite,
+  restoreSite,
+  updateSite,
+} from '../lib/sites'
 import { isArchived } from '../lib/archive'
 
 function siteInfoFromSite(site) {
@@ -84,6 +92,7 @@ function siteInfoFromSite(site) {
     serviceApprovalNumber: site?.service_approval_number ?? '',
     phone: site?.phone ?? '',
     nominatedSupervisor: site?.nominated_supervisor ?? '',
+    operatingDays: site?.operating_days ?? DEFAULT_OPERATING_DAYS,
   }
 }
 
@@ -317,6 +326,7 @@ export function SiteProfile() {
       serviceApprovalNumber: info.serviceApprovalNumber,
       phone: info.phone,
       nominatedSupervisor: info.nominatedSupervisor,
+      operatingDays: info.operatingDays,
     })
 
     if (saveError) {
@@ -714,6 +724,16 @@ export function SiteProfile() {
                     </Field>
                   </FieldGrid>
                 </FormSection>
+
+                <SiteHoursSettings
+                  organizationId={organizationId}
+                  siteId={siteId}
+                  operatingDays={info.operatingDays ?? DEFAULT_OPERATING_DAYS}
+                  onOperatingDaysChange={(next) =>
+                    setInfoField('operatingDays', next)
+                  }
+                  disabled={infoBusy}
+                />
 
                 <FormActions>
                   <Button type="submit" disabled={infoBusy}>

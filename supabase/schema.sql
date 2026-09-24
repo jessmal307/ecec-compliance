@@ -238,6 +238,98 @@ alter table public.sites
   add column if not exists nominated_supervisor text,
   add column if not exists archived_at timestamptz;
 
+alter table public.sites
+  add column if not exists operating_days integer[] not null default '{1,2,3,4,5}';
+
+update public.sites
+set operating_days = '{1,2,3,4,5}'
+where operating_days is null
+   or cardinality(operating_days) = 0;
+
+alter table public.sites
+  alter column operating_days set default '{1,2,3,4,5}';
+
+alter table public.sites
+  alter column operating_days set not null;
+
+alter table public.sites drop constraint if exists sites_operating_days_check;
+alter table public.sites add constraint sites_operating_days_check
+  check (operating_days <@ '{1,2,3,4,5,6,7}'::integer[]);
+
+create table if not exists public.site_closures (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid not null references public.sites (id) on delete cascade,
+  closure_date date not null,
+  note text,
+  created_at timestamptz not null default now(),
+  constraint site_closures_site_id_closure_date_key unique (site_id, closure_date)
+);
+
+create index if not exists site_closures_site_id_closure_date_idx
+  on public.site_closures (site_id, closure_date);
+
+alter table public.site_closures enable row level security;
+
+drop policy if exists "Users can view site closures in their organization"
+  on public.site_closures;
+create policy "Users can view site closures in their organization"
+  on public.site_closures
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+drop policy if exists "Users can insert site closures in their organization"
+  on public.site_closures;
+create policy "Users can insert site closures in their organization"
+  on public.site_closures
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+    and site_id in (
+      select id from public.sites
+      where org_id in (
+        select public.user_org_ids()
+      )
+    )
+  );
+
+drop policy if exists "Users can update site closures in their organization"
+  on public.site_closures;
+create policy "Users can update site closures in their organization"
+  on public.site_closures
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+drop policy if exists "Users can delete site closures in their organization"
+  on public.site_closures;
+create policy "Users can delete site closures in their organization"
+  on public.site_closures
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
 create index if not exists sites_org_id_archived_at_idx
   on public.sites (org_id, archived_at);
 
