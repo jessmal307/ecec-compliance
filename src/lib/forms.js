@@ -378,10 +378,14 @@ function mapSubmission(row) {
     submitted_by: row.submitted_by,
     data: payload,
     room: payload.room || '',
-    values: payload.values || {},
+    values: payload.fields || payload.values || {},
     notes: payload.notes || {},
     signoff: payload.signoff || { name: '', date: '', note: '', signature: '' },
-    rows: Array.isArray(payload.rows) ? payload.rows : [],
+    rows: Array.isArray(payload.hazards)
+      ? payload.hazards
+      : Array.isArray(payload.rows)
+        ? payload.rows
+        : [],
     missed_reason: String(payload.missedReason || '').trim(),
     status: row.status,
     signed_off_by: row.signed_off_by,
@@ -404,9 +408,12 @@ export function emptyFormState() {
 }
 
 export function buildSubmissionData({ room, values, notes, signoff, rows }) {
+  const fields = values || {}
+  const hazards = rows || []
   return {
     room: String(room || '').trim(),
-    values: values || {},
+    values: fields,
+    fields,
     notes: notes || {},
     signoff: {
       name: signoff?.name || '',
@@ -414,7 +421,8 @@ export function buildSubmissionData({ room, values, notes, signoff, rows }) {
       note: signoff?.note || '',
       signature: signoff?.signature || '',
     },
-    rows: rows || [],
+    rows: hazards,
+    hazards,
   }
 }
 

@@ -2177,12 +2177,23 @@ select
   '{
     "archetype":"register",
     "fields":[
-      {"id":"inc_datetime","label":"Date / time","type":"date","required":true},
-      {"id":"inc_person","label":"Child or person involved","type":"text","required":true},
+      {"id":"inc_child_name","label":"Child''s name","type":"text","required":true},
+      {"id":"inc_child_age","label":"Child''s age","type":"text","required":true},
+      {"id":"inc_date","label":"Date of incident","type":"date","required":true},
+      {"id":"inc_time","label":"Time of incident","type":"text","required":true},
       {"id":"inc_location","label":"Location","type":"text","required":true},
-      {"id":"inc_what","label":"What happened","type":"textarea","required":true},
-      {"id":"inc_action","label":"Action taken","type":"textarea","required":true},
-      {"id":"inc_reported_by","label":"Reported by","type":"text","required":true},
+      {"id":"inc_type","label":"Type","type":"select","required":true,"options":["Incident","Injury","Trauma","Illness"]},
+      {"id":"inc_what","label":"What happened — circumstances, including any object involved","type":"textarea","required":true},
+      {"id":"inc_nature","label":"Nature of the injury or illness","type":"textarea","required":true},
+      {"id":"inc_first_aid","label":"First aid / action taken","type":"textarea","required":true},
+      {"id":"inc_medication","label":"Medication administered (if any)","type":"text"},
+      {"id":"inc_services","label":"Medical or emergency services contacted (if any)","type":"text"},
+      {"id":"inc_witness","label":"Witnessed by","type":"text"},
+      {"id":"inc_parent_name","label":"Parent/guardian notified — name","type":"text","required":true},
+      {"id":"inc_parent_date","label":"Parent/guardian notified — date","type":"date","required":true},
+      {"id":"inc_parent_time","label":"Parent/guardian notified — time","type":"text","required":true},
+      {"id":"inc_parent_how","label":"How they were notified","type":"text"},
+      {"id":"inc_recorded_by","label":"Recorded by (name)","type":"text","required":true},
       {"id":"inc_signature","label":"Signature","type":"signature","required":true}
     ]
   }'::jsonb,
@@ -2197,6 +2208,36 @@ where not exists (
     and name = 'Incident Record'
 );
 
+update public.form_templates
+set schema = '{
+    "archetype":"register",
+    "fields":[
+      {"id":"inc_child_name","label":"Child''s name","type":"text","required":true},
+      {"id":"inc_child_age","label":"Child''s age","type":"text","required":true},
+      {"id":"inc_date","label":"Date of incident","type":"date","required":true},
+      {"id":"inc_time","label":"Time of incident","type":"text","required":true},
+      {"id":"inc_location","label":"Location","type":"text","required":true},
+      {"id":"inc_type","label":"Type","type":"select","required":true,"options":["Incident","Injury","Trauma","Illness"]},
+      {"id":"inc_what","label":"What happened — circumstances, including any object involved","type":"textarea","required":true},
+      {"id":"inc_nature","label":"Nature of the injury or illness","type":"textarea","required":true},
+      {"id":"inc_first_aid","label":"First aid / action taken","type":"textarea","required":true},
+      {"id":"inc_medication","label":"Medication administered (if any)","type":"text"},
+      {"id":"inc_services","label":"Medical or emergency services contacted (if any)","type":"text"},
+      {"id":"inc_witness","label":"Witnessed by","type":"text"},
+      {"id":"inc_parent_name","label":"Parent/guardian notified — name","type":"text","required":true},
+      {"id":"inc_parent_date","label":"Parent/guardian notified — date","type":"date","required":true},
+      {"id":"inc_parent_time","label":"Parent/guardian notified — time","type":"text","required":true},
+      {"id":"inc_parent_how","label":"How they were notified","type":"text"},
+      {"id":"inc_recorded_by","label":"Recorded by (name)","type":"text","required":true},
+      {"id":"inc_signature","label":"Signature","type":"signature","required":true}
+    ]
+  }'::jsonb,
+  cadence = null,
+  scope = 'on_demand'
+where is_system
+  and org_id is null
+  and name = 'Incident Record';
+
 insert into public.form_templates (
   org_id, name, archetype, schema, is_system, cadence, scope
 )
@@ -2207,7 +2248,25 @@ select
   '{
     "archetype":"risk_matrix",
     "likelihood":["Rare","Unlikely","Possible","Likely","Almost certain"],
-    "consequence":["Insignificant","Minor","Moderate","Major","Catastrophic"]
+    "consequence":["Insignificant","Minor","Moderate","Major","Catastrophic"],
+    "fields":[
+      {"id":"ex_destination","label":"Excursion destination","type":"text","required":true},
+      {"id":"ex_route","label":"Proposed route","type":"textarea","required":true},
+      {"id":"ex_date","label":"Date of excursion","type":"date","required":true},
+      {"id":"ex_times","label":"Departure and return times","type":"text","required":true},
+      {"id":"ex_activities","label":"Proposed activities","type":"textarea","required":true},
+      {"id":"ex_duration","label":"Expected duration","type":"text","required":true},
+      {"id":"ex_transport","label":"Transport arrangements (e.g. walking, bus)","type":"textarea","required":true},
+      {"id":"ex_water","label":"Water hazards present?","type":"select","required":true,"options":["None","Present"]},
+      {"id":"ex_water_detail","label":"If water hazards present, describe them and controls","type":"textarea"},
+      {"id":"ex_items","label":"Items to be taken (first aid kit, medication, mobile phone, etc.)","type":"textarea","required":true},
+      {"id":"ex_children","label":"Number of children attending","type":"number","required":true},
+      {"id":"ex_educators","label":"Number of educators/adults attending","type":"number","required":true},
+      {"id":"ex_ratio","label":"Educator-to-child ratio for this excursion","type":"text","required":true},
+      {"id":"ex_skills","label":"Special skills or supervision required","type":"textarea"},
+      {"id":"ex_needs","label":"Children with additional or medical needs","type":"textarea"},
+      {"id":"ex_comms","label":"Communication arrangements (e.g. mobile phone)","type":"text","required":true}
+    ]
   }'::jsonb,
   true,
   null,
@@ -2219,3 +2278,33 @@ where not exists (
     and org_id is null
     and name = 'Excursion Risk Assessment'
 );
+
+update public.form_templates
+set schema = '{
+    "archetype":"risk_matrix",
+    "likelihood":["Rare","Unlikely","Possible","Likely","Almost certain"],
+    "consequence":["Insignificant","Minor","Moderate","Major","Catastrophic"],
+    "fields":[
+      {"id":"ex_destination","label":"Excursion destination","type":"text","required":true},
+      {"id":"ex_route","label":"Proposed route","type":"textarea","required":true},
+      {"id":"ex_date","label":"Date of excursion","type":"date","required":true},
+      {"id":"ex_times","label":"Departure and return times","type":"text","required":true},
+      {"id":"ex_activities","label":"Proposed activities","type":"textarea","required":true},
+      {"id":"ex_duration","label":"Expected duration","type":"text","required":true},
+      {"id":"ex_transport","label":"Transport arrangements (e.g. walking, bus)","type":"textarea","required":true},
+      {"id":"ex_water","label":"Water hazards present?","type":"select","required":true,"options":["None","Present"]},
+      {"id":"ex_water_detail","label":"If water hazards present, describe them and controls","type":"textarea"},
+      {"id":"ex_items","label":"Items to be taken (first aid kit, medication, mobile phone, etc.)","type":"textarea","required":true},
+      {"id":"ex_children","label":"Number of children attending","type":"number","required":true},
+      {"id":"ex_educators","label":"Number of educators/adults attending","type":"number","required":true},
+      {"id":"ex_ratio","label":"Educator-to-child ratio for this excursion","type":"text","required":true},
+      {"id":"ex_skills","label":"Special skills or supervision required","type":"textarea"},
+      {"id":"ex_needs","label":"Children with additional or medical needs","type":"textarea"},
+      {"id":"ex_comms","label":"Communication arrangements (e.g. mobile phone)","type":"text","required":true}
+    ]
+  }'::jsonb,
+  cadence = null,
+  scope = 'on_demand'
+where is_system
+  and org_id is null
+  and name = 'Excursion Risk Assessment';

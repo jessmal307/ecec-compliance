@@ -52,8 +52,13 @@ export function FormRenderer({
       <RiskMatrixFormRenderer
         schema={schema}
         rows={current.rows ?? []}
+        values={current.values}
+        notes={current.notes}
         onChange={(rows) => setCurrent({ ...current, rows })}
+        onFieldChange={handleChange}
+        onNoteChange={handleNoteChange}
         readOnly={readOnly}
+        signatureUrls={signatureUrls}
       />
     )
   }
