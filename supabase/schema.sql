@@ -2166,3 +2166,56 @@ set cadence = 'daily',
 where is_system
   and org_id is null
   and name = 'Daily Risk Checklist';
+
+insert into public.form_templates (
+  org_id, name, archetype, schema, is_system, cadence, scope
+)
+select
+  null,
+  'Incident Record',
+  'register',
+  '{
+    "archetype":"register",
+    "fields":[
+      {"id":"inc_datetime","label":"Date / time","type":"date","required":true},
+      {"id":"inc_person","label":"Child or person involved","type":"text","required":true},
+      {"id":"inc_location","label":"Location","type":"text","required":true},
+      {"id":"inc_what","label":"What happened","type":"textarea","required":true},
+      {"id":"inc_action","label":"Action taken","type":"textarea","required":true},
+      {"id":"inc_reported_by","label":"Reported by","type":"text","required":true},
+      {"id":"inc_signature","label":"Signature","type":"signature","required":true}
+    ]
+  }'::jsonb,
+  true,
+  null,
+  'on_demand'
+where not exists (
+  select 1
+  from public.form_templates
+  where is_system
+    and org_id is null
+    and name = 'Incident Record'
+);
+
+insert into public.form_templates (
+  org_id, name, archetype, schema, is_system, cadence, scope
+)
+select
+  null,
+  'Excursion Risk Assessment',
+  'risk_matrix',
+  '{
+    "archetype":"risk_matrix",
+    "likelihood":["Rare","Unlikely","Possible","Likely","Almost certain"],
+    "consequence":["Insignificant","Minor","Moderate","Major","Catastrophic"]
+  }'::jsonb,
+  true,
+  null,
+  'on_demand'
+where not exists (
+  select 1
+  from public.form_templates
+  where is_system
+    and org_id is null
+    and name = 'Excursion Risk Assessment'
+);
