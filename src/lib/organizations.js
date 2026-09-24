@@ -15,7 +15,7 @@ function defaultOrgName(user) {
 export async function getOrganization(id) {
   const { data, error } = await supabase
     .from('organizations')
-    .select('id, name, owner_id, alert_email, created_at')
+    .select('id, name, owner_id, alert_email, plan, created_at')
     .eq('id', id)
     .single()
 
@@ -35,7 +35,7 @@ export async function updateOrganization(id, { name, alertEmail }) {
     .from('organizations')
     .update(payload)
     .eq('id', id)
-    .select('id, name, owner_id, alert_email, created_at')
+    .select('id, name, owner_id, alert_email, plan, created_at')
     .single()
 
   if (error) {

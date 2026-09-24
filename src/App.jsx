@@ -11,6 +11,8 @@ import { ResetPassword } from './components/ResetPassword'
 import { SetupScreen } from './components/SetupScreen'
 import { SiteProfile } from './components/SiteProfile'
 import { Sites } from './components/Sites'
+import { FormPreview } from './components/FormPreview'
+import { Forms } from './components/Forms'
 import { Landing } from './components/Landing'
 import { ImportStaff } from './components/ImportStaff'
 import { NewStaff } from './components/NewStaff'
@@ -74,6 +76,8 @@ function AppShell() {
           <Route path={paths.sites} element={<Sites />} />
           <Route path="/sites/:siteId" element={<SiteProfile />} />
           <Route path={paths.compliance} element={<Compliance />} />
+          <Route path={paths.forms} element={<Forms />} />
+          <Route path="/forms/:templateId" element={<FormPreview />} />
           <Route
             path={paths.requirements}
             element={

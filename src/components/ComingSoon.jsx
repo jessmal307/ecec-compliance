@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Baby, FileText } from 'lucide-react'
+import { Baby } from 'lucide-react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useLocation } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +9,6 @@ import { currentPagePath, submitFeatureInterest } from '../lib/feedback'
 
 export const RESERVED_FEATURES = [
   { id: 'children', label: 'Children', icon: Baby },
-  { id: 'forms', label: 'Forms', icon: FileText },
 ]
 
 export function ComingSoonNavItem({

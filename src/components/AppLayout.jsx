@@ -4,6 +4,7 @@ import {
   Building2,
   ClipboardCheck,
   Ellipsis,
+  FileText,
   LayoutDashboard,
   LogOut,
   PanelLeft,
@@ -19,10 +20,13 @@ import { FeedbackButton } from './FeedbackDialog'
 import { SitesSidebarItem } from './SitesNav'
 import { ThemeToggle } from './ThemeToggle'
 import { useAuth } from '../hooks/useAuth'
+import { getOrganization } from '../lib/organizations'
+import { can } from '../lib/plans'
 import {
   isCompliancePath,
   isExpiredAttentionPath,
   isExpiringAttentionPath,
+  isFormsPath,
   isSettingsNavPath,
   isSitesPath,
   paths,
@@ -49,6 +53,7 @@ function writeSidebarCollapsed(collapsed) {
 const pages = [
   { to: paths.home, label: 'Overview', icon: LayoutDashboard, end: true },
   { to: paths.compliance, label: 'Compliance', icon: ClipboardCheck },
+  { to: paths.forms, label: 'Forms', icon: FileText },
   { to: paths.staff, label: 'Staff', icon: Users },
   { to: paths.sites, label: 'Sites', icon: Building2 },
   { to: paths.settings, label: 'Settings', icon: Settings },
@@ -57,6 +62,8 @@ const pages = [
 function pageTitle(pathname, search = '') {
   if (pathname === paths.home) return 'Overview'
   if (pathname === paths.compliance) return 'Compliance'
+  if (pathname === paths.forms) return 'Forms'
+  if (pathname.startsWith(`${paths.forms}/`)) return 'Form preview'
   if (pathname === paths.staff) return 'Staff'
   if (pathname === paths.newStaff) return 'New staff'
   if (pathname === paths.importStaff) return 'Import staff'
@@ -117,8 +124,11 @@ function tabClassName(isActive) {
   ].join(' ')
 }
 
-function SidebarNav({ collapsed, onNavigate, onOpenSoon }) {
+function SidebarNav({ collapsed, onNavigate, onOpenSoon, showForms }) {
   const { pathname } = useLocation()
+  const visiblePages = pages.filter(
+    (item) => item.to !== paths.forms || showForms,
+  )
 
   return (
     <nav
@@ -127,7 +137,7 @@ function SidebarNav({ collapsed, onNavigate, onOpenSoon }) {
         collapsed ? 'items-center overflow-visible px-1.5' : 'overflow-y-auto px-3 py-4',
       )}
     >
-      {pages.map((item) => {
+      {visiblePages.map((item) => {
         if (item.to === paths.sites) {
           return (
             <SitesSidebarItem
@@ -152,9 +162,11 @@ function SidebarNav({ collapsed, onNavigate, onOpenSoon }) {
               const active =
                 item.to === paths.staff
                   ? isStaffPath(pathname)
-                  : item.to === paths.settings
-                    ? isSettingsNavPath(pathname)
-                    : isActive
+                  : item.to === paths.forms
+                    ? isFormsPath(pathname)
+                    : item.to === paths.settings
+                      ? isSettingsNavPath(pathname)
+                      : isActive
               return navClassName(active, collapsed)
             }}
           >
@@ -240,6 +252,7 @@ function BottomTabBar({
   onToggleMore,
   onCloseMenus,
   onOpenSoon,
+  showForms,
 }) {
   return (
     <>
@@ -254,6 +267,16 @@ function BottomTabBar({
 
       {moreOpen ? (
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-border bg-card px-2 py-2 shadow-lg md:hidden">
+          {showForms ? (
+            <NavLink
+              to={paths.forms}
+              onClick={onCloseMenus}
+              className={navClassName(isFormsPath(pathname))}
+            >
+              <FileText className="size-4 shrink-0" />
+              Forms
+            </NavLink>
+          ) : null}
           <NavLink
             to={paths.settings}
             onClick={onCloseMenus}
@@ -317,7 +340,9 @@ function BottomTabBar({
         </NavLink>
         <button
           type="button"
-          className={tabClassName(isSettingsNavPath(pathname) || moreOpen)}
+          className={tabClassName(
+            isSettingsNavPath(pathname) || isFormsPath(pathname) || moreOpen,
+          )}
           aria-expanded={moreOpen}
           aria-label="More"
           onClick={onToggleMore}
@@ -331,12 +356,31 @@ function BottomTabBar({
 }
 
 export function AppLayout() {
-  const { signOut, user } = useAuth()
+  const { signOut, user, organizationId } = useAuth()
   const { pathname, search } = useLocation()
   const [moreForPath, setMoreForPath] = useState(null)
   const [soonFeature, setSoonFeature] = useState(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
+  const [organization, setOrganization] = useState(null)
   const moreOpen = moreForPath === pathname
+  const showForms = can(organization, 'forms')
+
+  useEffect(() => {
+    if (!organizationId) {
+      setOrganization(null)
+      return
+    }
+
+    let cancelled = false
+
+    getOrganization(organizationId).then(({ data }) => {
+      if (!cancelled) setOrganization(data)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId])
 
   function toggleSidebar() {
     setSidebarCollapsed((current) => {
@@ -369,7 +413,11 @@ export function AppLayout() {
         )}
       >
         <SidebarBrand collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-        <SidebarNav collapsed={sidebarCollapsed} onOpenSoon={setSoonFeature} />
+        <SidebarNav
+          collapsed={sidebarCollapsed}
+          onOpenSoon={setSoonFeature}
+          showForms={showForms}
+        />
         {sidebarCollapsed ? null : (
           <div className="mt-auto shrink-0 border-t border-sidebar-border p-3">
             <FeedbackButton className="w-full" />
@@ -415,6 +463,7 @@ export function AppLayout() {
         }}
         onCloseMenus={closeMenus}
         onOpenSoon={setSoonFeature}
+        showForms={showForms}
       />
 
       <ComingSoonDialog feature={soonFeature} onOpenChange={setSoonFeature} />

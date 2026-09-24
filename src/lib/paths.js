@@ -12,6 +12,8 @@ export const paths = {
   staffProfile: (staffId) => `/staff/${staffId}`,
   sites: '/sites',
   siteProfile: (siteId) => `/sites/${siteId}`,
+  forms: '/forms',
+  formPreview: (templateId) => `/forms/${templateId}`,
   compliance: '/compliance',
   requirements: '/requirements',
   gaps: '/gaps',
@@ -72,6 +74,10 @@ export function isSitesPath(pathname) {
 
 export function isCompliancePath(pathname) {
   return pathname === paths.compliance
+}
+
+export function isFormsPath(pathname) {
+  return pathname === paths.forms || pathname.startsWith(`${paths.forms}/`)
 }
 
 export function isSettingsNavPath(pathname) {
