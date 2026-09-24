@@ -10,10 +10,13 @@ import { useAuth } from '../hooks/useAuth'
 import { DateInput, Field, Input, Select, Textarea } from './ui/form'
 import { PageError, PageHeader, PageMuted, PageSuccess } from './ui/page'
 import {
+  ALREADY_COMPLETED_MESSAGE,
+  COMPLETED_BY_SOMEONE_ELSE_MESSAGE,
   buildSubmissionData,
   createFormSubmission,
   createMissedSubmission,
   emptyFormState,
+  findCompleteInPeriod,
   getFormSubmission,
   getFormTemplate,
   isScheduledAllSitesTemplate,
@@ -22,6 +25,7 @@ import {
 } from '../lib/forms'
 import { todayIsoDate } from '../lib/compliance'
 import { validateIsoDate } from '../lib/dates'
+import { formatTimestamp } from '../lib/format'
 import {
   dataUrlToFile,
   FORM_EVIDENCE_ACCEPT,
@@ -63,6 +67,7 @@ export function FormComplete() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
+  const [existingComplete, setExistingComplete] = useState(null)
 
   useEffect(() => {
     if (accessLoading || !allowed || !templateId || !organizationId) return
@@ -160,6 +165,42 @@ export function FormComplete() {
     }
   }, [template, formState.signoff?.signature, formState.values])
 
+  const existingCompleteVisible =
+    organizationId && template && siteId && isScheduledAllSitesTemplate(template)
+      ? existingComplete
+      : null
+
+  useEffect(() => {
+    if (
+      !organizationId ||
+      !template ||
+      !siteId ||
+      !isScheduledAllSitesTemplate(template)
+    ) {
+      return
+    }
+
+    let cancelled = false
+
+    async function loadExisting() {
+      const { data } = await findCompleteInPeriod({
+        orgId: organizationId,
+        templateId: template.id,
+        siteId,
+        cadence: template.cadence,
+        forDate,
+        excludeId: draftId,
+      })
+      if (!cancelled) setExistingComplete(data)
+    }
+
+    loadExisting()
+
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId, template, siteId, forDate, draftId])
+
   async function persist(status) {
     setError('')
     setSaved('')
@@ -185,6 +226,21 @@ export function FormComplete() {
       if (issues.length) {
         setError(issues[0])
         return
+      }
+      if (coversScheduled) {
+        const existing = await findCompleteInPeriod({
+          orgId: organizationId,
+          templateId: template.id,
+          siteId,
+          cadence: template.cadence,
+          forDate,
+          excludeId: draftId,
+        })
+        if (existing.data) {
+          setExistingComplete(existing.data)
+          setError(ALREADY_COMPLETED_MESSAGE)
+          return
+        }
       }
     }
 
@@ -279,6 +335,22 @@ export function FormComplete() {
     })
 
     if (saveError) {
+      if (saveError.code === '23505' && coversScheduled) {
+        const existing = await findCompleteInPeriod({
+          orgId: organizationId,
+          templateId: template.id,
+          siteId,
+          cadence: template.cadence,
+          forDate,
+          excludeId: submissionId,
+        })
+        if (existing.data) {
+          setExistingComplete(existing.data)
+          setError(COMPLETED_BY_SOMEONE_ELSE_MESSAGE)
+          setSaving(false)
+          return
+        }
+      }
       setError(saveError.message)
       setSaving(false)
       return
@@ -383,6 +455,22 @@ export function FormComplete() {
 
       <PageError>{error}</PageError>
       <PageSuccess>{saved}</PageSuccess>
+      {existingCompleteVisible ? (
+        <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+          {ALREADY_COMPLETED_MESSAGE}
+          {' — '}
+          {existingCompleteVisible.signoff?.name || 'Someone'}
+          {' · '}
+          {formatTimestamp(existingCompleteVisible.submitted_at || existingCompleteVisible.created_at)}
+          {'. '}
+          <Link
+            to={paths.formSubmission(existingCompleteVisible.id)}
+            className="font-medium underline underline-offset-2"
+          >
+            View the existing submission
+          </Link>
+        </p>
+      ) : null}
 
       {loading || !template ? (
         <PageMuted>Loading form…</PageMuted>
@@ -473,7 +561,11 @@ export function FormComplete() {
               >
                 {saving ? 'Saving…' : 'Save draft'}
               </Button>
-              <Button type="button" disabled={saving} onClick={() => persist('complete')}>
+              <Button
+                type="button"
+                disabled={saving || Boolean(existingCompleteVisible)}
+                onClick={() => persist('complete')}
+              >
                 {saving ? 'Submitting…' : 'Submit'}
               </Button>
               {isScheduledAllSitesTemplate(template) ? (

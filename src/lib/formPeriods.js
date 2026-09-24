@@ -132,6 +132,17 @@ function matchingRows(submissions, siteId, templateId, status) {
   )
 }
 
+function forDateInPeriod(row, bounds) {
+  const dated = String(row?.for_date ?? '').slice(0, 10)
+  return isIsoDate(dated) && dateInPeriod(dated, bounds)
+}
+
+function hasForDateStatusInPeriod(submissions, siteId, templateId, status, bounds) {
+  return matchingRows(submissions, siteId, templateId, status).some((row) =>
+    forDateInPeriod(row, bounds),
+  )
+}
+
 export function hasCompleteInPeriod(submissions, siteId, templateId, bounds) {
   return matchingRows(submissions, siteId, templateId, 'complete').some((row) =>
     dateInPeriod(coverageDate(row), bounds),
@@ -273,7 +284,24 @@ export function findOverdueForms({
         if (!periodHasOpenDay(site, closures, bounds)) continue
       }
 
-      if (hasCompleteInPeriod(submissions, site.id, template.id, bounds)) continue
+      if (
+        hasForDateStatusInPeriod(
+          submissions,
+          site.id,
+          template.id,
+          'complete',
+          bounds,
+        ) ||
+        hasForDateStatusInPeriod(
+          submissions,
+          site.id,
+          template.id,
+          'missed',
+          bounds,
+        )
+      ) {
+        continue
+      }
 
       rows.push({
         site_id: site.id,

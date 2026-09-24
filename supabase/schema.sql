@@ -1843,6 +1843,32 @@ create index if not exists form_submissions_org_id_template_id_idx
 create index if not exists form_submissions_assignment_id_idx
   on public.form_submissions (assignment_id);
 
+update public.form_submissions as older
+set for_date = null
+from public.form_submissions as kept
+where older.status = 'complete'
+  and kept.status = 'complete'
+  and older.for_date is not null
+  and kept.for_date is not null
+  and older.site_id is not distinct from kept.site_id
+  and older.template_id = kept.template_id
+  and older.for_date = kept.for_date
+  and older.id <> kept.id
+  and (
+    coalesce(kept.submitted_at, kept.created_at)
+    > coalesce(older.submitted_at, older.created_at)
+    or (
+      coalesce(kept.submitted_at, kept.created_at)
+      = coalesce(older.submitted_at, older.created_at)
+      and kept.id > older.id
+    )
+  );
+
+drop index if exists public.form_submissions_site_template_for_date_complete_idx;
+create unique index if not exists form_submissions_site_template_for_date_complete_idx
+  on public.form_submissions (site_id, template_id, for_date)
+  where status = 'complete' and for_date is not null;
+
 alter table public.form_templates enable row level security;
 alter table public.form_assignments enable row level security;
 alter table public.form_submissions enable row level security;

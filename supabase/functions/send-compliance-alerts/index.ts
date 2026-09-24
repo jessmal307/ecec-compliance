@@ -1030,8 +1030,8 @@ function alertKey(itemId: string, kind: AlertKind) {
 }
 
 // Copied from src/lib/formPeriods.js so this function deploys as a single
-// file. Keep period maths identical. submitted_at / created_at dates use
-// Australia/Sydney (same as the rest of this digest).
+// file. Keep period maths identical. Overdue period membership uses for_date.
+// created_at dates use Australia/Sydney (same as the rest of this digest).
 const FORM_DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
 const FORM_MONTHS = [
   'January',
@@ -1142,23 +1142,31 @@ function formIsSiteOpenOn(
   )
 }
 
-function formHasCompleteInPeriod(
-  submissions: { status: string; site_id: string; template_id: string; submitted_at: string | null }[],
+function formForDateInPeriod(
+  row: { for_date?: string | null },
+  bounds: { start: string | null; end: string | null } | null,
+) {
+  const dated = String(row?.for_date ?? '').slice(0, 10)
+  if (!formIsIsoDate(dated)) return false
+  if (!bounds || (!bounds.start && !bounds.end)) return true
+  if (bounds.start && dated < bounds.start) return false
+  if (bounds.end && dated > bounds.end) return false
+  return true
+}
+
+function formHasStatusInPeriod(
+  submissions: { status: string; site_id: string; template_id: string; for_date?: string | null }[],
   siteId: string,
   templateId: string,
+  status: string,
   bounds: { start: string | null; end: string | null } | null,
 ) {
   return submissions.some((row) => {
-    if (row.status !== 'complete') return false
+    if (row.status !== status) return false
     if (!sameId(row.site_id, siteId) || !sameId(row.template_id, templateId)) {
       return false
     }
-    if (!bounds || (!bounds.start && !bounds.end)) return true
-    const dated = formSubmissionDate(row.submitted_at)
-    if (!dated) return false
-    if (bounds.start && dated < bounds.start) return false
-    if (bounds.end && dated > bounds.end) return false
-    return true
+    return formForDateInPeriod(row, bounds)
   })
 }
 
@@ -1250,7 +1258,7 @@ function findOverdueForms({
   templates: { id: string; name: string; cadence: string | null; scope: string; created_at?: string | null }[]
   exclusions: { site_id: string; template_id: string }[]
   closures: { site_id: string; closure_date: string }[]
-  submissions: { status: string; site_id: string; template_id: string; submitted_at: string | null }[]
+  submissions: { status: string; site_id: string; template_id: string; for_date?: string | null }[]
   today: string
 }): OverdueFormRow[] {
   if (!formIsIsoDate(today)) return []
@@ -1288,7 +1296,10 @@ function findOverdueForms({
         if (!formPeriodHasOpenDay(site, closures, bounds)) continue
       }
 
-      if (formHasCompleteInPeriod(submissions, site.id, template.id, bounds)) {
+      if (
+        formHasStatusInPeriod(submissions, site.id, template.id, 'complete', bounds) ||
+        formHasStatusInPeriod(submissions, site.id, template.id, 'missed', bounds)
+      ) {
         continue
       }
 
@@ -1357,9 +1368,9 @@ async function loadOverdueFormsForOrg(
       ),
     supabase
       .from('form_submissions')
-      .select('site_id, template_id, status, submitted_at')
+      .select('site_id, template_id, status, for_date')
       .eq('org_id', orgId)
-      .eq('status', 'complete')
+      .in('status', ['complete', 'missed'])
       .in(
         'template_id',
         templates.map((template) => template.id),
@@ -1387,7 +1398,7 @@ async function loadOverdueFormsForOrg(
       status: row.status,
       site_id: row.site_id,
       template_id: row.template_id,
-      submitted_at: row.submitted_at,
+      for_date: row.for_date ? String(row.for_date).slice(0, 10) : null,
     })),
     today,
   })
