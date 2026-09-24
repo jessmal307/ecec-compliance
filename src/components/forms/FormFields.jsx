@@ -7,6 +7,7 @@ import {
   Select,
   Textarea,
 } from '../ui/form'
+import { SignaturePad } from './SignaturePad'
 
 function fieldOptions(field) {
   return (field.options ?? []).map((option) =>
@@ -83,6 +84,15 @@ export function FormFieldControl({ field, value, note, onChange, onNoteChange })
           </option>
         ))}
       </Select>
+    )
+  } else if (field.type === 'signature') {
+    control = (
+      <SignaturePad
+        label={field.label || 'Signature'}
+        value={typeof value === 'string' ? value : ''}
+        onChange={onChange}
+        required={field.required}
+      />
     )
   } else if (field.type === 'radio') {
     control = (

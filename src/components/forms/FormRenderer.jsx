@@ -3,7 +3,7 @@ import { ChecklistFormRenderer } from './ChecklistFormRenderer'
 import { emptyHazardRow, RiskMatrixFormRenderer } from './RiskMatrixFormRenderer'
 import { SimpleFormRenderer } from './SimpleFormRenderer'
 
-const EMPTY_SIGNOFF = { name: '', date: '', note: '' }
+const EMPTY_SIGNOFF = { name: '', date: '', note: '', signature: '' }
 
 export function FormRenderer({ archetype, schema }) {
   const [values, setValues] = useState({})

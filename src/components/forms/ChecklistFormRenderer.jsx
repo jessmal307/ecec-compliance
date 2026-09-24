@@ -1,5 +1,6 @@
 import { DateInput, Field, Input, Textarea } from '../ui/form'
 import { FormFieldControl } from './FormFields'
+import { SignaturePad } from './SignaturePad'
 
 export function ChecklistFormRenderer({
   schema,
@@ -12,6 +13,7 @@ export function ChecklistFormRenderer({
 }) {
   const items = Array.isArray(schema?.items) ? schema.items : []
   const signoffRequired = Boolean(schema?.signoff?.required)
+  const showSignature = signoffRequired && schema?.signoff?.signature !== false
 
   return (
     <div className="space-y-5">
@@ -45,6 +47,18 @@ export function ChecklistFormRenderer({
               }
             />
           </Field>
+          {showSignature ? (
+            <Field label="Signature (required)">
+              <SignaturePad
+                label="Signature"
+                value={signoff.signature ?? ''}
+                required
+                onChange={(next) =>
+                  onSignoffChange({ ...signoff, signature: next })
+                }
+              />
+            </Field>
+          ) : null}
           <Field label="Date (required)">
             <DateInput
               value={signoff.date}
