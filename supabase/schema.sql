@@ -15,6 +15,24 @@ alter table public.organizations
 alter table public.organizations
   add column if not exists alert_email text;
 
+alter table public.organizations
+  add column if not exists plan text not null default 'core';
+
+update public.organizations
+set plan = 'core'
+where plan is null
+   or plan not in ('core', 'plus', 'pro');
+
+alter table public.organizations
+  alter column plan set default 'core';
+
+alter table public.organizations
+  alter column plan set not null;
+
+alter table public.organizations drop constraint if exists organizations_plan_check;
+alter table public.organizations add constraint organizations_plan_check
+  check (plan in ('core', 'plus', 'pro'));
+
 create unique index if not exists organizations_owner_id_key
   on public.organizations (owner_id);
 
@@ -1435,3 +1453,453 @@ create policy "Users can delete calendar events in their organization"
       select public.user_org_ids()
     )
   );
+
+-- Append-only audit trail. Writes come only from the trigger below.
+-- Logging errors are swallowed so they never block a normal save.
+create table if not exists public.audit_log (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  actor_id uuid,
+  actor_name text not null default 'System',
+  entity text not null,
+  entity_id uuid not null,
+  action text not null,
+  before jsonb,
+  after jsonb,
+  created_at timestamptz not null default now(),
+  constraint audit_log_action_check check (action in ('insert', 'update', 'delete'))
+);
+
+create index if not exists audit_log_org_id_created_at_idx
+  on public.audit_log (org_id, created_at desc);
+
+create index if not exists audit_log_org_id_entity_idx
+  on public.audit_log (org_id, entity);
+
+alter table public.audit_log enable row level security;
+
+revoke all on table public.audit_log from public;
+revoke all on table public.audit_log from anon;
+revoke all on table public.audit_log from authenticated;
+grant select on table public.audit_log to authenticated;
+
+drop policy if exists "Users can view audit log in their organization"
+  on public.audit_log;
+create policy "Users can view audit log in their organization"
+  on public.audit_log
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+create or replace function public.audit_log_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_actor_id uuid;
+  v_actor_name text;
+  v_org_id uuid;
+  v_entity_id uuid;
+  v_before jsonb;
+  v_after jsonb;
+begin
+  begin
+    v_actor_id := auth.uid();
+
+    if v_actor_id is not null then
+      select coalesce(
+        nullif(users.raw_user_meta_data->>'display_name', ''),
+        nullif(users.email, ''),
+        'System'
+      )
+      into v_actor_name
+      from auth.users as users
+      where users.id = v_actor_id;
+    end if;
+
+    v_actor_name := coalesce(nullif(v_actor_name, ''), 'System');
+
+    if tg_op = 'DELETE' then
+      v_org_id := old.org_id;
+      v_entity_id := old.id;
+      v_before := to_jsonb(old);
+      v_after := null;
+    else
+      v_org_id := new.org_id;
+      v_entity_id := new.id;
+      v_after := to_jsonb(new);
+      if tg_op = 'UPDATE' then
+        v_before := to_jsonb(old);
+      end if;
+    end if;
+
+    if v_org_id is not null and v_entity_id is not null then
+      insert into public.audit_log (
+        org_id,
+        actor_id,
+        actor_name,
+        entity,
+        entity_id,
+        action,
+        before,
+        after
+      ) values (
+        v_org_id,
+        v_actor_id,
+        v_actor_name,
+        tg_table_name,
+        v_entity_id,
+        lower(tg_op),
+        v_before,
+        v_after
+      );
+    end if;
+  exception
+    when others then
+      null;
+  end;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.audit_log_change() from public;
+
+drop trigger if exists audit_staff_change on public.staff;
+create trigger audit_staff_change
+  after insert or update or delete on public.staff
+  for each row execute function public.audit_log_change();
+
+drop trigger if exists audit_sites_change on public.sites;
+create trigger audit_sites_change
+  after insert or update or delete on public.sites
+  for each row execute function public.audit_log_change();
+
+drop trigger if exists audit_requirement_types_change on public.requirement_types;
+create trigger audit_requirement_types_change
+  after insert or update or delete on public.requirement_types
+  for each row execute function public.audit_log_change();
+
+drop trigger if exists audit_compliance_items_change on public.compliance_items;
+create trigger audit_compliance_items_change
+  after insert or update or delete on public.compliance_items
+  for each row execute function public.audit_log_change();
+
+-- Forms engine (Plus). Core orgs cannot read or write these tables.
+create or replace function public.org_has_plan(target_org_id uuid, min_plan text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.organizations as org
+    where org.id = target_org_id
+      and case org.plan
+        when 'pro' then 2
+        when 'plus' then 1
+        else 0
+      end
+      >=
+      case min_plan
+        when 'pro' then 2
+        when 'plus' then 1
+        else 0
+      end
+  );
+$$;
+
+revoke all on function public.org_has_plan(uuid, text) from public;
+grant execute on function public.org_has_plan(uuid, text) to authenticated;
+
+create or replace function public.user_plus_org_ids()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select members.org_id
+  from public.org_members as members
+  where members.user_id = auth.uid()
+    and public.org_has_plan(members.org_id, 'plus')
+$$;
+
+revoke all on function public.user_plus_org_ids() from public;
+grant execute on function public.user_plus_org_ids() to authenticated;
+
+create table if not exists public.form_templates (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid references public.organizations (id) on delete cascade,
+  name text not null,
+  archetype text not null,
+  schema jsonb not null default '{}'::jsonb,
+  reg_ref text,
+  description text,
+  is_system boolean not null default false,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  constraint form_templates_archetype_check
+    check (archetype in ('simple', 'register', 'checklist', 'risk_matrix'))
+);
+
+create index if not exists form_templates_org_id_idx
+  on public.form_templates (org_id);
+
+create table if not exists public.form_assignments (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  template_id uuid not null references public.form_templates (id) on delete cascade,
+  target_type text not null,
+  target_id uuid,
+  target_role text,
+  cadence text not null,
+  next_due date,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  constraint form_assignments_target_type_check
+    check (target_type in ('site', 'staff', 'role', 'org')),
+  constraint form_assignments_cadence_check
+    check (cadence in ('once', 'daily', 'weekly', 'monthly', 'quarterly', 'annual'))
+);
+
+create index if not exists form_assignments_org_id_template_id_idx
+  on public.form_assignments (org_id, template_id);
+
+create table if not exists public.form_submissions (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  assignment_id uuid references public.form_assignments (id) on delete set null,
+  template_id uuid not null references public.form_templates (id) on delete restrict,
+  site_id uuid references public.sites (id) on delete set null,
+  staff_id uuid references public.staff (id) on delete set null,
+  submitted_by uuid references auth.users (id) on delete set null,
+  data jsonb not null default '{}'::jsonb,
+  status text not null default 'draft',
+  signed_off_by uuid references auth.users (id) on delete set null,
+  signed_off_at timestamptz,
+  evidence jsonb,
+  submitted_at timestamptz,
+  created_at timestamptz not null default now(),
+  constraint form_submissions_status_check
+    check (status in ('draft', 'complete'))
+);
+
+create index if not exists form_submissions_org_id_template_id_idx
+  on public.form_submissions (org_id, template_id);
+
+create index if not exists form_submissions_assignment_id_idx
+  on public.form_submissions (assignment_id);
+
+alter table public.form_templates enable row level security;
+alter table public.form_assignments enable row level security;
+alter table public.form_submissions enable row level security;
+
+drop policy if exists "Plus users can view form templates" on public.form_templates;
+create policy "Plus users can view form templates"
+  on public.form_templates
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+    or (
+      org_id is null
+      and exists (
+        select 1
+        from public.user_plus_org_ids()
+      )
+    )
+  );
+
+drop policy if exists "Plus users can insert their own form templates"
+  on public.form_templates;
+create policy "Plus users can insert their own form templates"
+  on public.form_templates
+  for insert
+  to authenticated
+  with check (
+    org_id is not null
+    and org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can update their own form templates"
+  on public.form_templates;
+create policy "Plus users can update their own form templates"
+  on public.form_templates
+  for update
+  to authenticated
+  using (
+    org_id is not null
+    and org_id in (
+      select public.user_plus_org_ids()
+    )
+  )
+  with check (
+    org_id is not null
+    and org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can delete their own form templates"
+  on public.form_templates;
+create policy "Plus users can delete their own form templates"
+  on public.form_templates
+  for delete
+  to authenticated
+  using (
+    org_id is not null
+    and org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can view form assignments"
+  on public.form_assignments;
+create policy "Plus users can view form assignments"
+  on public.form_assignments
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can insert form assignments"
+  on public.form_assignments;
+create policy "Plus users can insert form assignments"
+  on public.form_assignments
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can update form assignments"
+  on public.form_assignments;
+create policy "Plus users can update form assignments"
+  on public.form_assignments
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can delete form assignments"
+  on public.form_assignments;
+create policy "Plus users can delete form assignments"
+  on public.form_assignments
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can view form submissions"
+  on public.form_submissions;
+create policy "Plus users can view form submissions"
+  on public.form_submissions
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can insert form submissions"
+  on public.form_submissions;
+create policy "Plus users can insert form submissions"
+  on public.form_submissions
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can update form submissions"
+  on public.form_submissions;
+create policy "Plus users can update form submissions"
+  on public.form_submissions
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can delete form submissions"
+  on public.form_submissions;
+create policy "Plus users can delete form submissions"
+  on public.form_submissions
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+insert into public.form_templates (
+  org_id, name, archetype, schema, is_system
+)
+select
+  null,
+  'Daily Risk Checklist',
+  'checklist',
+  '{
+    "archetype":"checklist",
+    "items":[
+      {"id":"c_gates","label":"Gates and fences secure","type":"checkbox","required":true,"allowsNote":true},
+      {"id":"c_hazards","label":"Outdoor area checked for hazards","type":"checkbox","required":true,"allowsNote":true},
+      {"id":"c_firstaid","label":"First aid kit stocked and accessible","type":"checkbox","required":true,"allowsNote":true},
+      {"id":"c_exits","label":"Emergency exits clear","type":"checkbox","required":true,"allowsNote":true},
+      {"id":"c_chemicals","label":"Chemicals stored securely","type":"checkbox","required":true,"allowsNote":true},
+      {"id":"c_temp","label":"Room temperature appropriate","type":"checkbox","required":true,"allowsNote":true}
+    ],
+    "signoff":{"required":true}
+  }'::jsonb,
+  true
+where not exists (
+  select 1
+  from public.form_templates
+  where is_system
+    and org_id is null
+    and name = 'Daily Risk Checklist'
+);

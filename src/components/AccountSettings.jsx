@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
 import { PageError, PageHeader, PageMuted, PageSuccess } from './ui/page'
+import { ActivityLog } from './ActivityLog'
 import { LegalLinks } from './LegalDocument'
 import { Requirements } from './Requirements'
 import { useAuth } from '../hooks/useAuth'
@@ -40,7 +41,7 @@ function emailsMatch(left, right) {
 export function AccountSettings() {
   const { user, organizationId, signOut } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const settingsTab = ['organisation', 'requirements'].includes(
+  const settingsTab = ['organisation', 'requirements', 'activity'].includes(
     searchParams.get('tab'),
   )
     ? searchParams.get('tab')
@@ -312,6 +313,7 @@ export function AccountSettings() {
           <TabsTrigger value="account">Account</TabsTrigger>
           <TabsTrigger value="organisation">Organisation</TabsTrigger>
           <TabsTrigger value="requirements">Requirement types</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
 
         <TabsContent value="account">
@@ -548,6 +550,10 @@ export function AccountSettings() {
 
         <TabsContent value="requirements">
           <Requirements embedded />
+        </TabsContent>
+
+        <TabsContent value="activity">
+          <ActivityLog organizationId={organizationId} />
         </TabsContent>
       </Tabs>
 
