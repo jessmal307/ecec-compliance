@@ -145,6 +145,7 @@ async function siteFormsRequest(token, { method, body } = {}) {
       method: method || 'GET',
       headers: {
         apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
         'x-site-token': token,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
