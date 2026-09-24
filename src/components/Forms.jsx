@@ -9,12 +9,10 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { AssignForm } from './forms/AssignForm'
-import { FormAssignments } from './forms/FormAssignments'
 import { FormSubmissions } from './forms/FormSubmissions'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
-import { archetypeLabel, getFormTemplate, listFormTemplates } from '../lib/forms'
+import { archetypeLabel, listFormTemplates } from '../lib/forms'
 import { getOrganization } from '../lib/organizations'
 import { paths } from '../lib/paths'
 import { can } from '../lib/plans'
@@ -60,17 +58,10 @@ export function Forms() {
   const { organizationId } = useAuth()
   const { allowed, loading: accessLoading } = useFormsAccess()
   const [searchParams, setSearchParams] = useSearchParams()
-  const requestedTab = searchParams.get('tab')
-  const tab =
-    requestedTab === 'assigned' || requestedTab === 'submissions'
-      ? requestedTab
-      : 'templates'
-  const assignId = searchParams.get('assign')
+  const tab = searchParams.get('tab') === 'submissions' ? 'submissions' : 'templates'
   const [templates, setTemplates] = useState([])
-  const [assignTemplate, setAssignTemplate] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [assignmentTick, setAssignmentTick] = useState(0)
 
   useEffect(() => {
     if (accessLoading || !allowed) return
@@ -99,52 +90,9 @@ export function Forms() {
     }
   }, [accessLoading, allowed])
 
-  useEffect(() => {
-    if (!assignId || accessLoading || !allowed) {
-      if (!assignId) setAssignTemplate(null)
-      return
-    }
-
-    const fromList = templates.find((template) => template.id === assignId)
-    if (fromList) {
-      setAssignTemplate(fromList)
-      return
-    }
-
-    let cancelled = false
-
-    getFormTemplate(assignId).then(({ data }) => {
-      if (!cancelled) setAssignTemplate(data)
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [assignId, templates, accessLoading, allowed])
-
   function setTab(next) {
-    if (next === 'assigned' || next === 'submissions') {
-      setSearchParams({ tab: next })
-      return
-    }
-    setSearchParams({})
-  }
-
-  function openAssign(template) {
-    setAssignTemplate(template)
-    setSearchParams({ assign: template.id })
-  }
-
-  function closeAssign() {
-    setAssignTemplate(null)
-    if (tab === 'assigned' || tab === 'submissions') setSearchParams({ tab })
+    if (next === 'submissions') setSearchParams({ tab: 'submissions' })
     else setSearchParams({})
-  }
-
-  function handleAssigned() {
-    setAssignTemplate(null)
-    setAssignmentTick((current) => current + 1)
-    setSearchParams({ tab: 'assigned' })
   }
 
   if (accessLoading) {
@@ -162,19 +110,9 @@ export function Forms() {
         description="Preview, complete, and review saved forms."
       />
 
-      {assignTemplate ? (
-        <AssignForm
-          organizationId={organizationId}
-          template={assignTemplate}
-          onCancel={closeAssign}
-          onSaved={handleAssigned}
-        />
-      ) : null}
-
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="templates">Templates</TabsTrigger>
-          <TabsTrigger value="assigned">Assigned</TabsTrigger>
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
         </TabsList>
 
@@ -206,13 +144,6 @@ export function Forms() {
                         <Button asChild variant="outline">
                           <Link to={paths.formPreview(template.id)}>Preview</Link>
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => openAssign(template)}
-                        >
-                          Assign
-                        </Button>
                       </div>
                     </CardHeader>
                   </Card>
@@ -220,13 +151,6 @@ export function Forms() {
               ))}
             </ul>
           )}
-        </TabsContent>
-
-        <TabsContent value="assigned">
-          <FormAssignments
-            key={assignmentTick}
-            organizationId={organizationId}
-          />
         </TabsContent>
 
         <TabsContent value="submissions">
