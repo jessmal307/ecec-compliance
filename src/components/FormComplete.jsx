@@ -40,6 +40,7 @@ export function FormComplete() {
   const { templateId } = useParams()
   const [searchParams] = useSearchParams()
   const draftParam = searchParams.get('draft')
+  const siteParam = searchParams.get('site')
   const navigate = useNavigate()
   const { organizationId, user } = useAuth()
   const { allowed, loading: accessLoading } = useFormsAccess()
@@ -99,6 +100,11 @@ export function FormComplete() {
           rows: draftResult.data.rows,
         })
         setEvidence(draftResult.data.evidence)
+      } else if (
+        siteParam &&
+        (sitesResult.data ?? []).some((site) => String(site.id) === String(siteParam))
+      ) {
+        setSiteId(siteParam)
       }
       setLoading(false)
     }
@@ -108,7 +114,7 @@ export function FormComplete() {
     return () => {
       cancelled = true
     }
-  }, [accessLoading, allowed, templateId, organizationId, draftParam, navigate])
+  }, [accessLoading, allowed, templateId, organizationId, draftParam, siteParam, navigate])
 
   useEffect(() => {
     if (!template) return

@@ -1,0 +1,120 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { PageError, PageMuted } from '../ui/page'
+import { cadenceLabel, computeDueForms } from '../../lib/forms'
+import { formatDate } from '../../lib/format'
+import { todayIsoDate } from '../../lib/compliance'
+import { paths } from '../../lib/paths'
+
+export function FormDue({ organizationId }) {
+  const today = todayIsoDate()
+  const [searchParams] = useSearchParams()
+  const siteFilter = searchParams.get('site') || ''
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!organizationId) return
+
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      setError('')
+      const { data, error: loadError } = await computeDueForms(organizationId, today)
+      if (cancelled) return
+      if (loadError) {
+        setError(loadError.message)
+        setRows([])
+        setLoading(false)
+        return
+      }
+      setRows(data)
+      setLoading(false)
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId, today])
+
+  const groups = useMemo(() => {
+    const bySite = new Map()
+    for (const row of rows) {
+      const existing = bySite.get(row.site_id)
+      if (existing) existing.rows.push(row)
+      else bySite.set(row.site_id, { site_id: row.site_id, site_name: row.site_name, rows: [row] })
+    }
+    const groups = [...bySite.values()]
+    if (!siteFilter) return groups
+    return groups.filter((group) => String(group.site_id) === String(siteFilter))
+  }, [rows, siteFilter])
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Current period as of {formatDate(today)}. Scheduled forms only — due or done, not overdue.
+      </p>
+      <PageError>{error}</PageError>
+      {loading ? (
+        <PageMuted>Loading due forms…</PageMuted>
+      ) : groups.length === 0 ? (
+        <PageMuted>Nothing applicable today. Closed days and excluded sites are omitted.</PageMuted>
+      ) : (
+        <ul className="grid grid-cols-1 gap-3">
+          {groups.map((group) => (
+            <li key={group.site_id}>
+              <Card>
+                <CardHeader>
+                  <CardTitle>{group.site_name}</CardTitle>
+                  <CardDescription>
+                    {group.rows.filter((row) => row.status === 'due').length} due
+                    {' · '}
+                    {group.rows.filter((row) => row.status === 'done').length} done
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-2">
+                    {group.rows.map((row) => (
+                      <li
+                        key={`${row.site_id}-${row.template_id}`}
+                        className="flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{row.template_name}</span>
+                          <Badge variant="outline">{cadenceLabel(row.cadence)}</Badge>
+                          <Badge variant={row.status === 'done' ? 'secondary' : 'default'}>
+                            {row.status === 'done' ? 'Done' : 'Due'}
+                          </Badge>
+                        </div>
+                        {row.status === 'due' ? (
+                          <Button asChild size="sm">
+                            <Link to={`${paths.formComplete(row.template_id)}?site=${row.site_id}`}>
+                              Complete
+                            </Link>
+                          </Button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}

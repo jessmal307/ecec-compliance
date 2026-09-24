@@ -235,3 +235,19 @@ export async function deleteSiteClosure(id) {
   const { error } = await supabase.from('site_closures').delete().eq('id', id)
   return { error }
 }
+
+export async function listSiteClosuresForSites(siteIds, { date } = {}) {
+  if (!siteIds?.length) return { data: [], error: null }
+
+  let query = supabase
+    .from('site_closures')
+    .select('id, org_id, site_id, closure_date, note, created_at')
+    .in('site_id', siteIds)
+    .order('closure_date', { ascending: true })
+
+  if (date) query = query.eq('closure_date', date)
+
+  const { data, error } = await query
+  if (error) return { data: [], error }
+  return { data: (data ?? []).map(mapClosure), error: null }
+}

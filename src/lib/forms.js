@@ -1,6 +1,8 @@
 import { todayIsoDate } from './compliance'
 import { isIsoDate } from './dates'
 import { isSignatureDataUrl } from './formUploads'
+import { firstError } from './query'
+import { listSiteClosuresForSites, listSites } from './sites'
 import { supabase } from './supabase'
 
 export const FORM_CADENCES = [
@@ -25,7 +27,9 @@ const ASSIGNMENT_FIELDS =
   'id, org_id, template_id, target_type, target_id, target_role, cadence, next_due, active, created_at'
 
 const TEMPLATE_FIELDS =
-  'id, org_id, name, archetype, schema, reg_ref, description, is_system, archived_at, created_at'
+  'id, org_id, name, archetype, schema, reg_ref, description, is_system, cadence, scope, archived_at, created_at'
+
+const EXCLUSION_FIELDS = 'id, org_id, site_id, template_id, created_at'
 
 function mapTemplate(row) {
   return {
@@ -37,9 +41,15 @@ function mapTemplate(row) {
     reg_ref: row.reg_ref ?? '',
     description: row.description ?? '',
     is_system: Boolean(row.is_system),
+    cadence: row.cadence ?? null,
+    scope: row.scope || 'on_demand',
     archived_at: row.archived_at ?? null,
     created_at: row.created_at,
   }
+}
+
+export function isScheduledAllSitesTemplate(template) {
+  return Boolean(template?.cadence) && template.scope === 'all_sites'
 }
 
 export function archetypeLabel(archetype) {
@@ -109,8 +119,187 @@ export function computeNextDue(cadence, fromDate = todayIsoDate()) {
   return fromDate
 }
 
+export function isoWeekday(isoDate) {
+  if (!isIsoDate(isoDate)) return null
+  const day = new Date(`${isoDate}T00:00:00`).getDay()
+  return day === 0 ? 7 : day
+}
+
+export function periodBounds(cadence, today = todayIsoDate()) {
+  if (!isIsoDate(today)) return null
+  const [year, month] = today.split('-').map(Number)
+
+  if (cadence === 'daily') return { start: today, end: today }
+  if (cadence === 'weekly') {
+    const weekday = isoWeekday(today)
+    const start = addDaysIso(today, 1 - weekday)
+    return { start, end: addDaysIso(start, 6) }
+  }
+  if (cadence === 'monthly') {
+    return {
+      start: formatIso(year, month, 1),
+      end: formatIso(year, month, daysInMonth(year, month)),
+    }
+  }
+  if (cadence === 'quarterly') {
+    const startMonth = Math.floor((month - 1) / 3) * 3 + 1
+    const endMonth = startMonth + 2
+    return {
+      start: formatIso(year, startMonth, 1),
+      end: formatIso(year, endMonth, daysInMonth(year, endMonth)),
+    }
+  }
+  if (cadence === 'annual') {
+    return { start: formatIso(year, 1, 1), end: formatIso(year, 12, 31) }
+  }
+  if (cadence === 'once') return { start: null, end: null }
+  return null
+}
+
+export function submissionLocalDate(value) {
+  if (!value) return null
+  if (isIsoDate(value)) return value
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return formatIso(date.getFullYear(), date.getMonth() + 1, date.getDate())
+}
+
 export function cadenceLabel(cadence) {
   return FORM_CADENCES.find((item) => item.value === cadence)?.label || cadence
+}
+
+function sameId(left, right) {
+  return left != null && right != null && String(left) === String(right)
+}
+
+export function isFormSiteExcluded(exclusions, siteId, templateId) {
+  return exclusions.some(
+    (row) => sameId(row.site_id, siteId) && sameId(row.template_id, templateId),
+  )
+}
+
+export async function listFormSiteExclusions(orgId) {
+  if (!orgId) return { data: [], error: null }
+
+  const { data, error } = await supabase
+    .from('form_site_exclusions')
+    .select(EXCLUSION_FIELDS)
+    .eq('org_id', orgId)
+
+  if (error) return { data: [], error }
+  return { data: data ?? [], error: null }
+}
+
+export async function addFormSiteExclusion(orgId, siteId, templateId) {
+  const { data, error } = await supabase
+    .from('form_site_exclusions')
+    .insert({ org_id: orgId, site_id: siteId, template_id: templateId })
+    .select(EXCLUSION_FIELDS)
+    .single()
+
+  if (error && error.code !== '23505') return { data: null, error }
+  return { data: data ?? null, error: null }
+}
+
+export async function removeFormSiteExclusion(orgId, siteId, templateId) {
+  const { error } = await supabase
+    .from('form_site_exclusions')
+    .delete()
+    .eq('org_id', orgId)
+    .eq('site_id', siteId)
+    .eq('template_id', templateId)
+
+  return { error }
+}
+
+function isSiteOpenOn(site, closures, today) {
+  const weekday = isoWeekday(today)
+  if (!site.operating_days?.includes(weekday)) return false
+  return !closures.some(
+    (row) => sameId(row.site_id, site.id) && row.closure_date === today,
+  )
+}
+
+function hasCompleteInPeriod(submissions, siteId, templateId, bounds) {
+  return submissions.some((row) => {
+    if (row.status !== 'complete') return false
+    if (!sameId(row.site_id, siteId) || !sameId(row.template_id, templateId)) {
+      return false
+    }
+    if (!bounds || (!bounds.start && !bounds.end)) return true
+    const dated = submissionLocalDate(row.submitted_at)
+    if (!dated) return false
+    if (bounds.start && dated < bounds.start) return false
+    if (bounds.end && dated > bounds.end) return false
+    return true
+  })
+}
+
+export async function computeDueForms(orgId, today = todayIsoDate()) {
+  if (!orgId) return { data: [], error: null }
+  if (!isIsoDate(today)) {
+    return { data: [], error: { message: 'Enter a valid date.' } }
+  }
+
+  const [sitesResult, templatesResult, exclusionsResult] = await Promise.all([
+    listSites(orgId),
+    listFormTemplates(),
+    listFormSiteExclusions(orgId),
+  ])
+  const setupError = firstError(sitesResult, templatesResult, exclusionsResult)
+  if (setupError) return { data: [], error: setupError }
+
+  const sites = sitesResult.data ?? []
+  const templates = (templatesResult.data ?? []).filter(isScheduledAllSitesTemplate)
+  const exclusions = exclusionsResult.data ?? []
+
+  if (!sites.length || !templates.length) return { data: [], error: null }
+
+  const [closuresResult, submissionsResult] = await Promise.all([
+    listSiteClosuresForSites(
+      sites.map((site) => site.id),
+      { date: today },
+    ),
+    supabase
+      .from('form_submissions')
+      .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+      .eq('org_id', orgId)
+      .eq('status', 'complete')
+      .in(
+        'template_id',
+        templates.map((template) => template.id),
+      ),
+  ])
+
+  if (closuresResult.error) return { data: [], error: closuresResult.error }
+  if (submissionsResult.error) return { data: [], error: submissionsResult.error }
+
+  const closures = closuresResult.data ?? []
+  const submissions = (submissionsResult.data ?? []).map(mapSubmission)
+  const rows = []
+
+  for (const site of sites) {
+    for (const template of templates) {
+      if (isFormSiteExcluded(exclusions, site.id, template.id)) continue
+      if (template.cadence === 'daily' && !isSiteOpenOn(site, closures, today)) {
+        continue
+      }
+
+      const bounds = periodBounds(template.cadence, today)
+      rows.push({
+        site_id: site.id,
+        site_name: site.name,
+        template_id: template.id,
+        template_name: template.name,
+        cadence: template.cadence,
+        status: hasCompleteInPeriod(submissions, site.id, template.id, bounds)
+          ? 'done'
+          : 'due',
+      })
+    }
+  }
+
+  return { data: rows, error: null }
 }
 
 export function assignmentTargetLabel(assignment, { sites = [], staff = [] } = {}) {

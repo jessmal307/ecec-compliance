@@ -105,10 +105,11 @@ export function settingsHref(tab) {
   return { pathname: paths.settings, search: `?tab=${tab}` }
 }
 
-export function formsHref({ tab, assign } = {}) {
+export function formsHref({ tab, assign, site } = {}) {
   const params = new URLSearchParams()
   if (tab && tab !== 'templates') params.set('tab', tab)
   if (assign) params.set('assign', assign)
+  if (site) params.set('site', site)
   const search = params.toString()
   return search ? { pathname: paths.forms, search: `?${search}` } : paths.forms
 }

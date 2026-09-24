@@ -4,18 +4,32 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { FormDue } from './forms/FormDue'
+import { FormSiteExclusions } from './forms/FormSiteExclusions'
 import { FormSubmissions } from './forms/FormSubmissions'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
-import { archetypeLabel, listFormTemplates } from '../lib/forms'
+import {
+  archetypeLabel,
+  cadenceLabel,
+  isScheduledAllSitesTemplate,
+  listFormTemplates,
+} from '../lib/forms'
 import { getOrganization } from '../lib/organizations'
 import { paths } from '../lib/paths'
 import { can } from '../lib/plans'
+
+function formsTab(searchParams) {
+  const tab = searchParams.get('tab')
+  if (tab === 'submissions' || tab === 'due') return tab
+  return 'templates'
+}
 
 export function useFormsAccess() {
   const { organizationId } = useAuth()
@@ -58,7 +72,7 @@ export function Forms() {
   const { organizationId } = useAuth()
   const { allowed, loading: accessLoading } = useFormsAccess()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') === 'submissions' ? 'submissions' : 'templates'
+  const tab = formsTab(searchParams)
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -91,7 +105,7 @@ export function Forms() {
   }, [accessLoading, allowed])
 
   function setTab(next) {
-    if (next === 'submissions') setSearchParams({ tab: 'submissions' })
+    if (next === 'submissions' || next === 'due') setSearchParams({ tab: next })
     else setSearchParams({})
   }
 
@@ -113,6 +127,7 @@ export function Forms() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="due">Due</TabsTrigger>
           <TabsTrigger value="submissions">Submissions</TabsTrigger>
         </TabsList>
 
@@ -133,6 +148,9 @@ export function Forms() {
                         <Badge variant="outline">
                           {archetypeLabel(template.archetype)}
                         </Badge>
+                        {template.cadence ? (
+                          <Badge variant="outline">{cadenceLabel(template.cadence)}</Badge>
+                        ) : null}
                       </div>
                       {template.description ? (
                         <CardDescription>{template.description}</CardDescription>
@@ -146,11 +164,23 @@ export function Forms() {
                         </Button>
                       </div>
                     </CardHeader>
+                    {isScheduledAllSitesTemplate(template) ? (
+                      <CardContent>
+                        <FormSiteExclusions
+                          organizationId={organizationId}
+                          templateId={template.id}
+                        />
+                      </CardContent>
+                    ) : null}
                   </Card>
                 </li>
               ))}
             </ul>
           )}
+        </TabsContent>
+
+        <TabsContent value="due">
+          <FormDue organizationId={organizationId} />
         </TabsContent>
 
         <TabsContent value="submissions">

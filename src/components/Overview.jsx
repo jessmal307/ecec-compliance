@@ -40,8 +40,11 @@ import {
   listSiteRequirementExclusionsForOrg,
 } from '../lib/exclusions'
 import { buildOwnerGaps } from '../lib/gaps'
+import { computeDueForms } from '../lib/forms'
 import { daysUntil } from '../lib/format'
-import { ownerRequirementPath, paths } from '../lib/paths'
+import { getOrganization } from '../lib/organizations'
+import { formsHref, ownerRequirementPath, paths } from '../lib/paths'
+import { can } from '../lib/plans'
 import { firstError } from '../lib/query'
 import { listSites } from '../lib/sites'
 import { isActiveStaff, listStaff } from '../lib/staff'
@@ -107,6 +110,38 @@ function compareSiteUrgency(left, right) {
     right.expiringCount - left.expiringCount ||
     right.recheckDueCount - left.recheckDueCount
   )
+}
+
+function summarizeDueBySite(rows) {
+  const bySite = new Map()
+  for (const row of rows) {
+    const existing = bySite.get(row.site_id)
+    if (existing) {
+      existing.total += 1
+      if (row.status === 'due') existing.due += 1
+      else existing.done += 1
+    } else {
+      bySite.set(row.site_id, {
+        site_id: row.site_id,
+        site_name: row.site_name,
+        total: 1,
+        due: row.status === 'due' ? 1 : 0,
+        done: row.status === 'done' ? 1 : 0,
+      })
+    }
+  }
+
+  return [...bySite.values()].sort(
+    (left, right) =>
+      right.due - left.due || left.site_name.localeCompare(right.site_name),
+  )
+}
+
+function formsDueCountLabel(row) {
+  if (row.due === 0 || row.done > 0) {
+    return `${row.done} of ${row.total} done`
+  }
+  return countLabel(row.due, 'due', 'due')
 }
 
 function overviewUrgency(item, status) {
@@ -190,6 +225,10 @@ export function Overview() {
   const [requirementTypes, setRequirementTypes] = useState([])
   const [exclusions, setExclusions] = useState([])
   const [siteExclusions, setSiteExclusions] = useState([])
+  const [organization, setOrganization] = useState(null)
+  const [dueRows, setDueRows] = useState([])
+  const [formsError, setFormsError] = useState('')
+  const [formsLoading, setFormsLoading] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -240,6 +279,26 @@ export function Overview() {
       setExclusions(exclusionsResult.data)
       setSiteExclusions(siteExclusionsResult.data)
       setLoading(false)
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId])
+
+  useEffect(() => {
+    if (!organizationId) {
+      setOrganization(null)
+      return
+    }
+
+    let cancelled = false
+
+    async function load() {
+      const { data } = await getOrganization(organizationId)
+      if (!cancelled) setOrganization(data)
     }
 
     load()
@@ -339,6 +398,45 @@ export function Overview() {
   }, [items, staff, sites, requirementTypes, exclusions, siteExclusions])
 
   const setup = setupProgress({ sites, staff, requirementTypes })
+  const showFormsDue = can(organization, 'forms')
+
+  useEffect(() => {
+    if (!organizationId || !showFormsDue) {
+      setDueRows([])
+      setFormsError('')
+      setFormsLoading(false)
+      return
+    }
+    if (loading || !setup.complete) return
+
+    let cancelled = false
+
+    async function load() {
+      setFormsLoading(true)
+      setFormsError('')
+      const { data, error: loadError } = await computeDueForms(
+        organizationId,
+        todayIsoDate(),
+      )
+      if (cancelled) return
+      if (loadError) {
+        setFormsError(loadError.message)
+        setDueRows([])
+        setFormsLoading(false)
+        return
+      }
+      setDueRows(data)
+      setFormsLoading(false)
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [organizationId, showFormsDue, loading, setup.complete])
+
+  const dueSites = useMemo(() => summarizeDueBySite(dueRows), [dueRows])
   const stats = [
     {
       label: 'Overall compliance',
@@ -604,6 +702,71 @@ export function Overview() {
                   )}
                 </CardContent>
               </Card>
+
+              {showFormsDue ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Forms due today</CardTitle>
+                    <CardDescription>
+                      Scheduled forms for the current period, by site.
+                    </CardDescription>
+                    {dueSites.length > 0 ? (
+                      <CardAction>
+                        <Button asChild variant="link" size="sm">
+                          <Link to={formsHref({ tab: 'due' })}>View all</Link>
+                        </Button>
+                      </CardAction>
+                    ) : null}
+                  </CardHeader>
+                  <CardContent>
+                    {formsError ? (
+                      <p className="text-sm text-status-expired">{formsError}</p>
+                    ) : formsLoading ? (
+                      <p className="text-sm text-muted-foreground">
+                        Loading forms…
+                      </p>
+                    ) : dueSites.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        Nothing applicable today.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-border">
+                        {dueSites.map((row) => {
+                          const outstanding = row.due > 0
+                          return (
+                            <li
+                              key={row.site_id}
+                              className={`border-l-4 py-2 pl-3 first:pt-0 last:pb-0 ${
+                                outstanding
+                                  ? 'border-l-status-expired'
+                                  : 'border-l-status-valid'
+                              }`}
+                            >
+                              <Link
+                                to={formsHref({ tab: 'due', site: row.site_id })}
+                                className="flex min-h-11 min-w-0 items-center justify-between gap-3"
+                              >
+                                <span className="min-w-0 truncate font-medium text-card-foreground underline underline-offset-2">
+                                  {row.site_name}
+                                </span>
+                                <span
+                                  className={
+                                    outstanding
+                                      ? 'shrink-0 text-sm tabular-nums text-card-foreground'
+                                      : 'shrink-0 text-sm tabular-nums text-muted-foreground'
+                                  }
+                                >
+                                  {formsDueCountLabel(row)}
+                                </span>
+                              </Link>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
           </div>
         </>
