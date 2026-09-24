@@ -1658,6 +1658,36 @@ create table if not exists public.form_templates (
 create index if not exists form_templates_org_id_idx
   on public.form_templates (org_id);
 
+alter table public.form_templates
+  add column if not exists cadence text;
+
+alter table public.form_templates
+  add column if not exists scope text not null default 'on_demand';
+
+update public.form_templates
+set scope = 'on_demand'
+where scope is null
+   or scope not in ('all_sites', 'all_staff', 'on_demand');
+
+update public.form_templates
+set cadence = null
+where cadence is not null
+  and cadence not in ('once', 'daily', 'weekly', 'monthly', 'quarterly', 'annual');
+
+alter table public.form_templates
+  alter column scope set default 'on_demand';
+
+alter table public.form_templates
+  alter column scope set not null;
+
+alter table public.form_templates drop constraint if exists form_templates_cadence_check;
+alter table public.form_templates add constraint form_templates_cadence_check
+  check (cadence is null or cadence in ('once', 'daily', 'weekly', 'monthly', 'quarterly', 'annual'));
+
+alter table public.form_templates drop constraint if exists form_templates_scope_check;
+alter table public.form_templates add constraint form_templates_scope_check
+  check (scope in ('all_sites', 'all_staff', 'on_demand'));
+
 create table if not exists public.form_assignments (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations (id) on delete cascade,
@@ -1877,7 +1907,7 @@ create policy "Plus users can delete form submissions"
   );
 
 insert into public.form_templates (
-  org_id, name, archetype, schema, is_system
+  org_id, name, archetype, schema, is_system, cadence, scope
 )
 select
   null,
@@ -1895,7 +1925,9 @@ select
     ],
     "signoff":{"required":true}
   }'::jsonb,
-  true
+  true,
+  'daily',
+  'all_sites'
 where not exists (
   select 1
   from public.form_templates
@@ -1903,3 +1935,10 @@ where not exists (
     and org_id is null
     and name = 'Daily Risk Checklist'
 );
+
+update public.form_templates
+set cadence = 'daily',
+    scope = 'all_sites'
+where is_system
+  and org_id is null
+  and name = 'Daily Risk Checklist';
