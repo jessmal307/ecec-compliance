@@ -9,6 +9,7 @@ import {
   createSiteClosure,
   deleteSiteClosure,
   listSiteClosures,
+  EMPTY_OPERATING_DAYS_MESSAGE,
   WEEKDAY_OPTIONS,
 } from '../lib/sites'
 
@@ -143,6 +144,11 @@ export function SiteHoursSettings({
               </Choice>
             ))}
           </div>
+          {operatingDays.length === 0 ? (
+            <p className="text-sm text-status-expired" role="alert">
+              {EMPTY_OPERATING_DAYS_MESSAGE}
+            </p>
+          ) : null}
         </fieldset>
       </FormSection>
 

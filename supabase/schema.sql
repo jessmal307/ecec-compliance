@@ -254,7 +254,10 @@ alter table public.sites
 
 alter table public.sites drop constraint if exists sites_operating_days_check;
 alter table public.sites add constraint sites_operating_days_check
-  check (operating_days <@ '{1,2,3,4,5,6,7}'::integer[]);
+  check (
+    operating_days <@ '{1,2,3,4,5,6,7}'::integer[]
+    and cardinality(operating_days) > 0
+  );
 
 create table if not exists public.site_closures (
   id uuid primary key default gen_random_uuid(),

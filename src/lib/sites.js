@@ -6,6 +6,9 @@ const SITE_FIELDS =
 
 export const DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
 
+export const EMPTY_OPERATING_DAYS_MESSAGE =
+  'Select at least one operating day. To pause this site temporarily, add closure dates; to stop it entirely, archive the site.'
+
 export const WEEKDAY_OPTIONS = [
   { value: 1, label: 'Mon' },
   { value: 2, label: 'Tue' },
@@ -123,7 +126,13 @@ export async function updateSite(id, {
     nominated_supervisor: emptyToNull(nominatedSupervisor),
   }
   if (operatingDays !== undefined) {
-    payload.operating_days = mapOperatingDays(operatingDays)
+    const days = Array.isArray(operatingDays)
+      ? operatingDays.map(Number).filter((day) => day >= 1 && day <= 7)
+      : []
+    if (days.length === 0) {
+      return { data: null, error: { message: EMPTY_OPERATING_DAYS_MESSAGE } }
+    }
+    payload.operating_days = days
   }
 
   const { data, error } = await supabase

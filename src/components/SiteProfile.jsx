@@ -79,6 +79,7 @@ import {
   archiveSite,
   DEFAULT_OPERATING_DAYS,
   deleteSite,
+  EMPTY_OPERATING_DAYS_MESSAGE,
   getSite,
   restoreSite,
   updateSite,
@@ -316,6 +317,11 @@ export function SiteProfile() {
   async function handleSaveInfo(event) {
     event.preventDefault()
     if (!siteId) return
+
+    if (!(info.operatingDays ?? []).length) {
+      setError(EMPTY_OPERATING_DAYS_MESSAGE)
+      return
+    }
 
     setError('')
     setSavingInfo(true)
