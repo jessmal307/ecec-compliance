@@ -2337,3 +2337,117 @@ set schema = '{
 where is_system
   and org_id is null
   and name = 'Excursion Risk Assessment';
+
+-- Per-site floor tokens. Raw token is never stored — only SHA-256 hex.
+create table if not exists public.site_access_tokens (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid not null references public.sites (id) on delete cascade,
+  token_hash text not null,
+  label text not null default '',
+  status text not null default 'active',
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  constraint site_access_tokens_status_check
+    check (status in ('active', 'revoked')),
+  constraint site_access_tokens_token_hash_key unique (token_hash)
+);
+
+create index if not exists site_access_tokens_org_id_idx
+  on public.site_access_tokens (org_id);
+
+create index if not exists site_access_tokens_site_active_idx
+  on public.site_access_tokens (site_id)
+  where status = 'active';
+
+alter table public.site_access_tokens enable row level security;
+
+revoke all on table public.site_access_tokens from public;
+revoke all on table public.site_access_tokens from anon;
+revoke all on table public.site_access_tokens from authenticated;
+grant select, insert, update, delete on table public.site_access_tokens to authenticated;
+
+drop policy if exists "Plus users can view site access tokens"
+  on public.site_access_tokens;
+create policy "Plus users can view site access tokens"
+  on public.site_access_tokens
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can insert site access tokens"
+  on public.site_access_tokens;
+create policy "Plus users can insert site access tokens"
+  on public.site_access_tokens
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+    and exists (
+      select 1
+      from public.sites as site
+      where site.id = site_id
+        and site.org_id = org_id
+        and site.archived_at is null
+    )
+  );
+
+drop policy if exists "Plus users can update site access tokens"
+  on public.site_access_tokens;
+create policy "Plus users can update site access tokens"
+  on public.site_access_tokens
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+    and exists (
+      select 1
+      from public.sites as site
+      where site.id = site_id
+        and site.org_id = org_id
+    )
+  );
+
+drop policy if exists "Plus users can delete site access tokens"
+  on public.site_access_tokens;
+create policy "Plus users can delete site access tokens"
+  on public.site_access_tokens
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop trigger if exists audit_site_access_tokens_change on public.site_access_tokens;
+create trigger audit_site_access_tokens_change
+  after insert or update or delete on public.site_access_tokens
+  for each row execute function public.audit_log_change();
+
+-- Service-role only. Used by site-forms rate limiting.
+create table if not exists public.site_access_rate_limits (
+  bucket_key text primary key,
+  window_start timestamptz not null,
+  hits integer not null default 0
+);
+
+alter table public.site_access_rate_limits enable row level security;
+
+revoke all on table public.site_access_rate_limits from public;
+revoke all on table public.site_access_rate_limits from anon;
+revoke all on table public.site_access_rate_limits from authenticated;

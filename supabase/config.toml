@@ -10,5 +10,9 @@ verify_jwt = true
 enabled = true
 verify_jwt = false
 
+[functions.site-forms]
+enabled = true
+verify_jwt = false
+
 [functions.send-monthly-compliance-report.schedule]
 cron = "0 14 1 * *"
