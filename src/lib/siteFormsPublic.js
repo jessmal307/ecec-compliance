@@ -1,4 +1,5 @@
-const TIME_ZONE = 'Australia/Sydney'
+import { sydneyToday } from './sydneyTime'
+
 const INACTIVE_MESSAGE =
   'This link is no longer active — please contact your service.'
 
@@ -7,23 +8,8 @@ function siteFormsUrl() {
   return base ? `${base.replace(/\/$/, '')}/functions/v1/site-forms` : ''
 }
 
-function todayParts(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date)
-  const year = parts.find((part) => part.type === 'year')?.value
-  const month = parts.find((part) => part.type === 'month')?.value
-  const day = parts.find((part) => part.type === 'day')?.value
-  return { year, month, day }
-}
-
 export function todayIsoDate() {
-  const { year, month, day } = todayParts()
-  if (!year || !month || !day) return new Date().toISOString().slice(0, 10)
-  return `${year}-${month}-${day}`
+  return sydneyToday()
 }
 
 export function isSignatureDataUrl(value) {

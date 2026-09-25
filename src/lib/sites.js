@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { withArchiveScope } from './archive'
+import { sydneyToday } from './sydneyTime'
 
 const SITE_FIELDS =
   'id, name, address, service_approval_number, phone, nominated_supervisor, operating_days, org_id, created_at, archived_at'
@@ -210,13 +211,7 @@ export async function listSiteClosures(siteId, { upcomingOnly = true } = {}) {
     .order('closure_date', { ascending: true })
 
   if (upcomingOnly) {
-    const today = new Date()
-    const iso = [
-      today.getFullYear(),
-      String(today.getMonth() + 1).padStart(2, '0'),
-      String(today.getDate()).padStart(2, '0'),
-    ].join('-')
-    query = query.gte('closure_date', iso)
+    query = query.gte('closure_date', sydneyToday())
   }
 
   const { data, error } = await query

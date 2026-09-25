@@ -1,4 +1,5 @@
 import { todayIsoDate } from './compliance'
+import { formatIso } from './sydneyTime'
 
 export const MIN_REASONABLE_DATE = '2000-01-01'
 
@@ -7,13 +8,10 @@ export function isIsoDate(value) {
 }
 
 function addYearsIso(isoDate, years) {
-  const date = new Date(`${isoDate}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return isoDate
-  date.setFullYear(date.getFullYear() + years)
-  const year = String(date.getFullYear()).padStart(4, '0')
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  if (!isIsoDate(isoDate)) return isoDate
+  const [year, month, day] = isoDate.split('-').map(Number)
+  const date = new Date(Date.UTC(year + years, month - 1, day))
+  return formatIso(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())
 }
 
 export function maxReasonableDate(today = todayIsoDate()) {

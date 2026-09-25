@@ -3,8 +3,8 @@ import { isIsoDate } from './dates'
 import {
   addCalendarMonthsIso,
   addDaysIso,
-  coverageDate,
   findOverdueForms,
+  forDateInPeriod,
   isLateInPeriod,
   isSiteOpenOn,
   isSubmissionLate,
@@ -172,18 +172,23 @@ function mapDueSubmission(row) {
   }
 }
 
-async function listPeriodicDueSubmissions(orgId, templateIds, today) {
-  if (!templateIds.length) return { data: [], error: null }
+async function listPeriodicDueSubmissions(orgId, templates, today) {
+  if (!templates.length) return { data: [], error: null }
 
-  const yearStart = `${today.slice(0, 4)}-01-01`
-  const submittedFrom = addDaysIso(yearStart, -1)
+  const earliestStart = templates
+    .map((template) => periodBounds(template.cadence, today)?.start)
+    .filter(Boolean)
+    .reduce((earliest, start) => (start < earliest ? start : earliest), today)
   const { data, error } = await supabase
     .from('form_submissions')
     .select('site_id, template_id, status, for_date, submitted_at')
     .eq('org_id', orgId)
     .in('status', ['complete', 'missed'])
-    .in('template_id', templateIds)
-    .or(`for_date.gte.${yearStart},submitted_at.gte.${submittedFrom}`)
+    .in(
+      'template_id',
+      templates.map((template) => template.id),
+    )
+    .gte('for_date', earliestStart)
 
   if (error) return { data: [], error }
   return { data: (data ?? []).map(mapDueSubmission), error: null }
@@ -273,11 +278,7 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
       sites.map((site) => site.id),
       { date: today },
     ),
-    listPeriodicDueSubmissions(
-      orgId,
-      periodicTemplates.map((template) => template.id),
-      today,
-    ),
+    listPeriodicDueSubmissions(orgId, periodicTemplates, today),
     listOnceDueSubmissions(orgId, oncePairs),
   ])
 
@@ -626,15 +627,6 @@ export async function updateFormSubmission(id, payload) {
   return { data: mapSubmission(data), error: null }
 }
 
-function coversPeriod(row, bounds) {
-  const dated = coverageDate(row)
-  if (!dated) return !bounds?.start && !bounds?.end
-  if (!bounds || (!bounds.start && !bounds.end)) return true
-  if (bounds.start && dated < bounds.start) return false
-  if (bounds.end && dated > bounds.end) return false
-  return true
-}
-
 export async function findCompleteInPeriod({
   orgId,
   templateId,
@@ -670,7 +662,7 @@ export async function findCompleteInPeriod({
     .find(
       (row) =>
         (!excludeId || String(row.id) !== String(excludeId)) &&
-        coversPeriod(row, bounds),
+        forDateInPeriod(row, bounds),
     )
 
   return { data: match ?? null, error: null }

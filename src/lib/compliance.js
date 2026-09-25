@@ -4,6 +4,7 @@ import {
 } from './documents'
 import { isListedComplianceItem, withArchiveScope } from './archive'
 import { supabase } from './supabase'
+import { addDaysIso as addSydneyDaysIso, sydneyIsoDate, sydneyToday } from './sydneyTime'
 
 export const DEFAULT_REQUIREMENT_TYPES = [
   { name: 'First Aid', mandatory: true, applies_to: 'staff', recheck_interval_days: null, validity_months: 36, renewal_lead_days: 45, perpetual: false },
@@ -496,23 +497,11 @@ function toIsoDate(value) {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value
   }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return todayIsoDateFrom(date)
-}
-
-function todayIsoDateFrom(date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return sydneyIsoDate(value)
 }
 
 export function addDaysIso(isoDate, days) {
-  const date = new Date(`${isoDate}T00:00:00`)
-  if (Number.isNaN(date.getTime())) return null
-  date.setDate(date.getDate() + days)
-  return todayIsoDateFrom(date)
+  return addSydneyDaysIso(isoDate, days)
 }
 
 export function recheckBaseDate(item) {
@@ -604,7 +593,7 @@ export function itemComplianceStatus(item, type = item) {
 }
 
 export function todayIsoDate() {
-  return todayIsoDateFrom(new Date())
+  return sydneyToday()
 }
 
 export function complianceStatus(expiryDate) {

@@ -1,40 +1,22 @@
+import {
+  addDaysIso,
+  addMonthsIso,
+  daysInMonth,
+  formatIso,
+  isoWeekday,
+  sydneyIsoDate,
+} from './sydneyTime'
+
+export { addDaysIso, daysInMonth, formatIso, isoWeekday }
+
 export const DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
 
 function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value ?? '')
 }
 
-function pad2(value) {
-  return String(value).padStart(2, '0')
-}
-
-export function formatIso(year, month, day) {
-  return `${year}-${pad2(month)}-${pad2(day)}`
-}
-
-export function daysInMonth(year, month) {
-  return new Date(year, month, 0).getDate()
-}
-
-export function addDaysIso(isoDate, days) {
-  const date = new Date(`${isoDate}T00:00:00`)
-  date.setDate(date.getDate() + days)
-  return formatIso(date.getFullYear(), date.getMonth() + 1, date.getDate())
-}
-
 export function addCalendarMonthsIso(isoDate, months) {
-  const [year, month, day] = isoDate.split('-').map(Number)
-  const total = year * 12 + (month - 1) + months
-  const nextYear = Math.floor(total / 12)
-  const nextMonth = (total % 12) + 1
-  const nextDay = Math.min(day, daysInMonth(nextYear, nextMonth))
-  return formatIso(nextYear, nextMonth, nextDay)
-}
-
-export function isoWeekday(isoDate) {
-  if (!isIsoDate(isoDate)) return null
-  const day = new Date(`${isoDate}T00:00:00`).getDay()
-  return day === 0 ? 7 : day
+  return addMonthsIso(isoDate, months)
 }
 
 export function periodBounds(cadence, today) {
@@ -81,9 +63,7 @@ export function previousPeriodBounds(cadence, today) {
 export function submissionLocalDate(value) {
   if (!value) return null
   if (isIsoDate(value)) return value
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return formatIso(date.getFullYear(), date.getMonth() + 1, date.getDate())
+  return sydneyIsoDate(value)
 }
 
 function sameId(left, right) {
@@ -103,8 +83,7 @@ export function isSiteOpenOn(site, closures, day) {
 
 export function coverageDate(row) {
   const explicit = String(row?.for_date ?? '').slice(0, 10)
-  if (isIsoDate(explicit)) return explicit
-  return submissionLocalDate(row?.submitted_at)
+  return isIsoDate(explicit) ? explicit : null
 }
 
 export function isSubmissionLate(row) {
@@ -132,9 +111,8 @@ function matchingRows(submissions, siteId, templateId, status) {
   )
 }
 
-function forDateInPeriod(row, bounds) {
-  const dated = String(row?.for_date ?? '').slice(0, 10)
-  return isIsoDate(dated) && dateInPeriod(dated, bounds)
+export function forDateInPeriod(row, bounds) {
+  return dateInPeriod(coverageDate(row), bounds)
 }
 
 function hasForDateStatusInPeriod(submissions, siteId, templateId, status, bounds) {
@@ -144,15 +122,11 @@ function hasForDateStatusInPeriod(submissions, siteId, templateId, status, bound
 }
 
 export function hasCompleteInPeriod(submissions, siteId, templateId, bounds) {
-  return matchingRows(submissions, siteId, templateId, 'complete').some((row) =>
-    dateInPeriod(coverageDate(row), bounds),
-  )
+  return hasForDateStatusInPeriod(submissions, siteId, templateId, 'complete', bounds)
 }
 
 export function hasMissedInPeriod(submissions, siteId, templateId, bounds) {
-  return matchingRows(submissions, siteId, templateId, 'missed').some((row) =>
-    dateInPeriod(coverageDate(row), bounds),
-  )
+  return hasForDateStatusInPeriod(submissions, siteId, templateId, 'missed', bounds)
 }
 
 export function periodStatus(submissions, siteId, templateId, bounds) {
@@ -163,7 +137,7 @@ export function periodStatus(submissions, siteId, templateId, bounds) {
 
 export function isLateInPeriod(submissions, siteId, templateId, bounds) {
   return matchingRows(submissions, siteId, templateId, 'complete').some(
-    (row) => dateInPeriod(coverageDate(row), bounds) && isSubmissionLate(row),
+    (row) => forDateInPeriod(row, bounds) && isSubmissionLate(row),
   )
 }
 

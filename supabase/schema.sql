@@ -1829,13 +1829,53 @@ alter table public.form_submissions drop constraint if exists form_submissions_s
 alter table public.form_submissions add constraint form_submissions_status_check
   check (status in ('draft', 'complete', 'missed'));
 
-update public.form_submissions
-set for_date = coalesce(
-  (submitted_at at time zone 'Australia/Sydney')::date,
-  (created_at at time zone 'Australia/Sydney')::date
+-- Scheduled complete/missed rows must have for_date. A complete row is left
+-- null when its date is already taken by another complete row (unique index).
+with candidates as (
+  select
+    subs.id,
+    subs.status,
+    subs.site_id,
+    subs.template_id,
+    (coalesce(subs.submitted_at, subs.created_at) at time zone 'Australia/Sydney')::date
+      as local_date,
+    coalesce(subs.submitted_at, subs.created_at) as sort_at
+  from public.form_submissions as subs
+  join public.form_templates as templates
+    on templates.id = subs.template_id
+  where subs.for_date is null
+    and subs.status in ('complete', 'missed')
+    and templates.cadence is not null
+    and templates.scope = 'all_sites'
+),
+ranked as (
+  select
+    candidates.*,
+    row_number() over (
+      partition by candidates.status, candidates.site_id, candidates.template_id, candidates.local_date
+      order by candidates.sort_at desc, candidates.id desc
+    ) as rn
+  from candidates
 )
-where status = 'complete'
-  and for_date is null;
+update public.form_submissions as subs
+set for_date = ranked.local_date
+from ranked
+where subs.id = ranked.id
+  and (
+    ranked.status = 'missed'
+    or (
+      ranked.rn = 1
+      and not exists (
+        select 1
+        from public.form_submissions as other
+        where other.status = 'complete'
+          and other.id <> ranked.id
+          and other.site_id is not distinct from ranked.site_id
+          and other.template_id = ranked.template_id
+          and other.for_date = ranked.local_date
+      )
+    )
+  );
 
 create index if not exists form_submissions_org_id_template_id_idx
   on public.form_submissions (org_id, template_id);
