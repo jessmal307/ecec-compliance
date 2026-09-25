@@ -1,0 +1,66 @@
+# RoadToComply — project rules for Cursor
+
+## What this is
+RoadToComply is a compliance-oversight SaaS for **NSW multi-site private childcare (ECEC) operators**.
+It tracks every staff certificate and centre requirement across all of an operator's services and
+**proactively alerts before anything expires** — the wedge is *proactive, cross-site* compliance,
+which incumbents (OWNA, NEST/PolicyPass) don't do. It is a focused compliance tool, NOT a broad
+operations platform. Every feature must reinforce the wedge or it doesn't belong.
+
+## Stack
+- Vite + React, Tailwind + shadcn/ui
+- Supabase: Postgres, Auth, Edge Functions (Deno), Storage, RLS
+- Resend (email), Vercel (hosting), SheetJS (spreadsheet import)
+- Live app: ecec-compliance.vercel.app · repo: github.com/jessmal307/ecec-compliance
+
+## How I work with you — follow these every time
+1. **Plan first.** Before editing anything, list exactly which files/columns/policies you'll change
+   and wait for my go-ahead. Never start editing on a plan I haven't approved.
+2. **Additive & safe.** New tables/columns only. Never break the live compliance engine, the alert
+   engine, or existing RLS. Don't touch RLS on existing tables unless I explicitly ask.
+3. **Re-runnable migrations.** Match the existing pattern: `add column if not exists` → backfill
+   invalid/null values → `set default` / `set not null` → drop-and-re-add check constraints. Constant
+   defaults only (so it's a catalog-only change on Postgres 15, no table rewrite).
+4. **Slice by slice.** Build in small, independently-verifiable pieces. Don't drop a big change in one go.
+5. **I verify each change** (recognize-and-verify). Tell me exactly what to check after.
+6. **Dates:** local Australia/Sydney ISO dates, never UTC-shifted. Month/quarter/year math clamps to
+   the last valid day (31 Jan + 1 month → 28/29 Feb).
+7. **Don't widen scope.** Don't add features, fields, or "helpful" extras I didn't ask for.
+
+## Architecture conventions
+- **Multi-tenancy / RLS:** access via `user_org_ids()` (all member orgs) and `user_plus_org_ids()`
+  (member orgs on the Plus/Pro plan). SECURITY DEFINER helpers, pinned `search_path = ''`.
+- **Plan tiers:** `organizations.plan` ('core'|'plus'|'pro', default 'core'). Feature gating via
+  `can(org, feature)` in `src/lib/plans.js` (frontend) and `org_has_plan(org_id, min)` in SQL (backend).
+  Gating is baked into NEW Plus tables' RLS at creation; existing Core tables are never retrofitted.
+  UI hiding is not access control — the real gate is RLS / edge-function checks.
+- **Compliance model:** `requirement_types` (staff/site level, mandatory, validity/renewal/recheck,
+  perpetual) auto-apply to staff/sites, with `staff_requirement_exclusions` / `site_requirement_exclusions`
+  opt-outs; `compliance_items` are the records; status is COMPUTED (not stored), all-in (missing/expired/
+  expiring/recheck-due all count). Inactive/on-leave staff and perpetual-with-no-expiry are excluded.
+- **Forms engine (Plus):** `form_templates` (archetype simple/register/checklist/risk_matrix, schema jsonb,
+  cadence, scope all_sites/all_staff/on_demand), `form_submissions` (data jsonb, `for_date` = period it
+  covers vs `submitted_at` = real time; late = submitted after for_date; status draft/complete/missed;
+  complete & missed are locked/read-only via RLS `using (status='draft')`), `form_site_exclusions`.
+  Scheduled forms AUTO-APPLY to all active sites, due only on the site's `operating_days` minus
+  `site_closures`, minus exclusions, minus completed-this-period. Due/overdue is COMPUTED (`computeDueForms`),
+  reusing the alert engine for overdue — never a second alert system.
+- **Site floor link:** `site_access_tokens` (SHA-256 hash stored, never raw). The `site-forms` edge
+  function is the ONLY public door — anon has zero direct table access; site_id/org_id come from the
+  token, never the request body; signature = accountability (no login). Public page must send the anon
+  key as `apikey` + `Authorization: Bearer` to pass the Supabase gateway.
+- **Audit trail:** `audit_log` (append-only, SELECT-only RLS) via `audit_log_change()` triggers on
+  staff, sites, requirement_types, compliance_items, form_submissions, site_access_tokens.
+- **Storage:** private buckets, RLS scoped by first path segment = org_id; files referenced by PATH,
+  never inline data URLs in jsonb.
+
+## Security rules (non-negotiable)
+- Edge functions are the only public entry point; validate the token FIRST, before any data access.
+- Tokens: 32-byte random, store only the SHA-256 hash, revocable, rate-limited.
+- Never expose staff, other sites, compliance, or history through a public endpoint.
+- A completed/signed compliance record must be immutable (RLS-enforced, not just UI).
+
+## Discipline
+- New features are validation-gated: don't build ahead of an operator's confirmed "yes".
+- The product stays narrow: proactive alerting + cross-site oversight + ready-made compliance forms.
+- Don't chase competitor breadth (billing, payroll, CCS, CRM, community) — that's not this product.
