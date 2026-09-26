@@ -148,7 +148,9 @@ export function FormSubmissionView() {
               {submission.for_date ? ` · covers ${formatDate(submission.for_date)}` : ''}
               {submission.status === 'missed'
                 ? ''
-                : ` · ${submission.signoff.name || 'Unsigned'}`}
+                : submission.signer_name
+                  ? ` · Signed by ${submission.signer_name} (floor link PIN)`
+                  : ` · ${submission.signoff.name || 'Unsigned'}`}
               {' · '}
               {formatTimestamp(submission.submitted_at || submission.created_at)}
             </p>

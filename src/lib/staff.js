@@ -253,6 +253,13 @@ export async function restoreStaff(id) {
 export async function deleteStaff(id) {
   const { error } = await supabase.from('staff').delete().eq('id', id)
 
+  if (error?.code === '23503' && /signed_by_staff_id/.test(error.message || '')) {
+    return {
+      error: {
+        message: 'This person signed floor-link forms, so they can only be archived.',
+      },
+    }
+  }
   if (error) {
     return { error }
   }

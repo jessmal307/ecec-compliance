@@ -31,6 +31,7 @@ import {
   staffDeleteTitle,
 } from './ConfirmDeleteDialog'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
+import { StaffFloorPin } from './StaffFloorPin'
 import { AlertTimingHint } from './AlertTimingHint'
 import { ProfileSkeleton } from './PageSkeletons'
 import { DocumentAttached } from './DocumentLink'
@@ -786,6 +787,13 @@ export function StaffProfile() {
               </form>
             </CardContent>
           </Card>
+          <div className="mt-4">
+            <StaffFloorPin
+              organizationId={organizationId}
+              staffId={staffId}
+              disabled={memberArchived}
+            />
+          </div>
             </TabsContent>
             <TabsContent value="requirements">
           <Card>

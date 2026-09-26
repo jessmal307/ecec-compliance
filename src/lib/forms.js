@@ -450,7 +450,7 @@ export async function setAssignmentActive(id, active) {
 }
 
 const SUBMISSION_FIELDS =
-  'id, org_id, assignment_id, template_id, site_id, staff_id, submitted_by, data, status, signed_off_by, signed_off_at, evidence, submitted_at, for_date, created_at'
+  'id, org_id, assignment_id, template_id, site_id, staff_id, submitted_by, data, status, signed_off_by, signed_off_at, signed_by_staff_id, evidence, submitted_at, for_date, created_at'
 
 function mapSubmission(row) {
   const payload = row.data && typeof row.data === 'object' ? row.data : {}
@@ -479,6 +479,8 @@ function mapSubmission(row) {
     status: row.status,
     signed_off_by: row.signed_off_by,
     signed_off_at: row.signed_off_at,
+    signed_by_staff_id: row.signed_by_staff_id ?? null,
+    signer_name: row.signer?.name || '',
     evidence: Array.isArray(row.evidence) ? row.evidence : [],
     submitted_at: row.submitted_at,
     for_date: forDate,
@@ -583,7 +585,9 @@ export async function listFormSubmissions(
 export async function getFormSubmission(id) {
   const { data, error } = await supabase
     .from('form_submissions')
-    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+    .select(
+      `${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name ), signer:staff!form_submissions_signed_by_staff_id_fkey ( id, name )`,
+    )
     .eq('id', id)
     .maybeSingle()
 

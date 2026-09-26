@@ -88,6 +88,13 @@ export function formatAuditSentence(entry, names = { staff: {}, sites: {}, types
     return `${actor} updated staff ${name}`
   }
 
+  if (entry.entity === 'staff_pins') {
+    const name = names.staff[entry.entity_id] || 'a staff member'
+    return after.pin === 'reset'
+      ? `${actor} reset the floor PIN for ${name}`
+      : `${actor} set the floor PIN for ${name}`
+  }
+
   if (entry.entity === 'sites') {
     const name = recordName(snapshot, 'site')
     if (entry.action === 'insert') return `${actor} added site ${name}`
@@ -136,7 +143,12 @@ export function formatAuditSentence(entry, names = { staff: {}, sites: {}, types
 
 async function loadRelatedNames(entries) {
   const snapshots = entries.map(snapshotOf)
-  const staffIds = uniqueIds(snapshots.map((row) => row.staff_id))
+  const staffIds = uniqueIds([
+    ...snapshots.map((row) => row.staff_id),
+    ...entries
+      .filter((entry) => entry.entity === 'staff_pins')
+      .map((entry) => entry.entity_id),
+  ])
   const siteIds = uniqueIds(snapshots.map((row) => row.site_id))
   const typeIds = uniqueIds(snapshots.map((row) => row.requirement_type_id))
 
