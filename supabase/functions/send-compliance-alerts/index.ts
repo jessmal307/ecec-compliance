@@ -1316,6 +1316,14 @@ function findOverdueForms({
   return rows
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message)
+  }
+  return String(error)
+}
+
 async function loadOverdueFormsForOrg(
   supabase: ReturnType<typeof createClient>,
   orgId: string,
@@ -1500,7 +1508,10 @@ Deno.serve(async (req) => {
       return ownerEmailCache.get(ownerId) ?? null
     }
 
-    const { data, error } = await supabase.auth.admin.getUserById(ownerId)
+    const { data, error } = await retryOnJwtSkew(
+      () => supabase.auth.admin.getUserById(ownerId),
+      'owner lookup',
+    )
     if (error) {
       summary.errors.push(`Failed to load owner ${ownerId}: ${error.message}`)
       ownerEmailCache.set(ownerId, null)
@@ -1852,7 +1863,7 @@ Deno.serve(async (req) => {
       try {
         overdueBySite = await loadOverdueFormsForOrg(supabase, orgId, today)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = errorMessage(error)
         summary.errors.push(`Skipped overdue forms for org ${orgId}: ${message}`)
       }
     }

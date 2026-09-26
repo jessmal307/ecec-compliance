@@ -287,7 +287,10 @@ Deno.serve(async (req) => {
       return ownerEmailCache.get(ownerId) ?? null
     }
 
-    const { data, error } = await supabase.auth.admin.getUserById(ownerId)
+    const { data, error } = await retryOnJwtSkew(
+      () => supabase.auth.admin.getUserById(ownerId),
+      'owner lookup',
+    )
     if (error) {
       summary.errors.push(`Failed to load owner ${ownerId}: ${error.message}`)
       ownerEmailCache.set(ownerId, null)
