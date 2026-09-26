@@ -12,6 +12,7 @@
 -- pg_cron runs in UTC. Sydney is UTC+10 (AEST) or UTC+11 (AEDT).
 --   rtc-daily-alerts    30 20 * * *  -> 06:30 AEST / 07:30 AEDT, every day
 --   rtc-monthly-report  0 0 1 * *    -> 10:00 AEST / 11:00 AEDT on the 1st
+--   rtc-purge-rate-limits 15 17 * * * -> 03:15 AEST / 04:15 AEDT, every day (SQL only)
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
@@ -22,6 +23,7 @@ from cron.job
 where jobname in (
   'rtc-daily-alerts',
   'rtc-monthly-report',
+  'rtc-purge-rate-limits',
   'send-monthly-compliance-report'
 );
 
@@ -63,8 +65,18 @@ select cron.schedule(
   $$
 );
 
--- Verify (run separately): expect exactly two rows, reads_vault and
--- uses_cron_key true, key_or_ref_visible false.
+-- Rate limit windows are at most an hour; a day of history is plenty.
+select cron.schedule(
+  'rtc-purge-rate-limits',
+  '15 17 * * *',
+  $$
+  delete from public.site_access_rate_limits
+  where window_start < now() - interval '1 day';
+  $$
+);
+
+-- Verify (run separately): expect exactly three rows. The two rtc-* email
+-- jobs: reads_vault and uses_cron_key true. All three: key_or_ref_visible false.
 -- select jobname, schedule, active,
 --        command like '%vault.decrypted_secrets%' as reads_vault,
 --        command like '%cron_secret_key%' as uses_cron_key,

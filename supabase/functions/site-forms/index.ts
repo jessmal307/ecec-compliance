@@ -5,11 +5,13 @@ const FORM_UPLOADS_BUCKET = 'form-uploads'
 const SIGNED_UPLOAD_SECONDS = 600
 const TOKEN_WINDOW_MAX = 60
 const IP_WINDOW_MAX = 30
-const WINDOW_MS = 60_000
+const WINDOW_SECONDS = 60
 const DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
 const ALREADY_COMPLETED_MESSAGE = 'Already completed for this period'
 const COMPLETED_BY_SOMEONE_ELSE_MESSAGE =
   'This was just completed by someone else.'
+const SIGNATURE_AGAIN_MESSAGE = 'Draw the sign-off signature again.'
+const GENERIC_ERROR_MESSAGE = 'Something went wrong. Try again.'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -208,16 +210,21 @@ async function sha256Hex(value: string) {
     .join('')
 }
 
-function readToken(req: Request, url: URL) {
-  const header = req.headers.get('x-site-token')?.trim()
-  if (header) return header
-  return url.searchParams.get('token')?.trim() || ''
+function readToken(req: Request) {
+  return req.headers.get('x-site-token')?.trim() || ''
 }
 
+// Cloudflare sets cf-connecting-ip from the connecting address and overwrites
+// any client value. x-forwarded-for's first entry is whatever the client sent.
+let warnedNoClientIp = false
 function clientIp(req: Request) {
-  const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0]?.trim() || 'unknown'
-  return req.headers.get('cf-connecting-ip')?.trim() || 'unknown'
+  const ip = req.headers.get('cf-connecting-ip')?.trim()
+  if (ip) return ip
+  if (!warnedNoClientIp) {
+    warnedNoClientIp = true
+    console.warn('[site-forms] no trusted client IP (cf-connecting-ip); IP rate limit skipped')
+  }
+  return null
 }
 
 async function allowRate(
@@ -225,34 +232,12 @@ async function allowRate(
   bucketKey: string,
   maxHits: number,
 ) {
-  const now = Date.now()
-  const { data, error } = await supabase
-    .from('site_access_rate_limits')
-    .select('bucket_key, window_start, hits')
-    .eq('bucket_key', bucketKey)
-    .maybeSingle()
-
+  const { data, error } = await supabase.rpc('hit_rate_limit', {
+    p_bucket: bucketKey,
+    p_window_seconds: WINDOW_SECONDS,
+  })
   if (error) throw error
-
-  const windowStart = data?.window_start ? new Date(data.window_start).getTime() : 0
-  if (!data || Number.isNaN(windowStart) || now - windowStart >= WINDOW_MS) {
-    const { error: upsertError } = await supabase.from('site_access_rate_limits').upsert({
-      bucket_key: bucketKey,
-      window_start: new Date(now).toISOString(),
-      hits: 1,
-    })
-    if (upsertError) throw upsertError
-    return true
-  }
-
-  if (data.hits >= maxHits) return false
-
-  const { error: updateError } = await supabase
-    .from('site_access_rate_limits')
-    .update({ hits: data.hits + 1 })
-    .eq('bucket_key', bucketKey)
-  if (updateError) throw updateError
-  return true
+  return Number(data) <= maxHits
 }
 
 function fieldFilled(field: { type?: string }, value: unknown) {
@@ -507,11 +492,16 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
   })
 }
 
+// Only call for a row just confirmed as a draft. The old file is removed so a
+// no-upsert URL can create the new one; once the submission is complete its
+// signature exists, so no outstanding URL can overwrite it.
 async function signedSignatureUpload(supabase: Supabase, orgId: string, siteId: string, submissionId: string) {
   const path = signaturePath(orgId, siteId, submissionId)
+  const { error: removeError } = await supabase.storage.from(FORM_UPLOADS_BUCKET).remove([path])
+  if (removeError) throw removeError
   const { data, error } = await supabase.storage
     .from(FORM_UPLOADS_BUCKET)
-    .createSignedUploadUrl(path, { upsert: true })
+    .createSignedUploadUrl(path, { upsert: false })
   if (error) throw error
   return {
     path,
@@ -519,6 +509,17 @@ async function signedSignatureUpload(supabase: Supabase, orgId: string, siteId: 
     token: data.token,
     expires_in: SIGNED_UPLOAD_SECONDS,
   }
+}
+
+async function signatureExists(supabase: Supabase, path: string) {
+  const slash = path.lastIndexOf('/')
+  const folder = path.slice(0, slash)
+  const name = path.slice(slash + 1)
+  const { data, error } = await supabase.storage
+    .from(FORM_UPLOADS_BUCKET)
+    .list(folder, { search: name, limit: 10 })
+  if (error) throw error
+  return (data ?? []).some((entry) => entry.name === name)
 }
 
 async function findCompleteForDate(
@@ -596,6 +597,11 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
     forDate = requested
   }
 
+  const signature = built.data.signoff.signature
+  if (signature && !submissionId) {
+    return json({ error: SIGNATURE_AGAIN_MESSAGE }, 400)
+  }
+
   let rowId = submissionId
   if (rowId) {
     const { data: existing, error: existingError } = await supabase
@@ -614,6 +620,9 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
     }
     if (existing.status === 'complete' || existing.status === 'missed') {
       return json({ error: 'This submission is locked.' }, 409)
+    }
+    if (signature && signature !== signaturePath(context.orgId, context.siteId, rowId)) {
+      return json({ error: SIGNATURE_AGAIN_MESSAGE, submission_id: rowId }, 400)
     }
   } else {
     const { data: created, error: createError } = await supabase
@@ -637,6 +646,10 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
   if (status === 'complete') {
     const issues = validateSubmission(template.schema, template.archetype, built.data)
     if (issues.length) return json({ error: issues[0], submission_id: rowId }, 400)
+
+    if (signature && !(await signatureExists(supabase, signature))) {
+      return json({ error: SIGNATURE_AGAIN_MESSAGE, submission_id: rowId }, 400)
+    }
 
     if (forDate) {
       const existingComplete = await findCompleteForDate(
@@ -682,7 +695,7 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
     return json({ submission_id: rowId, status: 'complete', upload: null })
   }
 
-  const { error: draftError } = await supabase
+  const { data: savedDraft, error: draftError } = await supabase
     .from('form_submissions')
     .update({
       site_id: context.siteId,
@@ -697,9 +710,14 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
     })
     .eq('id', rowId)
     .eq('status', 'draft')
+    .select('id')
+    .maybeSingle()
   if (draftError) throw draftError
+  if (!savedDraft) return json({ error: 'This submission is locked.' }, 409)
 
-  const upload = await signedSignatureUpload(supabase, context.orgId, context.siteId, rowId)
+  const upload = signature
+    ? null
+    : await signedSignatureUpload(supabase, context.orgId, context.siteId, rowId)
   return json({ submission_id: rowId, status: 'draft', upload })
 }
 
@@ -719,13 +737,12 @@ Deno.serve(async (req) => {
       return json({ error: 'Method not allowed.' }, 405)
     }
 
-    const url = new URL(req.url)
-    const rawToken = readToken(req, url)
+    const rawToken = readToken(req)
     if (!rawToken) return json({ error: 'Invalid token.' }, 401)
 
     const supabase = createClient(supabaseUrl, serviceRoleKey)
-    const ipKey = `ip:${await sha256Hex(clientIp(req))}`
-    if (!(await allowRate(supabase, ipKey, IP_WINDOW_MAX))) {
+    const ip = clientIp(req)
+    if (ip && !(await allowRate(supabase, `ip:${await sha256Hex(ip)}`, IP_WINDOW_MAX))) {
       return json({ error: 'Too many requests.' }, 429)
     }
 
@@ -743,7 +760,7 @@ Deno.serve(async (req) => {
     if (!body || typeof body !== 'object') return json({ error: 'Invalid request.' }, 400)
     return await handlePost(supabase, resolved.context, body)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return json({ error: message || 'Request failed.' }, 500)
+    console.error('[site-forms] request failed', error)
+    return json({ error: GENERIC_ERROR_MESSAGE }, 500)
   }
 })

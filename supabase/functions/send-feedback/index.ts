@@ -12,6 +12,11 @@ const TYPE_LABELS: Record<FeedbackType, string> = {
   'feature-interest': 'Feature interest',
 }
 
+const FEEDBACK_MAX_PER_WINDOW = 5
+const FEEDBACK_WINDOW_SECONDS = 3600
+const UNAVAILABLE_MESSAGE = 'Feedback is not available right now.'
+const FAILED_MESSAGE = 'Could not send feedback. Try again.'
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -84,24 +89,24 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
   const fromEmail = Deno.env.get('RESEND_FROM_EMAIL')
   const toEmail = Deno.env.get('FEEDBACK_TO_EMAIL')?.trim()
 
-  if (!supabaseUrl || !anonKey) {
-    return json({ error: 'Missing SUPABASE_URL or SUPABASE_ANON_KEY' }, 500)
-  }
-
-  if (!resendApiKey) {
-    return json({ error: 'Missing RESEND_API_KEY' }, 500)
-  }
-
-  if (!fromEmail) {
-    return json({ error: 'Missing RESEND_FROM_EMAIL' }, 500)
-  }
-
-  if (!toEmail) {
-    return json({ error: 'Missing FEEDBACK_TO_EMAIL' }, 500)
+  if (!supabaseUrl || !anonKey || !serviceRoleKey || !resendApiKey || !fromEmail || !toEmail) {
+    const missing = Object.entries({
+      SUPABASE_URL: supabaseUrl,
+      SUPABASE_ANON_KEY: anonKey,
+      SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
+      RESEND_API_KEY: resendApiKey,
+      RESEND_FROM_EMAIL: fromEmail,
+      FEEDBACK_TO_EMAIL: toEmail,
+    })
+      .filter(([, value]) => !value)
+      .map(([name]) => name)
+    console.error('[send-feedback] missing configuration:', missing.join(', '))
+    return json({ error: UNAVAILABLE_MESSAGE }, 500)
   }
 
   const authHeader = req.headers.get('Authorization')
@@ -148,7 +153,8 @@ Deno.serve(async (req) => {
   } = await supabase.auth.getUser()
 
   if (userError || !user) {
-    return json({ error: userError?.message ?? 'Unauthorized' }, 401)
+    if (userError) console.error('[send-feedback] auth failed', userError)
+    return json({ error: 'Unauthorized' }, 401)
   }
 
   const { data: membership, error: membershipError } = await supabase
@@ -159,11 +165,25 @@ Deno.serve(async (req) => {
     .maybeSingle()
 
   if (membershipError) {
-    return json({ error: membershipError.message }, 500)
+    console.error('[send-feedback] membership lookup failed', membershipError)
+    return json({ error: FAILED_MESSAGE }, 500)
   }
 
   if (!membership) {
     return json({ error: 'Not a member of this organization.' }, 403)
+  }
+
+  const admin = createClient(supabaseUrl, serviceRoleKey)
+  const { data: hits, error: rateError } = await admin.rpc('hit_rate_limit', {
+    p_bucket: `feedback:user:${user.id}`,
+    p_window_seconds: FEEDBACK_WINDOW_SECONDS,
+  })
+  if (rateError) {
+    console.error('[send-feedback] rate limit failed', rateError)
+    return json({ error: FAILED_MESSAGE }, 500)
+  }
+  if (Number(hits) > FEEDBACK_MAX_PER_WINDOW) {
+    return json({ error: "You've sent a lot of feedback — try again later." }, 429)
   }
 
   const { data: organization, error: orgError } = await supabase
@@ -173,7 +193,8 @@ Deno.serve(async (req) => {
     .maybeSingle()
 
   if (orgError) {
-    return json({ error: orgError.message }, 500)
+    console.error('[send-feedback] organization lookup failed', orgError)
+    return json({ error: FAILED_MESSAGE }, 500)
   }
 
   const { error: insertError } = await supabase.from('feedback').insert({
@@ -185,7 +206,8 @@ Deno.serve(async (req) => {
   })
 
   if (insertError) {
-    return json({ error: insertError.message }, 500)
+    console.error('[send-feedback] insert failed', insertError)
+    return json({ error: FAILED_MESSAGE }, 500)
   }
 
   const displayName =
@@ -216,7 +238,8 @@ Deno.serve(async (req) => {
   })
 
   if (sendError) {
-    return json({ error: sendError.message }, 500)
+    console.error('[send-feedback] email failed', sendError)
+    return json({ error: FAILED_MESSAGE }, 500)
   }
 
   return json({ ok: true })

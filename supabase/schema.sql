@@ -2383,6 +2383,9 @@ create policy "Plus users can view form uploads in their organization"
 
 drop policy if exists "Plus users can upload form files in their organization"
   on storage.objects;
+-- Files of a complete or missed submission are locked. The submission id is
+-- segment 2 for in-app paths ({org}/{submission}/...) and segment 3 for floor
+-- link paths ({org}/{site}/{submission}/...). No UPDATE policy: no overwrites.
 create policy "Plus users can upload form files in their organization"
   on storage.objects
   for insert
@@ -2391,6 +2394,13 @@ create policy "Plus users can upload form files in their organization"
     bucket_id = 'form-uploads'
     and split_part(name, '/', 1) in (
       select org_id::text from public.user_plus_org_ids() as org_id
+    )
+    and not exists (
+      select 1
+      from public.form_submissions as submissions
+      where submissions.org_id::text = split_part(name, '/', 1)
+        and submissions.status in ('complete', 'missed')
+        and submissions.id::text in (split_part(name, '/', 2), split_part(name, '/', 3))
     )
   );
 
@@ -2404,6 +2414,13 @@ create policy "Plus users can delete form uploads in their organization"
     bucket_id = 'form-uploads'
     and split_part(name, '/', 1) in (
       select org_id::text from public.user_plus_org_ids() as org_id
+    )
+    and not exists (
+      select 1
+      from public.form_submissions as submissions
+      where submissions.org_id::text = split_part(name, '/', 1)
+        and submissions.status in ('complete', 'missed')
+        and submissions.id::text in (split_part(name, '/', 2), split_part(name, '/', 3))
     )
   );
 
@@ -2687,7 +2704,8 @@ create trigger audit_site_access_tokens_change
   after insert or update or delete on public.site_access_tokens
   for each row execute function public.audit_log_change();
 
--- Service-role only. Used by site-forms rate limiting.
+-- Service-role only. Rate limit buckets for site-forms and send-feedback.
+-- Rows older than a day are purged by cron (rtc-purge-rate-limits).
 create table if not exists public.site_access_rate_limits (
   bucket_key text primary key,
   window_start timestamptz not null,
@@ -2699,6 +2717,35 @@ alter table public.site_access_rate_limits enable row level security;
 revoke all on table public.site_access_rate_limits from public;
 revoke all on table public.site_access_rate_limits from anon;
 revoke all on table public.site_access_rate_limits from authenticated;
+
+-- Counts one hit and returns the bucket's count in the current window, in one
+-- statement: the conflicting row is locked, so concurrent calls never share a count.
+create or replace function public.hit_rate_limit(p_bucket text, p_window_seconds integer)
+returns integer
+language sql
+volatile
+security definer
+set search_path = ''
+as $$
+  insert into public.site_access_rate_limits as limits (bucket_key, window_start, hits)
+  values (p_bucket, now(), 1)
+  on conflict (bucket_key) do update
+  set
+    window_start = case
+      when limits.window_start <= now() - make_interval(secs => p_window_seconds) then now()
+      else limits.window_start
+    end,
+    hits = case
+      when limits.window_start <= now() - make_interval(secs => p_window_seconds) then 1
+      else limits.hits + 1
+    end
+  returning hits;
+$$;
+
+revoke all on function public.hit_rate_limit(text, integer) from public;
+revoke all on function public.hit_rate_limit(text, integer) from anon;
+revoke all on function public.hit_rate_limit(text, integer) from authenticated;
+grant execute on function public.hit_rate_limit(text, integer) to service_role;
 
 -- Monthly compliance snapshots, written by send-monthly-compliance-report.
 -- site_id null = whole-org row. Captured for every org regardless of plan.

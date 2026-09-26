@@ -119,15 +119,11 @@ async function siteFormsRequest(token, { method, body } = {}) {
     return { data: null, error: { message: INACTIVE_MESSAGE, status: 401 } }
   }
 
-  const requestUrl =
-    (method || 'GET') === 'GET'
-      ? `${url}?token=${encodeURIComponent(token)}`
-      : url
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
   try {
-    const response = await fetch(requestUrl, {
+    const response = await fetch(url, {
       method: method || 'GET',
       headers: {
         apikey: anonKey,
@@ -180,7 +176,6 @@ export async function uploadSignature(signedUrl, blob) {
     method: 'PUT',
     headers: {
       'Content-Type': blob.type || 'image/png',
-      'x-upsert': 'true',
     },
     body: blob,
   })
