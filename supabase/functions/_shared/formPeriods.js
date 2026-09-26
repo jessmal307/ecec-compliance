@@ -1,6 +1,12 @@
-// Anchored-month periods shared by the app and the digest.
+// Period bounds shared by the app, the floor link, and the digest.
 // half_yearly / annually are whole calendar months. `annual` is not this.
-import { daysInMonth, formatIso, sydneyIsoDate } from './sydneyTime.js'
+import {
+  addDaysIso,
+  daysInMonth,
+  formatIso,
+  isoWeekday,
+  sydneyIsoDate,
+} from './sydneyTime.js'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -87,4 +93,56 @@ export function periodIsOwed(bounds, notBefore, monthLong) {
   if (!bounds?.start || !bounds?.end) return false
   if (!notBefore) return !monthLong
   return bounds.start >= notBefore
+}
+
+function isIsoDate(value) {
+  return ISO_DATE.test(value ?? '')
+}
+
+// The period that contains `today`. Anchored cadences need their months.
+// `once`, `each_time`, and unknown cadences have no period.
+export function periodBounds(cadence, today, months) {
+  if (!isIsoDate(today)) return null
+  if (isAnchoredCadence(cadence)) return anchoredPeriodBounds(months, today)
+  const [year, month] = today.split('-').map(Number)
+
+  if (cadence === 'daily') return { start: today, end: today }
+  if (cadence === 'weekly') {
+    const weekday = isoWeekday(today)
+    if (weekday == null) return null
+    const start = addDaysIso(today, 1 - weekday)
+    if (!start) return null
+    return { start, end: addDaysIso(start, 6) }
+  }
+  if (cadence === 'monthly') {
+    return {
+      start: formatIso(year, month, 1),
+      end: formatIso(year, month, daysInMonth(year, month)),
+    }
+  }
+  if (cadence === 'quarterly') {
+    const startMonth = Math.floor((month - 1) / 3) * 3 + 1
+    const endMonth = startMonth + 2
+    return {
+      start: formatIso(year, startMonth, 1),
+      end: formatIso(year, endMonth, daysInMonth(year, endMonth)),
+    }
+  }
+  if (cadence === 'annual') {
+    return { start: formatIso(year, 1, 1), end: formatIso(year, 12, 31) }
+  }
+  if (cadence === 'once') return { start: null, end: null }
+  return null
+}
+
+export function previousPeriodBounds(cadence, today, months) {
+  if (isAnchoredCadence(cadence)) return previousAnchoredPeriodBounds(months, today)
+  const current = periodBounds(cadence, today)
+  if (!current?.start) return null
+  if (cadence === 'daily') {
+    const day = addDaysIso(today, -1)
+    return day ? { start: day, end: day } : null
+  }
+  const previousStart = addDaysIso(current.start, -1)
+  return previousStart ? periodBounds(cadence, previousStart) : null
 }

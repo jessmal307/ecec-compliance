@@ -2112,6 +2112,11 @@ create table if not exists public.form_submissions (
 alter table public.form_submissions
   add column if not exists for_date date;
 
+-- Period key for one complete per week/month/period. for_date stays the day
+-- the form covers, so a mid-month completion is not marked late.
+alter table public.form_submissions
+  add column if not exists period_start date;
+
 alter table public.form_submissions drop constraint if exists form_submissions_status_check;
 alter table public.form_submissions add constraint form_submissions_status_check
   check (status in ('draft', 'complete', 'missed'));
@@ -2534,6 +2539,193 @@ alter table public.form_org_schedule
       and cadence_months[1] <> cadence_months[2]
     )
   );
+
+-- One completion per period. The start date matches periodBounds() in
+-- supabase/functions/_shared/formPeriods.js. for_date stays the covered day.
+create or replace function public.submission_period_start(
+  p_cadence text,
+  p_months smallint[],
+  p_for_date date
+)
+returns date
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_month integer;
+  v_year integer;
+  v_dow integer;
+  v_quarter_start integer;
+begin
+  if p_for_date is null or p_cadence is null then
+    return null;
+  end if;
+
+  v_month := extract(month from p_for_date)::integer;
+  v_year := extract(year from p_for_date)::integer;
+
+  if p_cadence = 'daily' then
+    return p_for_date;
+  elsif p_cadence = 'weekly' then
+    v_dow := extract(isodow from p_for_date)::integer;
+    return p_for_date - (v_dow - 1);
+  elsif p_cadence = 'monthly' then
+    return make_date(v_year, v_month, 1);
+  elsif p_cadence = 'quarterly' then
+    v_quarter_start := ((v_month - 1) / 3) * 3 + 1;
+    return make_date(v_year, v_quarter_start, 1);
+  elsif p_cadence = 'annual' then
+    return make_date(v_year, 1, 1);
+  elsif p_cadence in ('half_yearly', 'annually') then
+    if p_months is null
+       or cardinality(p_months) = 0
+       or not (v_month = any (p_months)) then
+      return null;
+    end if;
+    return make_date(v_year, v_month, 1);
+  end if;
+
+  return null;
+end;
+$$;
+
+revoke all on function public.submission_period_start(text, smallint[], date) from public;
+revoke all on function public.submission_period_start(text, smallint[], date) from anon;
+grant execute on function public.submission_period_start(text, smallint[], date) to authenticated;
+grant execute on function public.submission_period_start(text, smallint[], date) to service_role;
+
+create or replace function public.stamp_submission_period_start()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_cadence text;
+  v_scope text;
+  v_months smallint[];
+  v_org_months smallint[];
+  v_start date;
+begin
+  if new.for_date is null then
+    new.period_start := null;
+    return new;
+  end if;
+
+  select templates.cadence, templates.scope, templates.cadence_months
+  into v_cadence, v_scope, v_months
+  from public.form_templates as templates
+  where templates.id = new.template_id;
+
+  if v_scope is distinct from 'all_sites'
+     or v_cadence is null
+     or v_cadence in ('once', 'each_time') then
+    new.period_start := null;
+    return new;
+  end if;
+
+  if v_cadence in ('half_yearly', 'annually') then
+    select schedule.cadence_months
+    into v_org_months
+    from public.form_org_schedule as schedule
+    where schedule.org_id = new.org_id
+      and schedule.template_id = new.template_id;
+
+    if v_org_months is not null and cardinality(v_org_months) > 0 then
+      v_months := v_org_months;
+    end if;
+  end if;
+
+  v_start := public.submission_period_start(v_cadence, v_months, new.for_date);
+
+  if v_cadence in ('half_yearly', 'annually') and v_start is null then
+    raise exception 'Choose a date in the due month'
+      using errcode = '23514';
+  end if;
+
+  new.period_start := v_start;
+  return new;
+end;
+$$;
+
+revoke all on function public.stamp_submission_period_start() from public;
+revoke all on function public.stamp_submission_period_start() from anon;
+grant execute on function public.stamp_submission_period_start() to authenticated;
+grant execute on function public.stamp_submission_period_start() to service_role;
+
+-- Drop the enforcer so this re-run can refill, then mark older duplicates.
+drop trigger if exists stamp_submission_period_start on public.form_submissions;
+drop index if exists public.form_submissions_site_template_period_complete_idx;
+
+update public.form_submissions as subs
+set period_start = computed.period_start
+from (
+  select
+    rows.id,
+    public.submission_period_start(
+      templates.cadence,
+      case
+        when templates.cadence in ('half_yearly', 'annually')
+          and schedule.cadence_months is not null
+          and cardinality(schedule.cadence_months) > 0
+        then schedule.cadence_months
+        else templates.cadence_months
+      end,
+      rows.for_date
+    ) as period_start
+  from public.form_submissions as rows
+  join public.form_templates as templates
+    on templates.id = rows.template_id
+  left join public.form_org_schedule as schedule
+    on schedule.org_id = rows.org_id
+   and schedule.template_id = rows.template_id
+  where rows.for_date is not null
+    and templates.scope = 'all_sites'
+    and templates.cadence is not null
+    and templates.cadence not in ('once', 'each_time')
+) as computed
+where subs.id = computed.id;
+
+update public.form_submissions as subs
+set period_start = null
+from public.form_templates as templates
+where templates.id = subs.template_id
+  and (
+    subs.for_date is null
+    or templates.scope is distinct from 'all_sites'
+    or templates.cadence is null
+    or templates.cadence in ('once', 'each_time')
+  );
+
+update public.form_submissions as older
+set period_start = null
+from public.form_submissions as kept
+where older.status = 'complete'
+  and kept.status = 'complete'
+  and older.period_start is not null
+  and kept.period_start is not null
+  and older.site_id is not distinct from kept.site_id
+  and older.template_id = kept.template_id
+  and older.period_start = kept.period_start
+  and older.id <> kept.id
+  and (
+    coalesce(kept.submitted_at, kept.created_at)
+      > coalesce(older.submitted_at, older.created_at)
+    or (
+      coalesce(kept.submitted_at, kept.created_at)
+        = coalesce(older.submitted_at, older.created_at)
+      and kept.id > older.id
+    )
+  );
+
+drop trigger if exists stamp_submission_period_start on public.form_submissions;
+create trigger stamp_submission_period_start
+  before insert or update on public.form_submissions
+  for each row execute function public.stamp_submission_period_start();
+
+create unique index form_submissions_site_template_period_complete_idx
+  on public.form_submissions (site_id, template_id, period_start)
+  where status = 'complete' and period_start is not null;
 
 alter table public.form_org_schedule enable row level security;
 
@@ -3238,6 +3430,11 @@ alter table public.email_sends add constraint email_sends_status_check
 create index if not exists email_sends_kind_status_created_at_idx
   on public.email_sends (kind, status, created_at);
 
+-- Set when Resend accepts the message, before status becomes 'sent'.
+-- A 'sending' row with provider_id set is not cleared or resent.
+alter table public.email_sends
+  add column if not exists provider_id text;
+
 alter table public.email_sends enable row level security;
 
 revoke all on table public.email_sends from public;
@@ -3314,6 +3511,18 @@ alter table public.staff_pins drop constraint if exists staff_pins_iterations_ch
 alter table public.staff_pins add constraint staff_pins_iterations_check
   check (iterations between 100000 and 1000000);
 
+alter table public.staff_pins
+  add column if not exists pin_version integer;
+
+update public.staff_pins
+set pin_version = 1
+where pin_version is null;
+
+alter table public.staff_pins
+  alter column pin_version set default 1;
+alter table public.staff_pins
+  alter column pin_version set not null;
+
 create index if not exists staff_pins_org_id_idx on public.staff_pins (org_id);
 
 alter table public.staff_pins enable row level security;
@@ -3339,6 +3548,18 @@ create table if not exists public.floor_sessions (
 alter table public.floor_sessions drop constraint if exists floor_sessions_token_hash_check;
 alter table public.floor_sessions add constraint floor_sessions_token_hash_check
   check (token_hash ~ '^[0-9a-f]{64}$');
+
+alter table public.floor_sessions
+  add column if not exists pin_version integer;
+
+update public.floor_sessions
+set pin_version = 1
+where pin_version is null;
+
+alter table public.floor_sessions
+  alter column pin_version set default 1;
+alter table public.floor_sessions
+  alter column pin_version set not null;
 
 create index if not exists floor_sessions_staff_id_idx on public.floor_sessions (staff_id);
 create index if not exists floor_sessions_expires_at_idx on public.floor_sessions (expires_at);
@@ -3402,7 +3623,8 @@ begin
     pin_hash = excluded.pin_hash,
     iterations = excluded.iterations,
     set_by = excluded.set_by,
-    set_at = excluded.set_at;
+    set_at = excluded.set_at,
+    pin_version = pins.pin_version + 1;
 
   delete from public.floor_sessions as sessions
   where sessions.staff_id = p_staff_id;
@@ -3891,20 +4113,7 @@ begin
       cadence = seed.cadence,
       cadence_months = seed.cadence_months,
       scope = 'all_sites',
-      description = library_description,
-      schema = case
-        when seed.archetype = 'checklist' then jsonb_build_object(
-          'archetype', 'checklist',
-          'items', jsonb_build_array(jsonb_build_object(
-            'id', 'done',
-            'label', 'The ' || seed.name || ' has been completed as per the centre''s checklist',
-            'type', 'checkbox',
-            'required', true
-          )),
-          'signoff', jsonb_build_object('required', true)
-        )
-        else '{}'::jsonb
-      end
+      description = library_description
     where templates.is_system
       and templates.org_id is null
       and templates.name = seed.name;
@@ -4006,18 +4215,6 @@ set closed_at = null,
     closed_by = null,
     closed_note = null
 where status = 'open';
-
-update public.form_actions
-set status = 'open',
-    closed_at = null,
-    closed_by = null,
-    closed_note = null
-where status = 'closed'
-  and (
-    closed_at is null
-    or closed_note is null
-    or btrim(closed_note) = ''
-  );
 
 alter table public.form_actions
   alter column action_required set default '';
@@ -4239,6 +4436,21 @@ begin
     end if;
   end if;
 
+  -- Closed follow-ups stay closed for every role, including service_role.
+  if tg_op = 'UPDATE' and old.status = 'closed' then
+    new.description := old.description;
+    new.action_required := old.action_required;
+    new.due_date := old.due_date;
+    new.owner_staff_id := old.owner_staff_id;
+    new.owner_name := old.owner_name;
+    new.added_to_qip := old.added_to_qip;
+    new.quality_area := old.quality_area;
+    new.status := 'closed';
+    new.closed_at := old.closed_at;
+    new.closed_by := old.closed_by;
+    new.closed_note := old.closed_note;
+  end if;
+
   return new;
 end;
 $$;
@@ -4449,3 +4661,29 @@ revoke all on function public.guard_form_action() from public;
 revoke all on function public.guard_form_action() from anon;
 revoke all on function public.raise_form_actions() from public;
 revoke all on function public.raise_form_actions() from anon;
+
+-- Compliance history blocks deleting a centre. Archive is the app path.
+-- Tokens, closures, staff assignments, and exclusions still cascade.
+alter table public.form_submissions
+  drop constraint if exists form_submissions_site_id_fkey;
+alter table public.form_submissions
+  add constraint form_submissions_site_id_fkey
+  foreign key (site_id) references public.sites (id) on delete restrict;
+
+alter table public.form_actions
+  drop constraint if exists form_actions_site_id_fkey;
+alter table public.form_actions
+  add constraint form_actions_site_id_fkey
+  foreign key (site_id) references public.sites (id) on delete restrict;
+
+alter table public.form_digest_misses
+  drop constraint if exists form_digest_misses_site_id_fkey;
+alter table public.form_digest_misses
+  add constraint form_digest_misses_site_id_fkey
+  foreign key (site_id) references public.sites (id) on delete restrict;
+
+alter table public.form_overdue_alerts
+  drop constraint if exists form_overdue_alerts_site_id_fkey;
+alter table public.form_overdue_alerts
+  add constraint form_overdue_alerts_site_id_fkey
+  foreign key (site_id) references public.sites (id) on delete restrict;

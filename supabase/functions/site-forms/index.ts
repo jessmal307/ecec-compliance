@@ -1,6 +1,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { selectAllPages } from '../_shared/batch.ts'
 import { dueByFor, dueStatusAt } from '../_shared/formDueTimes.js'
 import { checklistItemType, yesNoNaErrors } from '../_shared/formAnswers.js'
+import { periodBounds } from '../_shared/formPeriods.js'
 import { scheduleEnabled } from '../_shared/formSchedule.js'
 import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
 import { sydneyToday } from '../_shared/sydneyTime.js'
@@ -54,6 +56,7 @@ type TemplateRow = {
   archetype: string
   schema: Record<string, unknown>
   cadence: string | null
+  cadence_months: number[] | null
   scope: string
   default_due_by: string | null
   created_at: string | null
@@ -68,62 +71,6 @@ function json(body: unknown, status = 200) {
 
 function isIsoDate(value: unknown): value is string {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))
-}
-
-function pad2(value: number) {
-  return String(value).padStart(2, '0')
-}
-
-function formatIso(year: number, month: number, day: number) {
-  return `${year}-${pad2(month)}-${pad2(day)}`
-}
-
-function daysInMonth(year: number, month: number) {
-  return new Date(year, month, 0).getDate()
-}
-
-function addDaysIso(isoDate: string, days: number) {
-  const date = new Date(`${isoDate}T00:00:00`)
-  date.setDate(date.getDate() + days)
-  return formatIso(date.getFullYear(), date.getMonth() + 1, date.getDate())
-}
-
-function isoWeekday(isoDate: string) {
-  if (!isIsoDate(isoDate)) return null
-  const day = new Date(`${isoDate}T00:00:00`).getDay()
-  return day === 0 ? 7 : day
-}
-
-function periodBounds(cadence: string, today: string) {
-  if (!isIsoDate(today)) return null
-  const [year, month] = today.split('-').map(Number)
-
-  if (cadence === 'daily') return { start: today, end: today }
-  if (cadence === 'weekly') {
-    const weekday = isoWeekday(today)
-    if (weekday == null) return null
-    const start = addDaysIso(today, 1 - weekday)
-    return { start, end: addDaysIso(start, 6) }
-  }
-  if (cadence === 'monthly') {
-    return {
-      start: formatIso(year, month, 1),
-      end: formatIso(year, month, daysInMonth(year, month)),
-    }
-  }
-  if (cadence === 'quarterly') {
-    const startMonth = Math.floor((month - 1) / 3) * 3 + 1
-    const endMonth = startMonth + 2
-    return {
-      start: formatIso(year, startMonth, 1),
-      end: formatIso(year, endMonth, daysInMonth(year, endMonth)),
-    }
-  }
-  if (cadence === 'annual') {
-    return { start: formatIso(year, 1, 1), end: formatIso(year, 12, 31) }
-  }
-  if (cadence === 'once') return { start: null, end: null }
-  return null
 }
 
 function dateInTimeZone(date: Date, timeZone: string) {
@@ -313,14 +260,27 @@ function randomSessionToken() {
     .replace(/=+$/, '')
 }
 
-function staffDisplayName(name: unknown) {
+function shortStaffName(name: unknown) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return 'Staff member'
   if (parts.length === 1) return parts[0]
   return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`
 }
 
-type StaffRow = { id: string; name: string }
+function staffListLabels(rows: StaffRow[]) {
+  const shorts = rows.map((row) => shortStaffName(row.name))
+  const counts = new Map<string, number>()
+  for (const label of shorts) counts.set(label, (counts.get(label) ?? 0) + 1)
+  return rows.map((row, index) => {
+    const short = shorts[index]
+    const collides = (counts.get(short) ?? 0) > 1
+    const role = String(row.role || '').trim()
+    const name = collides ? (role ? `${short} — ${role}` : String(row.name || '').trim() || short) : short
+    return { id: row.id, name }
+  })
+}
+
+type StaffRow = { id: string; name: string; role: string | null }
 
 // Active, unarchived staff of this org assigned to this site.
 async function signableStaff(supabase: Supabase, context: TokenContext, staffId?: string) {
@@ -333,7 +293,7 @@ async function signableStaff(supabase: Supabase, context: TokenContext, staffId?
 
   const { data, error } = await supabase
     .from('staff')
-    .select('id, name')
+    .select('id, name, role')
     .in('id', ids)
     .eq('org_id', context.orgId)
     .eq('employment_status', 'active')
@@ -345,11 +305,11 @@ async function signableStaff(supabase: Supabase, context: TokenContext, staffId?
 async function loadPin(supabase: Supabase, staffId: string) {
   const { data, error } = await supabase
     .from('staff_pins')
-    .select('salt, pin_hash, iterations')
+    .select('salt, pin_hash, iterations, pin_version')
     .eq('staff_id', staffId)
     .maybeSingle()
   if (error) throw error
-  return data as { salt: string; pin_hash: string; iterations: number } | null
+  return data as { salt: string; pin_hash: string; iterations: number; pin_version: number } | null
 }
 
 type FloorSession = { id: string; staffId: string }
@@ -359,7 +319,7 @@ async function loadSession(supabase: Supabase, context: TokenContext, rawSession
   if (!rawSession) return null
   const { data, error } = await supabase
     .from('floor_sessions')
-    .select('id, staff_id, site_id, site_access_token_id, expires_at')
+    .select('id, staff_id, site_id, site_access_token_id, expires_at, pin_version')
     .eq('token_hash', await sha256Hex(rawSession))
     .maybeSingle()
   if (error) throw error
@@ -373,14 +333,15 @@ async function loadSession(supabase: Supabase, context: TokenContext, rawSession
   }
   const staffId = data.staff_id as string
   const [staff] = await signableStaff(supabase, context, staffId)
-  if (!staff || !(await loadPin(supabase, staffId))) return null
+  const pin = staff ? await loadPin(supabase, staffId) : null
+  if (!staff || !pin || Number(data.pin_version) !== Number(pin.pin_version)) return null
   return { id: data.id as string, staffId } satisfies FloorSession
 }
 
 async function handleStaffList(supabase: Supabase, context: TokenContext) {
-  const staff = (await signableStaff(supabase, context))
-    .map((row) => ({ id: row.id, name: staffDisplayName(row.name) }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const staff = staffListLabels(await signableStaff(supabase, context)).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )
   return json({ staff })
 }
 
@@ -445,13 +406,19 @@ async function handleVerifyPin(supabase: Supabase, context: TokenContext, body: 
     staff_id: staffId,
     token_hash: await sha256Hex(session),
     expires_at: expiresAt,
+    pin_version: stored.pin_version,
   })
   if (insertError) throw insertError
 
   return json({
     session,
     expires_at: expiresAt,
-    staff: { id: staffId, name: staffDisplayName(staff.name) },
+    staff: {
+      id: staffId,
+      name:
+        staffListLabels(await signableStaff(supabase, context)).find((row) => row.id === staffId)
+          ?.name ?? shortStaffName(staff.name),
+    },
   })
 }
 
@@ -652,16 +619,21 @@ async function loadApplicableTemplates(supabase: Supabase, orgId: string, siteId
   const templates = (templatesResult.data ?? [])
     .filter((row) => isApplicableTemplate(row, exclusions))
     .filter((row) => scheduleEnabled(row, scheduleByTemplate.get(String(row.id))))
-    .map((row) => ({
-      id: row.id as string,
-      name: row.name as string,
-      archetype: row.archetype as string,
-      schema: (row.schema && typeof row.schema === 'object' ? row.schema : {}) as Record<string, unknown>,
-      cadence: (row.cadence as string | null) ?? null,
-      scope: (row.scope as string) || 'on_demand',
-      default_due_by: (row.default_due_by as string | null) ?? null,
-      created_at: (row.created_at as string | null) ?? null,
-    }))
+    .map((row) => {
+      const schedule = scheduleByTemplate.get(String(row.id))
+      const months = schedule?.cadence_months
+      return {
+        id: row.id as string,
+        name: row.name as string,
+        archetype: row.archetype as string,
+        schema: (row.schema && typeof row.schema === 'object' ? row.schema : {}) as Record<string, unknown>,
+        cadence: (row.cadence as string | null) ?? null,
+        cadence_months: Array.isArray(months) ? (months as number[]) : null,
+        scope: (row.scope as string) || 'on_demand',
+        default_due_by: (row.default_due_by as string | null) ?? null,
+        created_at: (row.created_at as string | null) ?? null,
+      }
+    })
 
   return templates
 }
@@ -677,18 +649,7 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
       .select('closure_date')
       .eq('site_id', context.siteId)
       .eq('closure_date', today),
-    scheduled.length
-      ? supabase
-          .from('form_submissions')
-          .select('template_id, status, for_date')
-          .eq('org_id', context.orgId)
-          .eq('site_id', context.siteId)
-          .in('status', ['complete', 'missed'])
-          .in(
-            'template_id',
-            scheduled.map((template) => template.id),
-          )
-      : Promise.resolve({ data: [], error: null }),
+    loadFloorSubmissions(supabase, context, scheduled, today),
     scheduled.some((template) => template.cadence === 'daily')
       ? supabase
           .from('form_site_due_times')
@@ -741,7 +702,7 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
       continue
     }
 
-    const bounds = periodBounds(template.cadence || 'once', today)
+    const bounds = periodBounds(template.cadence || 'once', today, template.cadence_months)
     const notBefore = notBeforeIso(context.siteCreatedAt, template.created_at)
     if (bounds?.start && notBefore && bounds.start < notBefore) continue
 
@@ -801,15 +762,80 @@ async function objectExists(supabase: Supabase, path: string) {
   return (data ?? []).some((entry) => entry.name === name)
 }
 
+async function loadFloorSubmissions(
+  supabase: Supabase,
+  context: TokenContext,
+  templates: TemplateRow[],
+  today: string,
+) {
+  const datedIds: string[] = []
+  const onceIds: string[] = []
+  let minDate: string | null = null
+  let maxDate: string | null = null
+  for (const template of templates) {
+    const bounds = periodBounds(template.cadence || 'once', today, template.cadence_months)
+    if (bounds?.start && bounds.end) {
+      datedIds.push(template.id)
+      if (!minDate || bounds.start < minDate) minDate = bounds.start
+      if (!maxDate || bounds.end > maxDate) maxDate = bounds.end
+    } else if (template.cadence === 'once') {
+      onceIds.push(template.id)
+    }
+  }
+
+  const rows: { template_id: string; status: string; for_date: string | null }[] = []
+  const load = async (ids: string[], fromDate: string | null, toDate: string | null) => {
+    for (let index = 0; index < ids.length; index += 100) {
+      const batch = ids.slice(index, index + 100)
+      const page = await selectAllPages(
+        (from, to) => {
+          let query = supabase
+            .from('form_submissions')
+            .select('id, template_id, status, for_date')
+            .eq('org_id', context.orgId)
+            .eq('site_id', context.siteId)
+            .in('status', ['complete', 'missed'])
+            .in('template_id', batch)
+            .order('id', { ascending: true })
+            .range(from, to)
+          if (fromDate && toDate) query = query.gte('for_date', fromDate).lte('for_date', toDate)
+          return query
+        },
+        'floor submissions',
+      )
+      if (page.error) return { data: null, error: page.error }
+      rows.push(
+        ...(page.data ?? []).map((row) => ({
+          template_id: row.template_id as string,
+          status: row.status as string,
+          for_date: row.for_date ? String(row.for_date).slice(0, 10) : null,
+        })),
+      )
+    }
+    return { data: rows, error: null }
+  }
+
+  if (datedIds.length && minDate && maxDate) {
+    const dated = await load(datedIds, minDate, maxDate)
+    if (dated.error) return dated
+  }
+  if (onceIds.length) {
+    const once = await load(onceIds, null, null)
+    if (once.error) return once
+  }
+  return { data: rows, error: null }
+}
+
 async function findCompleteForDate(
   supabase: Supabase,
   orgId: string,
   siteId: string,
   templateId: string,
   forDate: string | null,
+  periodStart: string | null,
   excludeId?: string,
 ) {
-  if (!forDate) return null
+  if (!forDate && !periodStart) return null
   let query = supabase
     .from('form_submissions')
     .select('id')
@@ -817,8 +843,8 @@ async function findCompleteForDate(
     .eq('site_id', siteId)
     .eq('template_id', templateId)
     .eq('status', 'complete')
-    .eq('for_date', forDate)
     .limit(1)
+  query = periodStart ? query.eq('period_start', periodStart) : query.eq('for_date', forDate as string)
   if (excludeId) query = query.neq('id', excludeId)
   const { data, error } = await query.maybeSingle()
   if (error) throw error
@@ -867,7 +893,7 @@ async function handlePost(
       }
     }
     const notBefore = notBeforeIso(context.siteCreatedAt, template.created_at)
-    const bounds = periodBounds(template.cadence || 'once', today)
+    const bounds = periodBounds(template.cadence || 'once', today, template.cadence_months)
     if (bounds?.start && notBefore && bounds.start < notBefore) {
       return json({ error: 'This form is not available for this site.' }, 403)
     }
@@ -879,13 +905,15 @@ async function handlePost(
   if (built.error || !built.data) return json({ error: built.error }, 400)
 
   let forDate: string | null = null
+  let periodStart: string | null = null
   if (isScheduledTemplate(template)) {
     const requested = String(body.for_date || today).slice(0, 10)
-    const bounds = periodBounds(template.cadence || 'once', today)
+    const bounds = periodBounds(template.cadence || 'once', today, template.cadence_months)
     if (!isIsoDate(requested) || !forDateInPeriod(requested, bounds)) {
       return json({ error: 'This form can only be completed for the current period.' }, 400)
     }
     forDate = requested
+    periodStart = bounds?.start ?? null
   }
 
   const signature = built.data.signoff.signature
@@ -977,6 +1005,7 @@ async function handlePost(
         context.siteId,
         template.id,
         forDate,
+        periodStart,
         rowId,
       )
       if (existingComplete) {

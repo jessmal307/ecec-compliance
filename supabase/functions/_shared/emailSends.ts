@@ -10,8 +10,9 @@ const STALE_CLAIM_MINUTES = 10
 
 export type StaleClaim = { org_id: string; period: string; created_at: string }
 
-// A claim still 'sending' after this long belongs to a run that died before
-// finishing. Deleting it also deletes its alert rows, so they are re-sent.
+// A claim still 'sending' with no provider id belongs to a run that died
+// before Resend accepted it. Deleting it also deletes its alert rows, so
+// they are re-sent. A provider id means Resend already accepted the mail.
 export async function clearStaleClaims(supabase: Supabase, kind: EmailSendKind) {
   const cutoff = new Date(Date.now() - STALE_CLAIM_MINUTES * 60_000).toISOString()
   const { data, error } = await retryOnJwtSkew(
@@ -21,6 +22,7 @@ export async function clearStaleClaims(supabase: Supabase, kind: EmailSendKind) 
         .select('id, org_id, period, created_at')
         .eq('kind', kind)
         .eq('status', 'sending')
+        .is('provider_id', null)
         .lt('created_at', cutoff),
     'stale email_sends',
   )
@@ -63,6 +65,16 @@ export async function claimSend(
 
 export async function releaseClaim(supabase: Supabase, claimId: string) {
   const { error } = await supabase.from('email_sends').delete().eq('id', claimId)
+  return error ? error.message ?? 'unknown error' : null
+}
+
+// Record that Resend accepted the message while status is still 'sending'.
+export async function markAccepted(supabase: Supabase, claimId: string, providerId: string) {
+  const { error } = await supabase
+    .from('email_sends')
+    .update({ provider_id: providerId })
+    .eq('id', claimId)
+    .eq('status', 'sending')
   return error ? error.message ?? 'unknown error' : null
 }
 

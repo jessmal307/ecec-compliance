@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { selectInBatches } from '../_shared/batch.ts'
+import { selectAllPages, selectInBatches } from '../_shared/batch.ts'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
-import { claimSend, clearStaleClaims, markSent, releaseClaim, type StaleClaim } from '../_shared/emailSends.ts'
+import { claimSend, clearStaleClaims, markAccepted, markSent, releaseClaim, type StaleClaim } from '../_shared/emailSends.ts'
 import { templateTakesDueBy } from '../_shared/formDueTimes.js'
 import {
   isAnchoredCadence,
@@ -9,15 +9,14 @@ import {
   monthPeriodIsOwed,
   periodIsOwed,
   previousAnchoredPeriodBounds,
+  previousPeriodBounds,
 } from '../_shared/formPeriods.js'
+import { ownerLoginEmail } from '../_shared/ownerEmail.ts'
 import { effectiveCadenceMonths, scheduleEnabled } from '../_shared/formSchedule.js'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
 import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
 import {
   addDaysIso,
-  daysInMonth,
-  formatIso,
-  isoWeekday,
   sydneyIsoDate,
   sydneyToday,
 } from '../_shared/sydneyTime.js'
@@ -835,6 +834,20 @@ function orgHasForms(org: { plan?: string | null }) {
   return org.plan === 'plus' || org.plan === 'pro'
 }
 
+function missedFormsHtml(forms: OverdueFormRow[]) {
+  if (!forms.length) return ''
+  const items =
+    forms.length > 5
+      ? `<li>${escapeHtml(`${forms.length} missed forms — see Forms in the app`)}</li>`
+      : forms
+          .map(
+            (row) =>
+              `<li>${escapeHtml(row.template_name)} — ${escapeHtml(row.label)}</li>`,
+          )
+          .join('')
+  return `<h3>Overdue forms</h3><ul>${items}</ul>`
+}
+
 function formsOnlyHtml(
   orgName: string,
   overdueBySite: Map<string, OverdueFormRow[]>,
@@ -846,16 +859,7 @@ function formsOnlyHtml(
       const forms = overdueBySite.get(siteId) ?? []
       const actions = actionsBySite.get(siteId) ?? []
       const siteName = forms[0]?.site_name || actions[0]?.site_name || 'Site'
-      const formList =
-        forms.length === 0
-          ? ''
-          : `<h3>Overdue forms</h3><ul>${forms
-              .map(
-                (row) =>
-                  `<li>${escapeHtml(row.template_name)} — ${escapeHtml(row.label)}</li>`,
-              )
-              .join('')}</ul>`
-      return `<h2>${escapeHtml(siteName)}</h2>${formList}${actionListHtml(actions)}`
+      return `<h2>${escapeHtml(siteName)}</h2>${missedFormsHtml(forms)}${actionListHtml(actions)}`
     })
     .join('')
 
@@ -877,16 +881,7 @@ function digestHtml(
       const rows = renderSiteLines(site.lines)
       const overdue = overdueBySite?.get(site.id) ?? []
       const actions = actionsBySite?.get(site.id) ?? []
-      const forms =
-        overdue.length === 0
-          ? ''
-          : `<h3>Overdue forms</h3><ul>${overdue
-              .map(
-                (row) =>
-                  `<li>${escapeHtml(row.template_name)} — ${escapeHtml(row.label)}</li>`,
-              )
-              .join('')}</ul>`
-      return `<h2>${escapeHtml(site.name)} — ${escapeHtml(countsLine(site))}</h2>${rows}${forms}${actionListHtml(actions)}`
+      return `<h2>${escapeHtml(site.name)} — ${escapeHtml(countsLine(site))}</h2>${rows}${missedFormsHtml(overdue)}${actionListHtml(actions)}`
     })
     .join('')
 
@@ -1118,52 +1113,6 @@ function formSiteOpenOn(
   })
 }
 
-function formPeriodBounds(cadence: string, today: string) {
-  if (!formIsIsoDate(today)) return null
-  const [year, month] = today.split('-').map(Number)
-
-  if (cadence === 'daily') return { start: today, end: today }
-  if (cadence === 'weekly') {
-    const weekday = isoWeekday(today)
-    if (weekday == null) return null
-    const start = addDaysIso(today, 1 - weekday)
-    const end = start ? addDaysIso(start, 6) : null
-    if (!start || !end) return null
-    return { start, end }
-  }
-  if (cadence === 'monthly') {
-    return {
-      start: formatIso(year, month, 1),
-      end: formatIso(year, month, daysInMonth(year, month)),
-    }
-  }
-  if (cadence === 'quarterly') {
-    const startMonth = Math.floor((month - 1) / 3) * 3 + 1
-    const endMonth = startMonth + 2
-    return {
-      start: formatIso(year, startMonth, 1),
-      end: formatIso(year, endMonth, daysInMonth(year, endMonth)),
-    }
-  }
-  if (cadence === 'annual') {
-    return { start: formatIso(year, 1, 1), end: formatIso(year, 12, 31) }
-  }
-  if (cadence === 'once') return { start: null, end: null }
-  return null
-}
-
-function formPreviousPeriodBounds(cadence: string, today: string) {
-  const current = formPeriodBounds(cadence, today)
-  if (!current?.start) return null
-  if (cadence === 'daily') {
-    const day = addDaysIso(today, -1)
-    if (!day) return null
-    return { start: day, end: day }
-  }
-  const previousStart = addDaysIso(current.start, -1)
-  return previousStart ? formPeriodBounds(cadence, previousStart) : null
-}
-
 function formSubmissionDate(value: string | null | undefined) {
   if (!value) return null
   if (formIsIsoDate(value)) return value
@@ -1333,7 +1282,7 @@ function findOverdueForms({
       } else {
         bounds = isAnchoredCadence(template.cadence)
           ? previousAnchoredPeriodBounds(template.cadence_months, today)
-          : formPreviousPeriodBounds(template.cadence, today)
+          : previousPeriodBounds(template.cadence, today, template.cadence_months)
         if (!bounds?.start) continue
         const monthLong = isMonthLongCadence(template.cadence)
         if (monthLong) {
@@ -1718,31 +1667,93 @@ async function loadOverdueFormsForOrg(
 
   if (!sites.length || !templates.length) return new Map()
 
-  const [closuresResult, submissionsResult] = await Promise.all([
-    selectInBatches(
-      sites.map((site) => site.id),
-      (batch) =>
+  const closureRows: { site_id: string; closure_date: string }[] = []
+  const siteIds = sites.map((site) => site.id)
+  for (let index = 0; index < siteIds.length; index += 100) {
+    const batch = siteIds.slice(index, index + 100)
+    const page = await selectAllPages(
+      (from, to) =>
         supabase
           .from('site_closures')
-          .select('site_id, closure_date')
-          .in('site_id', batch),
+          .select('id, site_id, closure_date')
+          .in('site_id', batch)
+          .order('id', { ascending: true })
+          .range(from, to),
       'overdue site_closures',
-    ),
-    selectInBatches(
-      templates.map((template) => template.id as string),
-      (batch) =>
-        supabase
-          .from('form_submissions')
-          .select('site_id, template_id, status, for_date')
-          .eq('org_id', orgId)
-          .in('status', ['complete', 'missed'])
-          .in('template_id', batch),
-      'overdue form_submissions',
-    ),
-  ])
+    )
+    if (page.error) throw page.error
+    closureRows.push(
+      ...(page.data ?? []).map((row) => ({
+        site_id: row.site_id as string,
+        closure_date: String(row.closure_date).slice(0, 10),
+      })),
+    )
+  }
 
-  if (closuresResult.error) throw closuresResult.error
-  if (submissionsResult.error) throw submissionsResult.error
+  let minDate: string | null = null
+  let maxDate: string | null = null
+  const consider = (start: string | null | undefined, end: string | null | undefined) => {
+    if (!start || !end) return
+    if (!minDate || start < minDate) minDate = start
+    if (!maxDate || end > maxDate) maxDate = end
+  }
+  for (const site of sites) {
+    for (const template of templates) {
+      if (template.cadence === 'once' || template.cadence === 'each_time' || !template.cadence) {
+        continue
+      }
+      if (templateTakesDueBy(template)) {
+        const day = formPreviousOpenDay(
+          site,
+          closureRows,
+          today,
+          formNotBeforeIso(site, template) || '2000-01-01',
+        )
+        if (day) consider(day, day)
+        continue
+      }
+      const bounds = isAnchoredCadence(template.cadence)
+        ? previousAnchoredPeriodBounds(template.cadence_months, today)
+        : previousPeriodBounds(template.cadence as string, today, template.cadence_months)
+      consider(bounds?.start, bounds?.end)
+    }
+  }
+
+  const submissionRows: {
+    status: string
+    site_id: string
+    template_id: string
+    for_date: string | null
+  }[] = []
+  if (minDate && maxDate) {
+    const templateIds = templates.map((template) => template.id as string)
+    for (let index = 0; index < templateIds.length; index += 100) {
+      const batch = templateIds.slice(index, index + 100)
+      const page = await selectAllPages(
+        (from, to) =>
+          supabase
+            .from('form_submissions')
+            .select('id, site_id, template_id, status, for_date')
+            .eq('org_id', orgId)
+            .in('status', ['complete', 'missed'])
+            .in('template_id', batch)
+            .gte('for_date', minDate as string)
+            .lte('for_date', maxDate as string)
+            .order('id', { ascending: true })
+            .range(from, to),
+        'overdue form_submissions',
+      )
+      if (page.error) throw page.error
+      submissionRows.push(
+        ...(page.data ?? []).map((row) => ({
+          status: row.status as string,
+          site_id: row.site_id as string,
+          template_id: row.template_id as string,
+          for_date: row.for_date ? String(row.for_date).slice(0, 10) : null,
+        })),
+      )
+    }
+  }
 
   const rows = findOverdueForms({
     sites,
@@ -1755,16 +1766,8 @@ async function loadOverdueFormsForOrg(
       created_at?: string | null
     }[],
     exclusions: exclusionsResult.data ?? [],
-    closures: (closuresResult.data ?? []).map((row) => ({
-      site_id: row.site_id,
-      closure_date: String(row.closure_date).slice(0, 10),
-    })),
-    submissions: (submissionsResult.data ?? []).map((row) => ({
-      status: row.status,
-      site_id: row.site_id,
-      template_id: row.template_id,
-      for_date: row.for_date ? String(row.for_date).slice(0, 10) : null,
-    })),
+    closures: closureRows,
+    submissions: submissionRows,
     today,
     trackingStart,
   })
@@ -1803,11 +1806,13 @@ async function sendResendEmail({
   const payload = await response.json()
   if (!response.ok) {
     return {
+      id: null as string | null,
       error: new Error(payload?.message ?? `Resend request failed (${response.status})`),
     }
   }
 
-  return { error: null }
+  const id = typeof payload?.id === 'string' && payload.id ? payload.id : 'accepted'
+  return { id, error: null }
 }
 
 Deno.serve(async (req) => {
@@ -1864,19 +1869,18 @@ Deno.serve(async (req) => {
       return ownerEmailCache.get(ownerId) ?? null
     }
 
-    const { data, error } = await retryOnJwtSkew(
-      () => supabase.auth.admin.getUserById(ownerId),
+    const lookedUp = await retryOnJwtSkew(
+      () => ownerLoginEmail(supabase, ownerId),
       'owner lookup',
     )
-    if (error) {
-      summary.errors.push(`Failed to load owner ${ownerId}: ${error.message}`)
+    if (lookedUp.error) {
+      summary.errors.push(`Failed to load owner ${ownerId}: ${lookedUp.error.message}`)
       ownerEmailCache.set(ownerId, null)
       return null
     }
 
-    const email = data.user?.email ?? null
-    ownerEmailCache.set(ownerId, email)
-    return email
+    ownerEmailCache.set(ownerId, lookedUp.email)
+    return lookedUp.email
   }
 
   const { data: items, error: itemsError } = await retryOnJwtSkew(
@@ -2356,9 +2360,10 @@ Deno.serve(async (req) => {
     const mailedForms = groupOverdueBySite(claimedMisses.map((row) => row.row))
     const mailedActions = groupActionsBySite(claimedActions.map((row) => row.row))
 
-    let sendError: Error | null
+    let sendError: Error | null = null
+    let providerId: string | null = null
     try {
-      ;({ error: sendError } = await sendResendEmail({
+      const sent = await sendResendEmail({
         apiKey: resendApiKey,
         from: fromEmail,
         to,
@@ -2366,7 +2371,9 @@ Deno.serve(async (req) => {
         html: entries.length
           ? digestHtml(org.name, digest as OrgDigest, mailedForms, mailedActions)
           : formsOnlyHtml(org.name, mailedForms, mailedActions),
-      }))
+      })
+      sendError = sent.error
+      providerId = sent.id
     } catch (error) {
       sendError = new Error(errorMessage(error))
     }
@@ -2388,6 +2395,15 @@ Deno.serve(async (req) => {
           (releaseError ? ` (release failed: ${releaseError})` : ''),
       )
       continue
+    }
+
+    if (providerId) {
+      const acceptError = await markAccepted(supabase, claim.id, providerId)
+      if (acceptError) {
+        summary.errors.push(
+          `Sent digest but failed to record the provider id for org ${orgId}: ${acceptError}`,
+        )
+      }
     }
 
     const markActions = await markActionDigestSent(

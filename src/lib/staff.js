@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { withArchiveScope } from './archive'
+import { fetchAllPages } from './query'
 
 const STAFF_FIELDS =
   'id, name, role, employment_status, start_date, end_date, email, phone, notes, org_id, created_at, archived_at'
@@ -52,53 +53,65 @@ export function employmentStatusLabel(status) {
 }
 
 export async function listStaff(orgId, { archivedOnly = false } = {}) {
-  const { data, error } = await withArchiveScope(
-    supabase
-      .from('staff')
-      .select(
-        `
+  const { data, error } = await fetchAllPages(() =>
+    withArchiveScope(
+      supabase
+        .from('staff')
+        .select(
+          `
       ${STAFF_FIELDS},
       staff_sites (
         site_id,
         sites ( id, name, archived_at )
       )
     `,
-      )
-      .eq('org_id', orgId)
-      .order('created_at', { ascending: true }),
-    { archivedOnly },
+        )
+        .eq('org_id', orgId),
+      { archivedOnly },
+    ),
   )
 
   if (error) {
     return { data: null, error }
   }
 
-  return { data: (data ?? []).map(mapStaffRow), error: null }
+  return {
+    data: (data ?? [])
+      .map(mapStaffRow)
+      .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at))),
+    error: null,
+  }
 }
 
 export async function listStaffBySite(orgId, siteId) {
-  const { data, error } = await withArchiveScope(
-    supabase
-      .from('staff')
-      .select(
-        `
+  const { data, error } = await fetchAllPages(() =>
+    withArchiveScope(
+      supabase
+        .from('staff')
+        .select(
+          `
       ${STAFF_FIELDS},
       staff_sites!inner (
         site_id,
         sites ( id, name, archived_at )
       )
     `,
-      )
-      .eq('org_id', orgId)
-      .eq('staff_sites.site_id', siteId)
-      .order('created_at', { ascending: true }),
+        )
+        .eq('org_id', orgId)
+        .eq('staff_sites.site_id', siteId),
+    ),
   )
 
   if (error) {
     return { data: null, error }
   }
 
-  return { data: (data ?? []).map(mapStaffRow), error: null }
+  return {
+    data: (data ?? [])
+      .map(mapStaffRow)
+      .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at))),
+    error: null,
+  }
 }
 
 export async function getStaff(id) {

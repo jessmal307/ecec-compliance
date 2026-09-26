@@ -23,13 +23,10 @@ import {
 import {
   ConfirmDeleteDialog,
   ITEM_ARCHIVE_WARNING,
-  PERMANENT_DELETE_PHRASE,
   SITE_ARCHIVE_WARNING,
-  SITE_DELETE_WARNING,
   itemArchiveTitle,
   itemArchiveWarning,
   siteArchiveTitle,
-  siteDeleteTitle,
 } from './ConfirmDeleteDialog'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
 import { AlertTimingHint } from './AlertTimingHint'
@@ -80,7 +77,6 @@ import { SiteHoursSettings } from './SiteHoursSettings'
 import {
   archiveSite,
   DEFAULT_OPERATING_DAYS,
-  deleteSite,
   EMPTY_OPERATING_DAYS_MESSAGE,
   getSite,
   restoreSite,
@@ -128,7 +124,6 @@ export function SiteProfile() {
   const [deletingSite, setDeletingSite] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const [pendingSiteArchive, setPendingSiteArchive] = useState(false)
-  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(false)
   const [pendingItemArchive, setPendingItemArchive] = useState(null)
   const deepLinkTab =
     searchParams.get('tab') === 'requirements' ? 'requirements' : null
@@ -547,22 +542,6 @@ export function SiteProfile() {
     setRestoring(false)
   }
 
-  async function handleDeleteSite() {
-    if (!siteId) return
-
-    setError('')
-    setDeletingSite(true)
-
-    const { error: deleteError } = await deleteSite(siteId)
-    if (deleteError) {
-      setError(deleteError.message)
-      setDeletingSite(false)
-      return
-    }
-
-    navigate(paths.sites, { replace: true })
-  }
-
   function setInfoField(field, value) {
     setInfo((current) => ({ ...current, [field]: value }))
   }
@@ -606,25 +585,14 @@ export function SiteProfile() {
               <Link to={paths.sites}>Back to sites</Link>
             </Button>
             {siteArchived ? (
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleRestoreSite}
-                  disabled={loading || restoring || deletingSite}
-                >
-                  {restoring ? 'Restoring…' : 'Restore'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setPendingPermanentDelete(true)}
-                  disabled={loading || restoring || deletingSite}
-                >
-                  Delete permanently
-                </Button>
-              </>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleRestoreSite}
+                disabled={loading || restoring || deletingSite}
+              >
+                {restoring ? 'Restoring…' : 'Restore'}
+              </Button>
             ) : (
               <Button
                 type="button"
@@ -1101,17 +1069,6 @@ export function SiteProfile() {
         confirmLabel="Archive"
         confirmingLabel="Archiving…"
         variant="default"
-      />
-      <ConfirmDeleteDialog
-        open={pendingPermanentDelete}
-        onOpenChange={setPendingPermanentDelete}
-        title={siteDeleteTitle(site?.name ?? 'this site')}
-        description={SITE_DELETE_WARNING}
-        confirming={deletingSite}
-        onConfirm={handleDeleteSite}
-        confirmLabel="Delete permanently"
-        confirmingLabel="Deleting…"
-        confirmPhrase={PERMANENT_DELETE_PHRASE}
       />
       <ConfirmDeleteDialog
         open={Boolean(pendingItemArchive)}

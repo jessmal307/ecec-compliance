@@ -15,12 +15,14 @@ import {
   monthPeriodIsOwed,
   periodBounds,
   periodStatus,
+  previousOpenDay,
   previousPeriodBounds,
+  scheduleNotBefore,
 } from './formPeriods'
 import { dueByFor, dueStatusAt, templateTakesDueBy } from './formDueTimes'
 import { effectiveCadenceMonths, scheduleEnabled } from './formSchedule'
 import { isSignatureDataUrl } from './formUploads'
-import { firstError } from './query'
+import { fetchAllPages, firstError } from './query'
 import { listSiteClosuresForSites, listSites } from './sites'
 import { supabase } from './supabase'
 import { normalizeTimeOfDay } from './sydneyTime'
@@ -150,14 +152,17 @@ export async function saveFormOrgSchedule(orgId, templateId, { enabled, cadenceM
 }
 
 export async function listFormTemplates() {
-  const { data, error } = await supabase
-    .from('form_templates')
-    .select(TEMPLATE_FIELDS)
-    .is('archived_at', null)
-    .order('name')
+  const { data, error } = await fetchAllPages(() =>
+    supabase.from('form_templates').select(TEMPLATE_FIELDS).is('archived_at', null),
+  )
 
   if (error) return { data: [], error }
-  return { data: (data ?? []).map(mapTemplate), error: null }
+  return {
+    data: (data ?? [])
+      .map(mapTemplate)
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    error: null,
+  }
 }
 
 export async function getFormTemplate(id) {
@@ -317,19 +322,24 @@ async function listPeriodicDueSubmissions(orgId, templates, today) {
     (earliest, start) => (start < earliest ? start : earliest),
     today,
   )
-  const { data, error } = await supabase
-    .from('form_submissions')
-    .select('site_id, template_id, status, for_date, due_by, submitted_at')
-    .eq('org_id', orgId)
-    .in('status', ['complete', 'missed'])
-    .in(
-      'template_id',
-      templates.map((template) => template.id),
+  const templateIds = templates.map((template) => template.id)
+  const rows = []
+  for (let index = 0; index < templateIds.length; index += 100) {
+    const batch = templateIds.slice(index, index + 100)
+    const { data, error } = await fetchAllPages(() =>
+      supabase
+        .from('form_submissions')
+        .select('id, site_id, template_id, status, for_date, due_by, submitted_at')
+        .eq('org_id', orgId)
+        .in('status', ['complete', 'missed'])
+        .in('template_id', batch)
+        .gte('for_date', earliestStart)
+        .lte('for_date', today),
     )
-    .gte('for_date', earliestStart)
-
-  if (error) return { data: [], error }
-  return { data: (data ?? []).map(mapDueSubmission), error: null }
+    if (error) return { data: [], error }
+    rows.push(...(data ?? []))
+  }
+  return { data: rows.map(mapDueSubmission), error: null }
 }
 
 async function listOnceDueSubmissions(orgId, pairs) {
@@ -337,13 +347,15 @@ async function listOnceDueSubmissions(orgId, pairs) {
 
   const results = await Promise.all(
     pairs.map(async ({ siteId, templateId }) => {
-      const completes = await supabase
-        .from('form_submissions')
-        .select('site_id, template_id, status, for_date, due_by, submitted_at')
-        .eq('org_id', orgId)
-        .eq('site_id', siteId)
-        .eq('template_id', templateId)
-        .eq('status', 'complete')
+      const completes = await fetchAllPages(() =>
+        supabase
+          .from('form_submissions')
+          .select('id, site_id, template_id, status, for_date, due_by, submitted_at')
+          .eq('org_id', orgId)
+          .eq('site_id', siteId)
+          .eq('template_id', templateId)
+          .eq('status', 'complete'),
+      )
 
       if (completes.error) return { data: [], error: completes.error }
       if (completes.data?.length) {
@@ -569,34 +581,74 @@ export async function computeOverdueForms(orgId, today = todayIsoDate()) {
 
   if (!sites.length || !templates.length) return { data: [], error: null }
 
-  const [closuresResult, submissionsResult] = await Promise.all([
-    listSiteClosuresForSites(sites.map((site) => site.id)),
-    supabase
-      .from('form_submissions')
-      .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
-      .eq('org_id', orgId)
-      .in('status', ['complete', 'missed'])
-      .in(
-        'template_id',
-        templates.map((template) => template.id),
-      ),
-  ])
-
+  const closuresResult = await listSiteClosuresForSites(sites.map((site) => site.id))
   if (closuresResult.error) return { data: [], error: closuresResult.error }
-  if (submissionsResult.error) return { data: [], error: submissionsResult.error }
+  const closures = closuresResult.data ?? []
+  const window = overdueForDateWindow(sites, templates, closures, today)
+  const templateIds = templates.map((template) => template.id)
+  const submissionRows = []
+  if (window.min && window.max) {
+    for (let index = 0; index < templateIds.length; index += 100) {
+      const batch = templateIds.slice(index, index + 100)
+      const page = await fetchAllPages(() =>
+        supabase
+          .from('form_submissions')
+          .select('id, site_id, template_id, status, for_date')
+          .eq('org_id', orgId)
+          .in('status', ['complete', 'missed'])
+          .in('template_id', batch)
+          .gte('for_date', window.min)
+          .lte('for_date', window.max),
+      )
+      if (page.error) return { data: [], error: page.error }
+      submissionRows.push(...(page.data ?? []))
+    }
+  }
 
   return {
     data: findOverdueForms({
       sites,
       templates,
       exclusions,
-      closures: closuresResult.data ?? [],
-      submissions: (submissionsResult.data ?? []).map(mapSubmission),
+      closures,
+      submissions: submissionRows.map(mapSubmission),
       today,
       trackingStart,
     }),
     error: null,
   }
+}
+
+function overdueForDateWindow(sites, templates, closures, today) {
+  let min = null
+  let max = null
+  const consider = (start, end) => {
+    if (!start || !end) return
+    if (!min || start < min) min = start
+    if (!max || end > max) max = end
+  }
+
+  for (const site of sites) {
+    for (const template of templates) {
+      if (template.cadence === 'once' || template.cadence === 'each_time' || !template.cadence) {
+        continue
+      }
+      if (template.cadence === 'daily') {
+        const day = previousOpenDay(
+          site,
+          closures,
+          today,
+          scheduleNotBefore(site, template) || '2000-01-01',
+        )
+        if (day) consider(day, day)
+        continue
+      }
+      const bounds = previousPeriodBounds(template.cadence, today, template.cadence_months)
+      if (bounds?.start && bounds.end) consider(bounds.start, bounds.end)
+    }
+  }
+
+  return { min, max }
 }
 
 export function assignmentTargetLabel(assignment, { sites = [], staff = [] } = {}) {
@@ -821,23 +873,29 @@ export function validateFormSubmission(schema, archetype, state) {
 
 export async function listFormSubmissions(
   orgId,
-  { templateId = '', siteId = '' } = {},
+  { templateId = '', siteId = '', page = 1, pageSize = 25 } = {},
 ) {
-  if (!orgId) return { data: [], error: null }
+  if (!orgId) return { data: [], count: 0, error: null }
 
+  const size = Math.max(1, pageSize)
+  const current = Math.max(1, page)
+  const from = (current - 1) * size
   let query = supabase
     .from('form_submissions')
-    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)
+    .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`, {
+      count: 'exact',
+    })
     .eq('org_id', orgId)
     .order('created_at', { ascending: false })
-    .limit(200)
+    .order('id', { ascending: false })
+    .range(from, from + size - 1)
 
   if (templateId) query = query.eq('template_id', templateId)
   if (siteId) query = query.eq('site_id', siteId)
 
-  const { data, error } = await query
-  if (error) return { data: [], error }
-  return { data: (data ?? []).map(mapSubmission), error: null }
+  const { data, error, count } = await query
+  if (error) return { data: [], count: 0, error }
+  return { data: (data ?? []).map(mapSubmission), count: count ?? 0, error: null }
 }
 
 export async function getFormSubmission(id) {
@@ -916,6 +974,8 @@ export async function findCompleteInPeriod({
 
   if (bounds?.start) query = query.gte('for_date', bounds.start)
   if (bounds?.end) query = query.lte('for_date', bounds.end)
+  if (excludeId) query = query.neq('id', excludeId)
+  query = query.limit(1)
 
   const { data, error } = await query
 

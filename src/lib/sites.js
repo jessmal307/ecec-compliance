@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { fetchAllPages } from './query'
 import { withArchiveScope } from './archive'
 import { DEFAULT_OPERATING_DAYS, normalizeOperatingDays } from './siteOpen'
 import { sydneyToday } from './sydneyTime'
@@ -185,17 +186,6 @@ export async function restoreSite(id) {
   return { error: null }
 }
 
-export async function deleteSite(id) {
-  const { error } = await supabase.from('sites').delete().eq('id', id)
-
-  if (error) {
-    return { error }
-  }
-
-  notifySitesChanged()
-  return { error: null }
-}
-
 function mapClosure(row) {
   return {
     id: row.id,
@@ -249,17 +239,22 @@ export async function deleteSiteClosure(id) {
 export async function listSiteClosuresForSites(siteIds, { date, from, to } = {}) {
   if (!siteIds?.length) return { data: [], error: null }
 
-  let query = supabase
-    .from('site_closures')
-    .select('id, org_id, site_id, closure_date, note, created_at')
-    .in('site_id', siteIds)
-    .order('closure_date', { ascending: true })
+  const { data, error } = await fetchAllPages(() => {
+    let query = supabase
+      .from('site_closures')
+      .select('id, org_id, site_id, closure_date, note, created_at')
+      .in('site_id', siteIds)
 
-  if (date) query = query.eq('closure_date', date)
-  if (from) query = query.gte('closure_date', from)
-  if (to) query = query.lte('closure_date', to)
-
-  const { data, error } = await query
+    if (date) query = query.eq('closure_date', date)
+    if (from) query = query.gte('closure_date', from)
+    if (to) query = query.lte('closure_date', to)
+    return query
+  })
   if (error) return { data: [], error }
-  return { data: (data ?? []).map(mapClosure), error: null }
+  return {
+    data: (data ?? [])
+      .map(mapClosure)
+      .sort((left, right) => left.closure_date.localeCompare(right.closure_date)),
+    error: null,
+  }
 }

@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Select } from '../ui/form'
+import { ListPagination, LIST_PAGE_SIZE } from '../ListPagination'
 import { PageError, PageMuted } from '../ui/page'
 import { formatTimestamp } from '../../lib/format'
 import { listFormSubmissions, listFormTemplates } from '../../lib/forms'
@@ -24,6 +25,8 @@ export function FormSubmissions({ organizationId }) {
   const [sites, setSites] = useState([])
   const [templateId, setTemplateId] = useState('')
   const [siteId, setSiteId] = useState('')
+  const [page, setPage] = useState(1)
+  const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -62,18 +65,22 @@ export function FormSubmissions({ organizationId }) {
     async function load() {
       setLoading(true)
       setError('')
-      const { data, error: loadError } = await listFormSubmissions(organizationId, {
+      const { data, count: total, error: loadError } = await listFormSubmissions(organizationId, {
         templateId,
         siteId,
+        page,
+        pageSize: LIST_PAGE_SIZE,
       })
       if (cancelled) return
       if (loadError) {
         setError(loadError.message)
         setSubmissions([])
+        setCount(0)
         setLoading(false)
         return
       }
       setSubmissions(data)
+      setCount(total ?? 0)
       setLoading(false)
     }
 
@@ -82,14 +89,21 @@ export function FormSubmissions({ organizationId }) {
     return () => {
       cancelled = true
     }
-  }, [organizationId, templateId, siteId])
+  }, [organizationId, templateId, siteId, page])
+
+  const pageCount = Math.max(1, Math.ceil(count / LIST_PAGE_SIZE) || 1)
+  const from = count === 0 ? 0 : (page - 1) * LIST_PAGE_SIZE + 1
+  const to = Math.min(page * LIST_PAGE_SIZE, count)
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row">
         <Select
           value={templateId}
-          onChange={(event) => setTemplateId(event.target.value)}
+          onChange={(event) => {
+            setTemplateId(event.target.value)
+            setPage(1)
+          }}
           aria-label="Filter by template"
           className="sm:w-56"
         >
@@ -102,7 +116,10 @@ export function FormSubmissions({ organizationId }) {
         </Select>
         <Select
           value={siteId}
-          onChange={(event) => setSiteId(event.target.value)}
+          onChange={(event) => {
+            setSiteId(event.target.value)
+            setPage(1)
+          }}
           aria-label="Filter by site"
           className="sm:w-52"
         >
@@ -174,6 +191,14 @@ export function FormSubmissions({ organizationId }) {
           })}
         </ul>
       )}
+      <ListPagination
+        page={page}
+        pageCount={pageCount}
+        from={from}
+        to={to}
+        total={count}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

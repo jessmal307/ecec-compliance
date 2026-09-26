@@ -9,13 +9,13 @@ import {
 import { isLateForDueBy } from './formDueTimes.js'
 import { DEFAULT_OPERATING_DAYS, isSiteOpenOn as siteIsOpenOn } from './siteOpen.js'
 import {
-  anchoredPeriodBounds,
   isAnchoredCadence,
   isMonthLongCadence,
   monthPeriodIsOwed,
   normalizeCadenceMonths,
+  periodBounds,
   periodIsOwed,
-  previousAnchoredPeriodBounds,
+  previousPeriodBounds,
 } from '../../supabase/functions/_shared/formPeriods.js'
 
 export {
@@ -23,7 +23,9 @@ export {
   isMonthLongCadence,
   monthPeriodIsOwed,
   normalizeCadenceMonths,
+  periodBounds,
   periodIsOwed,
+  previousPeriodBounds,
 }
 
 export { addDaysIso, daysInMonth, formatIso, isoWeekday, DEFAULT_OPERATING_DAYS }
@@ -34,49 +36,6 @@ function isIsoDate(value) {
 
 export function addCalendarMonthsIso(isoDate, months) {
   return addMonthsIso(isoDate, months)
-}
-
-export function periodBounds(cadence, today, months) {
-  if (!isIsoDate(today)) return null
-  if (isAnchoredCadence(cadence)) return anchoredPeriodBounds(months, today)
-  const [year, month] = today.split('-').map(Number)
-
-  if (cadence === 'daily') return { start: today, end: today }
-  if (cadence === 'weekly') {
-    const weekday = isoWeekday(today)
-    const start = addDaysIso(today, 1 - weekday)
-    return { start, end: addDaysIso(start, 6) }
-  }
-  if (cadence === 'monthly') {
-    return {
-      start: formatIso(year, month, 1),
-      end: formatIso(year, month, daysInMonth(year, month)),
-    }
-  }
-  if (cadence === 'quarterly') {
-    const startMonth = Math.floor((month - 1) / 3) * 3 + 1
-    const endMonth = startMonth + 2
-    return {
-      start: formatIso(year, startMonth, 1),
-      end: formatIso(year, endMonth, daysInMonth(year, endMonth)),
-    }
-  }
-  if (cadence === 'annual') {
-    return { start: formatIso(year, 1, 1), end: formatIso(year, 12, 31) }
-  }
-  if (cadence === 'once') return { start: null, end: null }
-  return null
-}
-
-export function previousPeriodBounds(cadence, today, months) {
-  if (isAnchoredCadence(cadence)) return previousAnchoredPeriodBounds(months, today)
-  const current = periodBounds(cadence, today)
-  if (!current?.start) return null
-  if (cadence === 'daily') {
-    const day = addDaysIso(today, -1)
-    return { start: day, end: day }
-  }
-  return periodBounds(cadence, addDaysIso(current.start, -1))
 }
 
 export function submissionLocalDate(value) {

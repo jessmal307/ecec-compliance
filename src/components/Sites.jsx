@@ -11,11 +11,8 @@ import {
 } from '@/components/ui/card'
 import {
   ConfirmDeleteDialog,
-  PERMANENT_DELETE_PHRASE,
   SITE_ARCHIVE_WARNING,
-  SITE_DELETE_WARNING,
   siteArchiveTitle,
-  siteDeleteTitle,
 } from './ConfirmDeleteDialog'
 import {
   ARCHIVE_VIEW_FILTERS,
@@ -29,7 +26,7 @@ import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
 import { paths } from '../lib/paths'
-import { createSite, archiveSite, restoreSite, deleteSite, listSites } from '../lib/sites'
+import { createSite, archiveSite, restoreSite, listSites } from '../lib/sites'
 
 const EMPTY_SITE_FORM = {
   name: '',
@@ -49,7 +46,6 @@ export function Sites() {
   const [deletingId, setDeletingId] = useState(null)
   const [restoringId, setRestoringId] = useState(null)
   const [pendingArchive, setPendingArchive] = useState(null)
-  const [pendingPermanentDelete, setPendingPermanentDelete] = useState(null)
   const [query, setQuery] = useState('')
   const [viewFilter, setViewFilter] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
@@ -175,27 +171,6 @@ export function Sites() {
       setError(selectError.message)
     }
     setRestoringId(null)
-  }
-
-  async function handlePermanentDelete() {
-    if (!pendingPermanentDelete) return
-
-    setError('')
-    setDeletingId(pendingPermanentDelete.id)
-
-    const { error: deleteError } = await deleteSite(pendingPermanentDelete.id)
-    if (deleteError) {
-      setError(deleteError.message)
-      setDeletingId(null)
-      return
-    }
-
-    setPendingPermanentDelete(null)
-    const { error: selectError } = await refreshSites()
-    if (selectError) {
-      setError(selectError.message)
-    }
-    setDeletingId(null)
   }
 
   const filteredSites = useMemo(() => {
@@ -400,29 +375,14 @@ export function Sites() {
                           <Link to={paths.siteProfile(site.id)}>View</Link>
                         </Button>
                         {archivedOnly ? (
-                          <>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => handleRestore(site)}
-                              disabled={
-                                restoringId === site.id || deletingId === site.id
-                              }
-                            >
-                              {restoringId === site.id ? 'Restoring…' : 'Restore'}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => setPendingPermanentDelete(site)}
-                              disabled={
-                                restoringId === site.id || deletingId === site.id
-                              }
-                            >
-                              Delete permanently
-                            </Button>
-                          </>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleRestore(site)}
+                            disabled={restoringId === site.id || deletingId === site.id}
+                          >
+                            {restoringId === site.id ? 'Restoring…' : 'Restore'}
+                          </Button>
                         ) : (
                           <Button
                             type="button"
@@ -458,25 +418,6 @@ export function Sites() {
         confirmLabel="Archive"
         confirmingLabel="Archiving…"
         variant="default"
-      />
-      <ConfirmDeleteDialog
-        open={Boolean(pendingPermanentDelete)}
-        onOpenChange={(open) => {
-          if (!open) setPendingPermanentDelete(null)
-        }}
-        title={
-          pendingPermanentDelete
-            ? siteDeleteTitle(pendingPermanentDelete.name)
-            : 'Delete permanently?'
-        }
-        description={SITE_DELETE_WARNING}
-        confirming={Boolean(
-          pendingPermanentDelete && deletingId === pendingPermanentDelete.id,
-        )}
-        onConfirm={handlePermanentDelete}
-        confirmLabel="Delete permanently"
-        confirmingLabel="Deleting…"
-        confirmPhrase={PERMANENT_DELETE_PHRASE}
       />
     </section>
   )

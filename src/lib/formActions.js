@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { fetchAllPages } from './query'
 import { actionHasOwner, actionIsOverdue } from './formAnswers'
 
 const ACTION_FIELDS =
@@ -56,17 +57,20 @@ export function summarizeOpenActions(actions, today) {
 
 export async function listFormActions(orgId, { siteId = '', submissionId = '', status = '' } = {}) {
   if (!orgId) return { data: [], error: null }
-  let query = supabase
-    .from('form_actions')
-    .select(ACTION_FIELDS)
-    .eq('org_id', orgId)
-    .order('created_at', { ascending: false })
-  if (siteId) query = query.eq('site_id', siteId)
-  if (submissionId) query = query.eq('submission_id', submissionId)
-  if (status) query = query.eq('status', status)
-  const { data, error } = await query
+  const { data, error } = await fetchAllPages(() => {
+    let query = supabase.from('form_actions').select(ACTION_FIELDS).eq('org_id', orgId)
+    if (siteId) query = query.eq('site_id', siteId)
+    if (submissionId) query = query.eq('submission_id', submissionId)
+    if (status) query = query.eq('status', status)
+    return query
+  })
   if (error) return { data: [], error }
-  return { data: (data ?? []).map(mapAction), error: null }
+  return {
+    data: (data ?? [])
+      .map(mapAction)
+      .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at))),
+    error: null,
+  }
 }
 
 export async function createFormAction(orgId, fields) {

@@ -1,8 +1,9 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
-import { selectInBatches } from '../_shared/batch.ts'
+import { selectAllPages, selectInBatches } from '../_shared/batch.ts'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
 import { dueByFor, dueStatusAt, templateTakesDueBy } from '../_shared/formDueTimes.js'
 import { scheduleEnabled } from '../_shared/formSchedule.js'
+import { ownerLoginEmail } from '../_shared/ownerEmail.ts'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
 import { isSiteOpenOn } from '../_shared/siteOpen.js'
 import {
@@ -162,7 +163,7 @@ Deno.serve(async (req) => {
     () =>
       supabase
         .from('organizations')
-        .select('id, name, alert_email, plan')
+        .select('id, name, alert_email, plan, owner_id')
         .in('plan', ['plus', 'pro']),
     'plus orgs',
   )
@@ -232,18 +233,28 @@ Deno.serve(async (req) => {
             .eq('closure_date', today),
         'closures',
       ),
-      selectInBatches(
-        siteIds,
-        (batch) =>
-          supabase
-            .from('form_submissions')
-            .select('site_id, template_id, status, for_date')
-            .in('site_id', batch)
-            .in('template_id', templateIds)
-            .in('status', ['complete', 'missed'])
-            .eq('for_date', today),
-        'today submissions',
-      ),
+      (async () => {
+        const rows: { site_id: string; template_id: string }[] = []
+        for (let index = 0; index < siteIds.length; index += 100) {
+          const batch = siteIds.slice(index, index + 100)
+          const page = await selectAllPages(
+            (from, to) =>
+              supabase
+                .from('form_submissions')
+                .select('id, site_id, template_id, status, for_date')
+                .in('site_id', batch)
+                .in('template_id', templateIds)
+                .in('status', ['complete', 'missed'])
+                .eq('for_date', today)
+                .order('id', { ascending: true })
+                .range(from, to),
+            'today submissions',
+          )
+          if (page.error) return { data: null, error: page.error }
+          rows.push(...(page.data ?? []))
+        }
+        return { data: rows, error: null }
+      })(),
       selectInBatches(
         orgIds,
         (batch) =>
@@ -303,6 +314,24 @@ Deno.serve(async (req) => {
     (schedulesResult.data ?? []).map((row) => [`${row.org_id}:${row.template_id}`, row]),
   )
 
+  const ownerEmails = new Map<string, string | null>()
+  for (const org of orgs) {
+    const ownerId = org.owner_id as string | null
+    if (!ownerId) continue
+    const needsOwner = sites.some(
+      (site) =>
+        sameId(site.org_id, org.id) &&
+        !String(site.alert_email || '').trim() &&
+        !String(org.alert_email || '').trim(),
+    )
+    if (!needsOwner) continue
+    const lookedUp = await retryOnJwtSkew(
+      () => ownerLoginEmail(supabase, ownerId),
+      'owner lookup',
+    )
+    ownerEmails.set(org.id as string, lookedUp.error ? null : lookedUp.email)
+  }
+
   type OverdueItem = {
     orgId: string
     siteId: string
@@ -328,7 +357,9 @@ Deno.serve(async (req) => {
       continue
     }
 
-    const to = String(site.alert_email || org.alert_email || '').trim()
+    const to = String(
+      site.alert_email || org.alert_email || ownerEmails.get(org.id as string) || '',
+    ).trim()
     const orgDueTimes = dueTimes.filter((row) => sameId(row.org_id, site.org_id))
 
     for (const template of templates) {
