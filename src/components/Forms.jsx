@@ -1,27 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FormDue } from './forms/FormDue'
-import { FormDueByDefault } from './forms/FormDueTimes'
-import { FormSiteExclusions } from './forms/FormSiteExclusions'
+import { FormLibraryCard } from './forms/FormLibraryCard'
 import { FormSubmissions } from './forms/FormSubmissions'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
-import {
-  archetypeLabel,
-  cadenceLabel,
-  isScheduledAllSitesTemplate,
-  listFormTemplates,
-} from '../lib/forms'
+import { listFormOrgSchedules, listFormTemplates } from '../lib/forms'
 import { getOrganization } from '../lib/organizations'
 import { paths } from '../lib/paths'
 import { can } from '../lib/plans'
@@ -75,6 +60,7 @@ export function Forms() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = formsTab(searchParams)
   const [templates, setTemplates] = useState([])
+  const [schedules, setSchedules] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -86,15 +72,20 @@ export function Forms() {
     async function load() {
       setLoading(true)
       setError('')
-      const { data, error: loadError } = await listFormTemplates()
+      const [templatesResult, schedulesResult] = await Promise.all([
+        listFormTemplates(),
+        listFormOrgSchedules(organizationId),
+      ])
       if (cancelled) return
-      if (loadError) {
-        setError(loadError.message)
+      if (templatesResult.error || schedulesResult.error) {
+        setError((templatesResult.error || schedulesResult.error).message)
         setTemplates([])
+        setSchedules([])
         setLoading(false)
         return
       }
-      setTemplates(data)
+      setTemplates(templatesResult.data)
+      setSchedules(schedulesResult.data)
       setLoading(false)
     }
 
@@ -103,7 +94,7 @@ export function Forms() {
     return () => {
       cancelled = true
     }
-  }, [accessLoading, allowed])
+  }, [accessLoading, allowed, organizationId])
 
   function setTab(next) {
     if (next === 'submissions' || next === 'due') setSearchParams({ tab: next })
@@ -139,48 +130,38 @@ export function Forms() {
           ) : templates.length === 0 ? (
             <PageMuted>No form templates available yet.</PageMuted>
           ) : (
-            <ul className="grid grid-cols-1 gap-3">
-              {templates.map((template) => (
-                <li key={template.id}>
-                  <Card>
-                    <CardHeader>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle>{template.name}</CardTitle>
-                        <Badge variant="outline">
-                          {archetypeLabel(template.archetype)}
-                        </Badge>
-                        {template.cadence ? (
-                          <Badge variant="outline">{cadenceLabel(template.cadence)}</Badge>
-                        ) : null}
-                      </div>
-                      {template.description ? (
-                        <CardDescription>{template.description}</CardDescription>
-                      ) : null}
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        <Button asChild>
-                          <Link to={paths.formComplete(template.id)}>Complete</Link>
-                        </Button>
-                        <Button asChild variant="outline">
-                          <Link to={paths.formPreview(template.id)}>Preview</Link>
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    {isScheduledAllSitesTemplate(template) ? (
-                      <CardContent className="space-y-4">
-                        <FormDueByDefault
-                          organizationId={organizationId}
-                          template={template}
-                        />
-                        <FormSiteExclusions
-                          organizationId={organizationId}
-                          templateId={template.id}
-                        />
-                      </CardContent>
-                    ) : null}
-                  </Card>
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-col gap-8">
+              {[
+                ['Audits', (template) => template.category === 'audit'],
+                ['Checklists', (template) => template.category === 'checklist'],
+                ['Other', (template) => template.category !== 'audit' && template.category !== 'checklist'],
+              ].map(([heading, matches]) => {
+                const group = templates.filter(matches)
+                if (!group.length) return null
+                return (
+                  <section key={heading} className="flex flex-col gap-3">
+                    <h2 className="text-lg font-semibold">{heading}</h2>
+                    <ul className="grid grid-cols-1 gap-3">
+                      {group.map((template) => (
+                        <li key={template.id}>
+                          <FormLibraryCard
+                            organizationId={organizationId}
+                            template={template}
+                            schedule={schedules.find((row) => row.template_id === template.id) ?? null}
+                            onSchedule={(row) =>
+                              setSchedules((current) => {
+                                const rest = current.filter((item) => item.template_id !== row.template_id)
+                                return [...rest, row]
+                              })
+                            }
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )
+              })}
+            </div>
           )}
         </TabsContent>
 

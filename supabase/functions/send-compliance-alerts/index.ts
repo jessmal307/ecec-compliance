@@ -6,9 +6,11 @@ import { templateTakesDueBy } from '../_shared/formDueTimes.js'
 import {
   isAnchoredCadence,
   isMonthLongCadence,
+  monthTrackingBoundary,
   periodIsOwed,
   previousAnchoredPeriodBounds,
 } from '../_shared/formPeriods.js'
+import { effectiveCadenceMonths, scheduleEnabled } from '../_shared/formSchedule.js'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
 import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
 import {
@@ -1260,6 +1262,7 @@ function findOverdueForms({
   closures,
   submissions,
   today,
+  trackingStart,
 }: {
   sites: { id: string; name: string; operating_days?: number[]; created_at?: string | null }[]
   templates: {
@@ -1274,6 +1277,7 @@ function findOverdueForms({
   closures: { site_id: string; closure_date: string }[]
   submissions: { status: string; site_id: string; template_id: string; for_date?: string | null }[]
   today: string
+  trackingStart?: string | null
 }): OverdueFormRow[] {
   if (!formIsIsoDate(today)) return []
 
@@ -1311,7 +1315,10 @@ function findOverdueForms({
           : formPreviousPeriodBounds(template.cadence, today)
         if (!bounds?.start) continue
         const monthLong = isMonthLongCadence(template.cadence)
-        if (!periodIsOwed(bounds, notBefore, monthLong)) continue
+        const boundary = monthLong
+          ? monthTrackingBoundary(trackingStart, formSubmissionDate(site.created_at))
+          : notBefore
+        if (!periodIsOwed(bounds, boundary, monthLong)) continue
         if (!monthLong && !formPeriodHasOpenDay(site, closures, bounds)) continue
       }
 
@@ -1453,7 +1460,8 @@ async function loadOverdueFormsForOrg(
   orgId: string,
   today: string,
 ): Promise<Map<string, OverdueFormRow[]>> {
-  const [sitesResult, templatesResult, exclusionsResult] = await Promise.all([
+  const [sitesResult, templatesResult, exclusionsResult, schedulesResult, orgResult] =
+    await Promise.all([
     retryOnJwtSkew(
       () =>
         supabase
@@ -1467,7 +1475,9 @@ async function loadOverdueFormsForOrg(
       () =>
         supabase
           .from('form_templates')
-          .select('id, name, cadence, cadence_months, scope, org_id, archived_at, created_at')
+          .select(
+            'id, name, cadence, cadence_months, category, scope, org_id, archived_at, created_at',
+          )
           .is('archived_at', null)
           .or(`org_id.eq.${orgId},org_id.is.null`),
       'overdue form_templates',
@@ -1480,11 +1490,33 @@ async function loadOverdueFormsForOrg(
           .eq('org_id', orgId),
       'overdue form_site_exclusions',
     ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('form_org_schedule')
+          .select('template_id, enabled, cadence_months')
+          .eq('org_id', orgId),
+      'overdue form_org_schedule',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase.from('organizations').select('audit_tracking_start').eq('id', orgId).maybeSingle(),
+      'overdue audit_tracking_start',
+    ),
   ])
 
   if (sitesResult.error) throw sitesResult.error
   if (templatesResult.error) throw templatesResult.error
   if (exclusionsResult.error) throw exclusionsResult.error
+  if (schedulesResult.error) throw schedulesResult.error
+  if (orgResult.error) throw orgResult.error
+
+  const scheduleByTemplate = new Map(
+    (schedulesResult.data ?? []).map((row) => [String(row.template_id), row]),
+  )
+  const trackingStart = orgResult.data?.audit_tracking_start
+    ? String(orgResult.data.audit_tracking_start).slice(0, 10)
+    : null
 
   const sites = (sitesResult.data ?? []).map((site) => ({
     id: site.id as string,
@@ -1492,13 +1524,22 @@ async function loadOverdueFormsForOrg(
     created_at: site.created_at as string | null,
     operating_days: normalizeOperatingDays(site.operating_days),
   }))
-  const templates = (templatesResult.data ?? []).filter(
-    (template) =>
-      Boolean(template.cadence) &&
-      template.cadence !== 'once' &&
-      template.cadence !== 'each_time' &&
-      template.scope === 'all_sites',
-  )
+  const templates = (templatesResult.data ?? [])
+    .filter(
+      (template) =>
+        Boolean(template.cadence) &&
+        template.cadence !== 'once' &&
+        template.cadence !== 'each_time' &&
+        template.scope === 'all_sites' &&
+        scheduleEnabled(template, scheduleByTemplate.get(String(template.id))),
+    )
+    .map((template) => ({
+      ...template,
+      cadence_months: effectiveCadenceMonths(
+        template,
+        scheduleByTemplate.get(String(template.id)),
+      ),
+    }))
 
   if (!sites.length || !templates.length) return new Map()
 
@@ -1550,6 +1591,7 @@ async function loadOverdueFormsForOrg(
       for_date: row.for_date ? String(row.for_date).slice(0, 10) : null,
     })),
     today,
+    trackingStart,
   })
 
   const bySite = new Map<string, OverdueFormRow[]>()

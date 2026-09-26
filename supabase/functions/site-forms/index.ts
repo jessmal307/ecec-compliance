@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { dueByFor, dueStatusAt } from '../_shared/formDueTimes.js'
+import { scheduleEnabled } from '../_shared/formSchedule.js'
 import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
 import { sydneyToday } from '../_shared/sydneyTime.js'
 
@@ -609,10 +610,12 @@ async function resolveToken(supabase: Supabase, rawToken: string) {
 }
 
 async function loadApplicableTemplates(supabase: Supabase, orgId: string, siteId: string) {
-  const [templatesResult, exclusionsResult] = await Promise.all([
+  const [templatesResult, exclusionsResult, schedulesResult] = await Promise.all([
     supabase
       .from('form_templates')
-      .select('id, name, archetype, schema, cadence, scope, default_due_by, archived_at, created_at')
+      .select(
+        'id, name, archetype, schema, cadence, category, scope, default_due_by, archived_at, created_at',
+      )
       .is('archived_at', null)
       .or(`org_id.eq.${orgId},org_id.is.null`),
     supabase
@@ -620,13 +623,22 @@ async function loadApplicableTemplates(supabase: Supabase, orgId: string, siteId
       .select('template_id')
       .eq('org_id', orgId)
       .eq('site_id', siteId),
+    supabase
+      .from('form_org_schedule')
+      .select('template_id, enabled, cadence_months')
+      .eq('org_id', orgId),
   ])
   if (templatesResult.error) throw templatesResult.error
   if (exclusionsResult.error) throw exclusionsResult.error
+  if (schedulesResult.error) throw schedulesResult.error
 
   const exclusions = exclusionsResult.data ?? []
+  const scheduleByTemplate = new Map(
+    (schedulesResult.data ?? []).map((row) => [String(row.template_id), row]),
+  )
   const templates = (templatesResult.data ?? [])
     .filter((row) => isApplicableTemplate(row, exclusions))
+    .filter((row) => scheduleEnabled(row, scheduleByTemplate.get(String(row.id))))
     .map((row) => ({
       id: row.id as string,
       name: row.name as string,

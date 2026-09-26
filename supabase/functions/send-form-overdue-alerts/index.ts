@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { selectInBatches } from '../_shared/batch.ts'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
 import { dueByFor, dueStatusAt, templateTakesDueBy } from '../_shared/formDueTimes.js'
+import { scheduleEnabled } from '../_shared/formSchedule.js'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
 import { isSiteOpenOn } from '../_shared/siteOpen.js'
 import {
@@ -189,7 +190,7 @@ Deno.serve(async (req) => {
       () =>
         supabase
           .from('form_templates')
-          .select('id, name, cadence, scope, default_due_by, archived_at')
+          .select('id, name, cadence, category, scope, default_due_by, archived_at')
           .is('archived_at', null)
           .eq('cadence', 'daily')
           .eq('scope', 'all_sites'),
@@ -210,7 +211,7 @@ Deno.serve(async (req) => {
   const siteIds = sites.map((site) => site.id as string)
   const templateIds = templates.map((template) => template.id as string)
 
-  const [exclusionsResult, closuresResult, submissionsResult, dueTimesResult, claimsResult] =
+  const [exclusionsResult, closuresResult, submissionsResult, dueTimesResult, claimsResult, schedulesResult] =
     await Promise.all([
       selectInBatches(
         orgIds,
@@ -262,6 +263,15 @@ Deno.serve(async (req) => {
             .eq('for_date', today),
         'existing claims',
       ),
+      selectInBatches(
+        orgIds,
+        (batch) =>
+          supabase
+            .from('form_org_schedule')
+            .select('org_id, template_id, enabled')
+            .in('org_id', batch),
+        'org schedule',
+      ),
     ])
 
   const loadError =
@@ -269,7 +279,8 @@ Deno.serve(async (req) => {
     closuresResult.error ||
     submissionsResult.error ||
     dueTimesResult.error ||
-    claimsResult.error
+    claimsResult.error ||
+    schedulesResult.error
   if (loadError) {
     return json({ error: loadError.message ?? 'Failed to load overdue forms' }, 500)
   }
@@ -288,6 +299,9 @@ Deno.serve(async (req) => {
     (claimsResult.data ?? []).map((row) => `${row.site_id}:${row.template_id}`),
   )
   const dueTimes = dueTimesResult.data ?? []
+  const scheduleByOrgTemplate = new Map(
+    (schedulesResult.data ?? []).map((row) => [`${row.org_id}:${row.template_id}`, row]),
+  )
 
   type OverdueItem = {
     orgId: string
@@ -318,6 +332,14 @@ Deno.serve(async (req) => {
     const orgDueTimes = dueTimes.filter((row) => sameId(row.org_id, site.org_id))
 
     for (const template of templates) {
+      if (
+        !scheduleEnabled(
+          template,
+          scheduleByOrgTemplate.get(`${site.org_id}:${template.id}`),
+        )
+      ) {
+        continue
+      }
       if (
         exclusions.some(
           (row) =>

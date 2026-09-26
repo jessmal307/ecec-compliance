@@ -9,11 +9,21 @@ import {
 import {
   anchoredPeriodBounds,
   calendarMonthBounds,
+  monthTrackingBoundary,
   periodIsOwed,
   previousAnchoredPeriodBounds,
 } from '../../supabase/functions/_shared/formPeriods.js'
+import { scheduleEnabled } from './formSchedule.js'
 
-function overdue({ cadence, months, today, created = '2020-01-01', closures = [], submissions = [] }) {
+function overdue({
+  cadence,
+  months,
+  today,
+  created = '2020-01-01',
+  trackingStart = created,
+  closures = [],
+  submissions = [],
+}) {
   return findOverdueForms({
     sites: [
       {
@@ -37,6 +47,7 @@ function overdue({ cadence, months, today, created = '2020-01-01', closures = []
     closures,
     submissions,
     today,
+    trackingStart,
   })
 }
 
@@ -96,11 +107,17 @@ test('February keeps the last valid day', () => {
   assert.equal(calendarMonthBounds(2026, 2).end, '2026-02-28')
 })
 
-test('a month-long period is owed if the template existed during it', () => {
+test('a month-long period is owed only when it starts on or after tracking', () => {
   const september = { start: '2026-09-01', end: '2026-09-30' }
-  assert.equal(periodIsOwed(september, '2026-09-26', true), true)
+  assert.equal(periodIsOwed(september, '2026-09-26', true), false)
+  assert.equal(periodIsOwed(september, '2026-09-01', true), true)
   assert.equal(periodIsOwed(september, '2026-10-01', true), false)
+  assert.equal(periodIsOwed(september, null, true), false)
   assert.equal(periodIsOwed({ start: '2026-09-25', end: '2026-09-25' }, '2026-09-26', false), false)
+  assert.equal(periodIsOwed({ start: '2026-09-26', end: '2026-09-26' }, null, false), true)
+  assert.equal(monthTrackingBoundary('2026-09-26', '2020-01-01'), '2026-09-26')
+  assert.equal(monthTrackingBoundary('2026-09-01', '2026-10-01'), '2026-10-01')
+  assert.equal(monthTrackingBoundary(null, '2020-01-01'), null)
 })
 
 test('overdue is only the most recently ended month, even if the centre was shut', () => {
@@ -124,32 +141,55 @@ test('overdue is only the most recently ended month, even if the centre was shut
   assert.equal(cleared.length, 0)
 })
 
-test('an annual item created in September is overdue in October and not before', () => {
+test('tracking from 26 Sep owes nothing for September; 1 Sep owes it from October', () => {
   const during = overdue({
     cadence: 'annually',
     months: [9],
     today: '2026-09-26',
-    created: '2026-09-26',
+    trackingStart: '2026-09-01',
   })
   assert.equal(during.length, 0)
 
-  const nextMonth = overdue({
+  const firstMonth = overdue({
     cadence: 'annually',
     months: [9],
     today: '2026-10-01',
-    created: '2026-09-26',
+    trackingStart: '2026-09-26',
   })
-  assert.equal(nextMonth.length, 1)
-  assert.equal(nextMonth[0].period_start, '2026-09-01')
-  assert.equal(nextMonth[0].label, 'missed September 2026')
+  assert.equal(firstMonth.length, 0)
 
-  const createdAfter = overdue({
+  const backdated = overdue({
+    cadence: 'annually',
+    months: [9],
+    today: '2026-10-01',
+    trackingStart: '2026-09-01',
+  })
+  assert.equal(backdated.length, 1)
+  assert.equal(backdated[0].period_start, '2026-09-01')
+  assert.equal(backdated[0].label, 'missed September 2026')
+
+  const siteOpenedLater = overdue({
     cadence: 'annually',
     months: [9],
     today: '2026-10-01',
     created: '2026-10-01',
+    trackingStart: '2026-09-01',
   })
-  assert.equal(createdAfter.length, 0)
+  assert.equal(siteOpenedLater.length, 0)
+
+  assert.equal(
+    overdue({ cadence: 'monthly', today: '2026-09-01', trackingStart: null }).length,
+    0,
+  )
+})
+
+test('daily checklists are off until a schedule row turns them on', () => {
+  const daily = { category: 'checklist', cadence: 'daily' }
+  const audit = { category: 'audit', cadence: 'monthly' }
+  assert.equal(scheduleEnabled(daily, null), false)
+  assert.equal(scheduleEnabled(audit, null), true)
+  assert.equal(scheduleEnabled(daily, { enabled: true }), true)
+  assert.equal(scheduleEnabled({ cadence: 'daily' }, null), true)
 })
 
 test('each_time is never overdue and daily still uses the previous open day', () => {

@@ -12,11 +12,19 @@ import {
   anchoredPeriodBounds,
   isAnchoredCadence,
   isMonthLongCadence,
+  monthTrackingBoundary,
+  normalizeCadenceMonths,
   periodIsOwed,
   previousAnchoredPeriodBounds,
 } from '../../supabase/functions/_shared/formPeriods.js'
 
-export { isAnchoredCadence, isMonthLongCadence, periodIsOwed }
+export {
+  isAnchoredCadence,
+  isMonthLongCadence,
+  monthTrackingBoundary,
+  normalizeCadenceMonths,
+  periodIsOwed,
+}
 
 export { addDaysIso, daysInMonth, formatIso, isoWeekday, DEFAULT_OPERATING_DAYS }
 
@@ -243,6 +251,7 @@ export function findOverdueForms({
   closures,
   submissions,
   today,
+  trackingStart = null,
 }) {
   if (!isIsoDate(today)) return []
 
@@ -273,7 +282,10 @@ export function findOverdueForms({
         bounds = previousPeriodBounds(template.cadence, today, template.cadence_months)
         if (!bounds?.start) continue
         const monthLong = isMonthLongCadence(template.cadence)
-        if (!periodIsOwed(bounds, notBefore, monthLong)) continue
+        const boundary = monthLong
+          ? monthTrackingBoundary(trackingStart, createdIso(site.created_at))
+          : notBefore
+        if (!periodIsOwed(bounds, boundary, monthLong)) continue
         if (!monthLong && !periodHasOpenDay(site, closures, bounds)) continue
       }
 

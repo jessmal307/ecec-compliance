@@ -11,13 +11,15 @@ import {
   isMonthLongCadence,
   isSiteOpenOn,
   isSubmissionLate,
+  monthTrackingBoundary,
   periodBounds,
   periodIsOwed,
   periodStatus,
   previousPeriodBounds,
-  scheduleNotBefore,
+  submissionLocalDate,
 } from './formPeriods'
 import { dueByFor, dueStatusAt, templateTakesDueBy } from './formDueTimes'
+import { effectiveCadenceMonths, scheduleEnabled } from './formSchedule'
 import { isSignatureDataUrl } from './formUploads'
 import { firstError } from './query'
 import { listSiteClosuresForSites, listSites } from './sites'
@@ -57,7 +59,7 @@ const ASSIGNMENT_FIELDS =
   'id, org_id, template_id, target_type, target_id, target_role, cadence, next_due, active, created_at'
 
 const TEMPLATE_FIELDS =
-  'id, org_id, name, archetype, schema, reg_ref, description, is_system, cadence, cadence_months, scope, default_due_by, archived_at, created_at'
+  'id, org_id, name, archetype, schema, reg_ref, description, is_system, cadence, cadence_months, scope, default_due_by, category, quality_area, nqs_refs, completed_by, archived_at, created_at'
 
 const CADENCE_LABELS = {
   half_yearly: 'Half-yearly',
@@ -81,6 +83,10 @@ function mapTemplate(row) {
     cadence_months: Array.isArray(row.cadence_months)
       ? row.cadence_months.map(Number)
       : null,
+    category: row.category ?? null,
+    quality_area: row.quality_area ?? null,
+    nqs_refs: Array.isArray(row.nqs_refs) ? row.nqs_refs : [],
+    completed_by: row.completed_by ?? '',
     scope: row.scope || 'on_demand',
     default_due_by: normalizeTimeOfDay(row.default_due_by),
     archived_at: row.archived_at ?? null,
@@ -102,6 +108,46 @@ export function archetypeLabel(archetype) {
   if (archetype === 'risk_matrix') return 'Risk matrix'
   if (archetype === 'evidence') return 'Evidence'
   return 'Form'
+}
+
+const SCHEDULE_FIELDS = 'id, org_id, template_id, enabled, cadence_months'
+
+function mapSchedule(row) {
+  return {
+    id: row.id,
+    org_id: row.org_id,
+    template_id: row.template_id,
+    enabled: Boolean(row.enabled),
+    cadence_months: Array.isArray(row.cadence_months) ? row.cadence_months.map(Number) : null,
+  }
+}
+
+export async function listFormOrgSchedules(orgId) {
+  if (!orgId) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('form_org_schedule')
+    .select(SCHEDULE_FIELDS)
+    .eq('org_id', orgId)
+  if (error) return { data: [], error }
+  return { data: (data ?? []).map(mapSchedule), error: null }
+}
+
+export async function saveFormOrgSchedule(orgId, templateId, { enabled, cadenceMonths }) {
+  const { data, error } = await supabase
+    .from('form_org_schedule')
+    .upsert(
+      {
+        org_id: orgId,
+        template_id: templateId,
+        enabled,
+        cadence_months: cadenceMonths?.length ? cadenceMonths : null,
+      },
+      { onConflict: 'org_id,template_id' },
+    )
+    .select(SCHEDULE_FIELDS)
+    .single()
+  if (error) return { data: null, error }
+  return { data: mapSchedule(data), error: null }
 }
 
 export async function listFormTemplates() {
@@ -343,17 +389,42 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
     return { data: [], error: { message: 'Enter a valid date.' } }
   }
 
-  const [sitesResult, templatesResult, exclusionsResult, dueTimesResult] = await Promise.all([
-    listSites(orgId),
-    listFormTemplates(),
-    listFormSiteExclusions(orgId),
-    listFormDueTimes(orgId),
-  ])
-  const setupError = firstError(sitesResult, templatesResult, exclusionsResult, dueTimesResult)
+  const [sitesResult, templatesResult, exclusionsResult, dueTimesResult, schedulesResult, orgResult] =
+    await Promise.all([
+      listSites(orgId),
+      listFormTemplates(),
+      listFormSiteExclusions(orgId),
+      listFormDueTimes(orgId),
+      listFormOrgSchedules(orgId),
+      supabase.from('organizations').select('audit_tracking_start').eq('id', orgId).maybeSingle(),
+    ])
+  const setupError = firstError(
+    sitesResult,
+    templatesResult,
+    exclusionsResult,
+    dueTimesResult,
+    schedulesResult,
+    orgResult,
+  )
   if (setupError) return { data: [], error: setupError }
 
   const sites = sitesResult.data ?? []
-  const templates = (templatesResult.data ?? []).filter(isScheduledAllSitesTemplate)
+  const scheduleByTemplate = new Map(
+    (schedulesResult.data ?? []).map((row) => [String(row.template_id), row]),
+  )
+  const trackingStart = orgResult.data?.audit_tracking_start
+    ? String(orgResult.data.audit_tracking_start).slice(0, 10)
+    : null
+  const templates = (templatesResult.data ?? [])
+    .filter(isScheduledAllSitesTemplate)
+    .filter((template) => scheduleEnabled(template, scheduleByTemplate.get(String(template.id))))
+    .map((template) => ({
+      ...template,
+      cadence_months: effectiveCadenceMonths(
+        template,
+        scheduleByTemplate.get(String(template.id)),
+      ),
+    }))
   const exclusions = exclusionsResult.data ?? []
   const dueTimes = dueTimesResult.data ?? []
 
@@ -388,7 +459,7 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
     for (const template of templates) {
       if (isFormSiteExcluded(exclusions, site.id, template.id)) continue
       if (isMonthLongCadence(template.cadence)) {
-        pushMonthLongDueRows(rows, { site, template, submissions, today })
+        pushMonthLongDueRows(rows, { site, template, submissions, today, trackingStart })
         continue
       }
       if (template.cadence === 'daily' && !isSiteOpenOn(site, closures, today)) {
@@ -420,10 +491,11 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
   return { data: rows, error: null }
 }
 
-function pushMonthLongDueRows(rows, { site, template, submissions, today }) {
+function pushMonthLongDueRows(rows, { site, template, submissions, today, trackingStart }) {
   const months = template.cadence_months
+  const boundary = monthTrackingBoundary(trackingStart, submissionLocalDate(site.created_at))
   const current = periodBounds(template.cadence, today, months)
-  if (current?.start) {
+  if (current?.start && periodIsOwed(current, boundary, true)) {
     rows.push({
       site_id: site.id,
       site_name: site.name,
@@ -439,7 +511,7 @@ function pushMonthLongDueRows(rows, { site, template, submissions, today }) {
 
   const previous = previousPeriodBounds(template.cadence, today, months)
   if (!previous?.start) return
-  if (!periodIsOwed(previous, scheduleNotBefore(site, template), true)) return
+  if (!periodIsOwed(previous, boundary, true)) return
   if (periodStatus(submissions, site.id, template.id, previous) !== 'due') return
   rows.push({
     site_id: site.id,
@@ -460,16 +532,40 @@ export async function computeOverdueForms(orgId, today = todayIsoDate()) {
     return { data: [], error: { message: 'Enter a valid date.' } }
   }
 
-  const [sitesResult, templatesResult, exclusionsResult] = await Promise.all([
-    listSites(orgId),
-    listFormTemplates(),
-    listFormSiteExclusions(orgId),
-  ])
-  const setupError = firstError(sitesResult, templatesResult, exclusionsResult)
+  const [sitesResult, templatesResult, exclusionsResult, schedulesResult, orgResult] =
+    await Promise.all([
+      listSites(orgId),
+      listFormTemplates(),
+      listFormSiteExclusions(orgId),
+      listFormOrgSchedules(orgId),
+      supabase.from('organizations').select('audit_tracking_start').eq('id', orgId).maybeSingle(),
+    ])
+  const setupError = firstError(
+    sitesResult,
+    templatesResult,
+    exclusionsResult,
+    schedulesResult,
+    orgResult,
+  )
   if (setupError) return { data: [], error: setupError }
 
   const sites = sitesResult.data ?? []
-  const templates = (templatesResult.data ?? []).filter(isScheduledAllSitesTemplate)
+  const scheduleByTemplate = new Map(
+    (schedulesResult.data ?? []).map((row) => [String(row.template_id), row]),
+  )
+  const trackingStart = orgResult.data?.audit_tracking_start
+    ? String(orgResult.data.audit_tracking_start).slice(0, 10)
+    : null
+  const templates = (templatesResult.data ?? [])
+    .filter(isScheduledAllSitesTemplate)
+    .filter((template) => scheduleEnabled(template, scheduleByTemplate.get(String(template.id))))
+    .map((template) => ({
+      ...template,
+      cadence_months: effectiveCadenceMonths(
+        template,
+        scheduleByTemplate.get(String(template.id)),
+      ),
+    }))
   const exclusions = exclusionsResult.data ?? []
 
   if (!sites.length || !templates.length) return { data: [], error: null }
@@ -498,6 +594,7 @@ export async function computeOverdueForms(orgId, today = todayIsoDate()) {
       closures: closuresResult.data ?? [],
       submissions: (submissionsResult.data ?? []).map(mapSubmission),
       today,
+      trackingStart,
     }),
     error: null,
   }

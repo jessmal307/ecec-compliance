@@ -136,26 +136,44 @@ create policy "Users can update their own organization"
   using (id in (select public.user_org_ids()))
   with check (id in (select public.user_org_ids()));
 
--- plan and owner_id change only via service_role or an admin (SQL editor,
--- SECURITY DEFINER signup trigger). Invoker rights so current_user is the caller.
+-- Existing orgs start tracking the day they first get the library (this run's
+-- Sydney date). A re-run does not move a date you have backdated. New orgs
+-- get the Sydney date they were created; the guard below fills that in.
+alter table public.organizations
+  add column if not exists audit_tracking_start date;
+
+update public.organizations
+set audit_tracking_start = (timezone('Australia/Sydney', now()))::date
+where audit_tracking_start is null;
+
+alter table public.organizations
+  alter column audit_tracking_start set not null;
+
+-- plan, owner_id, and audit_tracking_start change only via service_role or an
+-- admin (SQL editor, SECURITY DEFINER signup trigger). Invoker rights so
+-- current_user is the caller.
 create or replace function public.guard_organization_columns()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-  if current_user not in ('anon', 'authenticated') then
+  if current_user in ('anon', 'authenticated') then
+    if tg_op = 'INSERT' then
+      new.plan := 'core';
+      new.audit_tracking_start := (timezone('Australia/Sydney', coalesce(new.created_at, now())))::date;
+    elsif new.plan is distinct from old.plan
+       or new.owner_id is distinct from old.owner_id
+       or new.audit_tracking_start is distinct from old.audit_tracking_start then
+      raise exception 'plan, owner_id, and audit_tracking_start can only be changed by the service role'
+        using errcode = '42501';
+    end if;
     return new;
   end if;
 
-  if tg_op = 'INSERT' then
-    new.plan := 'core';
-  elsif new.plan is distinct from old.plan
-     or new.owner_id is distinct from old.owner_id then
-    raise exception 'plan and owner_id can only be changed by the service role'
-      using errcode = '42501';
+  if new.audit_tracking_start is null then
+    new.audit_tracking_start := (timezone('Australia/Sydney', coalesce(new.created_at, now())))::date;
   end if;
-
   return new;
 end;
 $$;
@@ -1998,6 +2016,67 @@ alter table public.form_templates add constraint form_templates_cadence_months_c
     )
   );
 
+alter table public.form_templates
+  add column if not exists category text;
+
+alter table public.form_templates
+  add column if not exists quality_area smallint;
+
+alter table public.form_templates
+  add column if not exists nqs_refs text[];
+
+alter table public.form_templates
+  add column if not exists completed_by text;
+
+update public.form_templates
+set category = null
+where category is not null
+  and category not in ('audit', 'checklist');
+
+update public.form_templates
+set quality_area = null
+where quality_area is not null
+  and quality_area not between 1 and 7;
+
+update public.form_templates
+set nqs_refs = null
+where nqs_refs is not null
+  and (
+    cardinality(nqs_refs) = 0
+    or exists (
+      select 1
+      from unnest(nqs_refs) as ref
+      where ref !~ '^[0-9]+\.[0-9]+\.[0-9]+$'
+    )
+  );
+
+update public.form_templates
+set completed_by = null
+where completed_by is not null
+  and btrim(completed_by) = '';
+
+alter table public.form_templates drop constraint if exists form_templates_category_check;
+alter table public.form_templates add constraint form_templates_category_check
+  check (category is null or category in ('audit', 'checklist'));
+
+alter table public.form_templates drop constraint if exists form_templates_quality_area_check;
+alter table public.form_templates add constraint form_templates_quality_area_check
+  check (quality_area is null or quality_area between 1 and 7);
+
+alter table public.form_templates drop constraint if exists form_templates_nqs_refs_check;
+alter table public.form_templates add constraint form_templates_nqs_refs_check
+  check (
+    nqs_refs is null
+    or (
+      cardinality(nqs_refs) > 0
+      and not exists (
+        select 1
+        from unnest(nqs_refs) as ref
+        where ref !~ '^[0-9]+\.[0-9]+\.[0-9]+$'
+      )
+    )
+  );
+
 create table if not exists public.form_assignments (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.organizations (id) on delete cascade,
@@ -2414,6 +2493,177 @@ create policy "Plus users can delete form site exclusions"
       select public.user_plus_org_ids()
     )
   );
+
+-- Per-org on/off and month overrides. cadence_months null uses the template.
+create table if not exists public.form_org_schedule (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  template_id uuid not null references public.form_templates (id) on delete cascade,
+  enabled boolean not null default true,
+  cadence_months smallint[],
+  created_at timestamptz not null default now(),
+  constraint form_org_schedule_org_template_key unique (org_id, template_id)
+);
+
+create index if not exists form_org_schedule_org_id_idx
+  on public.form_org_schedule (org_id);
+
+update public.form_org_schedule
+set cadence_months = null
+where cadence_months is not null
+  and not (
+    (
+      cardinality(cadence_months) = 1
+      and cadence_months[1] between 1 and 12
+    )
+    or (
+      cardinality(cadence_months) = 2
+      and cadence_months[1] between 1 and 12
+      and cadence_months[2] between 1 and 12
+      and cadence_months[1] <> cadence_months[2]
+    )
+  );
+
+alter table public.form_org_schedule
+  drop constraint if exists form_org_schedule_cadence_months_check;
+alter table public.form_org_schedule
+  add constraint form_org_schedule_cadence_months_check
+  check (
+    cadence_months is null
+    or (
+      cardinality(cadence_months) = 1
+      and cadence_months[1] between 1 and 12
+    )
+    or (
+      cardinality(cadence_months) = 2
+      and cadence_months[1] between 1 and 12
+      and cadence_months[2] between 1 and 12
+      and cadence_months[1] <> cadence_months[2]
+    )
+  );
+
+alter table public.form_org_schedule enable row level security;
+
+drop policy if exists "Plus users can view form org schedule"
+  on public.form_org_schedule;
+create policy "Plus users can view form org schedule"
+  on public.form_org_schedule
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can insert form org schedule"
+  on public.form_org_schedule;
+create policy "Plus users can insert form org schedule"
+  on public.form_org_schedule
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can update form org schedule"
+  on public.form_org_schedule;
+create policy "Plus users can update form org schedule"
+  on public.form_org_schedule
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can delete form org schedule"
+  on public.form_org_schedule;
+create policy "Plus users can delete form org schedule"
+  on public.form_org_schedule
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop trigger if exists audit_form_org_schedule_change on public.form_org_schedule;
+create trigger audit_form_org_schedule_change
+  after insert or update or delete on public.form_org_schedule
+  for each row execute function public.audit_log_change();
+
+-- Months only override half-yearly (two) and annual (one) templates.
+create or replace function public.guard_form_org_schedule_months()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_cadence text;
+begin
+  select templates.cadence
+  into v_cadence
+  from public.form_templates as templates
+  where templates.id = new.template_id;
+
+  if new.cadence_months is null then
+    return new;
+  end if;
+
+  if v_cadence = 'half_yearly' and cardinality(new.cadence_months) = 2 then
+    return new;
+  end if;
+
+  if v_cadence = 'annually' and cardinality(new.cadence_months) = 1 then
+    return new;
+  end if;
+
+  raise exception 'Months can only be set for half-yearly (two months) and annually (one month)'
+    using errcode = '23514';
+end;
+$$;
+
+drop trigger if exists guard_form_org_schedule_months on public.form_org_schedule;
+create trigger guard_form_org_schedule_months
+  before insert or update on public.form_org_schedule
+  for each row execute function public.guard_form_org_schedule_months();
+
+-- New orgs get the daily checklists switched off. Does not change a row
+-- the org has already turned on.
+create or replace function public.seed_disabled_daily_checklists()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.form_org_schedule (org_id, template_id, enabled)
+  select new.id, templates.id, false
+  from public.form_templates as templates
+  where templates.org_id is null
+    and templates.is_system
+    and templates.category = 'checklist'
+    and templates.cadence = 'daily'
+  on conflict (org_id, template_id) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists seed_disabled_daily_checklists on public.organizations;
+create trigger seed_disabled_daily_checklists
+  after insert on public.organizations
+  for each row execute function public.seed_disabled_daily_checklists();
 
 -- Private form signatures and evidence. Object keys: {org_id}/{submission_id}/...
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -3517,3 +3767,164 @@ alter table public.form_digest_misses enable row level security;
 revoke all on table public.form_digest_misses from public;
 revoke all on table public.form_digest_misses from anon;
 revoke all on table public.form_digest_misses from authenticated;
+
+revoke all on function public.guard_form_org_schedule_months() from public;
+revoke all on function public.guard_form_org_schedule_months() from anon;
+revoke all on function public.seed_disabled_daily_checklists() from public;
+revoke all on function public.seed_disabled_daily_checklists() from anon;
+
+-- Audit library. Idempotent by system name. Refreshes the system row only;
+-- form_org_schedule (on/off and month overrides) is insert-if-missing.
+do $$
+declare
+  seed record;
+  library_description text := 'Adapt this to your service; last reviewed 26 Sep 2026';
+begin
+  for seed in
+    select *
+    from (
+      values
+        ('Assessment and Planning Cycle Audit', 'audit', 'evidence', 1::smallint, array['1.3.1']::text[], null::text, 'monthly', null::smallint[]),
+        ('Family Newsletter', 'audit', 'evidence', 6::smallint, array['6.1.1']::text[], null::text, 'monthly', null::smallint[]),
+        ('Monthly Team Meeting', 'audit', 'evidence', 4::smallint, array['4.2.1']::text[], null::text, 'monthly', null::smallint[]),
+        ('Monthly Policy Review', 'audit', 'evidence', 7::smallint, array['7.1.2']::text[], null::text, 'monthly', null::smallint[]),
+        ('Quality Improvement Plan Review', 'audit', 'evidence', 7::smallint, array['7.1.2', '7.2.1']::text[], null::text, 'monthly', null::smallint[]),
+        ('Management Programming Audit', 'audit', 'evidence', 1::smallint, array['1.3.2']::text[], null::text, 'half_yearly', array[4, 10]::smallint[]),
+        ('Supervision Audit', 'audit', 'evidence', 2::smallint, array['2.2.1']::text[], null::text, 'half_yearly', array[4, 10]::smallint[]),
+        ('Behaviour Guidance Audit', 'audit', 'evidence', 5::smallint, array['5.2.2']::text[], null::text, 'half_yearly', array[4, 10]::smallint[]),
+        ('Inclusive Audit', 'audit', 'evidence', 5::smallint, array['1.1.2', '5.1.1', '5.1.2']::text[], null::text, 'half_yearly', array[4, 10]::smallint[]),
+        ('Emergency Management Audit', 'audit', 'evidence', 2::smallint, array['2.2.2']::text[], null::text, 'half_yearly', array[5, 11]::smallint[]),
+        ('Poison Safety Audit', 'audit', 'evidence', 2::smallint, array['2.2.1']::text[], null::text, 'half_yearly', array[5, 11]::smallint[]),
+        ('Outdoor Environment and Playground Safety Audit', 'audit', 'evidence', 3::smallint, array['3.1.2']::text[], null::text, 'half_yearly', array[5, 11]::smallint[]),
+        ('Communication Audit', 'audit', 'evidence', 5::smallint, array['5.1.1']::text[], null::text, 'half_yearly', array[5, 11]::smallint[]),
+        ('Medication Audit', 'audit', 'evidence', 2::smallint, array['2.1.2', '2.2.1']::text[], null::text, 'half_yearly', array[6, 12]::smallint[]),
+        ('Physical Environment and Parent Journey Audit', 'audit', 'evidence', 3::smallint, array['3.1.1', '3.1.2', '6.1.1']::text[], null::text, 'half_yearly', array[6, 12]::smallint[]),
+        ('Professional Development Audit', 'audit', 'evidence', 7::smallint, array['7.2.3']::text[], null::text, 'half_yearly', array[6, 12]::smallint[]),
+        ('Clean, Maintenance and Risk Audit', 'audit', 'evidence', 2::smallint, array['2.1.2']::text[], null::text, 'half_yearly', array[1, 7]::smallint[]),
+        ('Safe Sleep and Rest Audit', 'audit', 'evidence', 2::smallint, array['2.1.1', '2.2.1', '2.2.2']::text[], null::text, 'half_yearly', array[1, 7]::smallint[]),
+        ('Teamwork Audit', 'audit', 'evidence', 5::smallint, array['4.1.2', '4.2.1']::text[], null::text, 'half_yearly', array[1, 7]::smallint[]),
+        ('Kitchen and Nutritional Practices Audit', 'audit', 'evidence', 2::smallint, array['2.1.2', '2.1.3']::text[], null::text, 'half_yearly', array[2, 8]::smallint[]),
+        ('Equipment and Resource Audit', 'audit', 'evidence', 3::smallint, array['3.2.2']::text[], null::text, 'half_yearly', array[2, 8]::smallint[]),
+        ('Building Relationships with Families Audit', 'audit', 'evidence', 6::smallint, array['6.1.2']::text[], null::text, 'half_yearly', array[2, 8]::smallint[]),
+        ('Bathroom Safety Audit', 'audit', 'evidence', 2::smallint, array['2.1.2']::text[], null::text, 'half_yearly', array[3, 9]::smallint[]),
+        ('Effective Hygiene Audit', 'audit', 'evidence', 2::smallint, array['2.1.2']::text[], null::text, 'half_yearly', array[3, 9]::smallint[]),
+        ('Physical Environment Audit', 'audit', 'evidence', 3::smallint, array['3.1.1', '3.1.2']::text[], null::text, 'half_yearly', array[3, 9]::smallint[]),
+        ('Interaction Audit', 'audit', 'evidence', 5::smallint, array['5.1.1']::text[], null::text, 'half_yearly', array[3, 9]::smallint[]),
+        ('Philosophy Review', 'audit', 'evidence', 7::smallint, array['7.1.1']::text[], null::text, 'annually', array[1]::smallint[]),
+        ('Medical Conditions Review', 'audit', 'evidence', 2::smallint, array['2.1.2', '2.2.1']::text[], null::text, 'annually', array[2]::smallint[]),
+        ('HR Management Review Audit', 'audit', 'evidence', 7::smallint, array['7.1.2']::text[], null::text, 'annually', array[3]::smallint[]),
+        ('Child Safe Standards Checklist', 'audit', 'evidence', 2::smallint, array['2.2.3']::text[], null::text, 'annually', array[4]::smallint[]),
+        ('Sustainability Audit', 'audit', 'evidence', 3::smallint, array['3.2.3']::text[], null::text, 'annually', array[5]::smallint[]),
+        ('Sustainability Commitment Review', 'audit', 'evidence', 3::smallint, array['3.2.3']::text[], null::text, 'annually', array[6]::smallint[]),
+        ('Risk Assessment Review', 'audit', 'evidence', 2::smallint, array['2.2.1', '2.2.2']::text[], null::text, 'annually', array[6]::smallint[]),
+        ('Privacy Audit', 'audit', 'evidence', 7::smallint, array['7.1.2']::text[], null::text, 'annually', array[7]::smallint[]),
+        ('Enrolment Resources Review', 'audit', 'evidence', 7::smallint, array['7.1.2']::text[], null::text, 'annually', array[8]::smallint[]),
+        ('Work Health and Safety Audit', 'audit', 'evidence', 2::smallint, array['2.2.1']::text[], null::text, 'annually', array[9]::smallint[]),
+        ('Staff Performance Review', 'audit', 'evidence', 7::smallint, array['7.2.3']::text[], null::text, 'annually', array[10]::smallint[]),
+        ('Special Days and Events Calendar Review', 'audit', 'evidence', 1::smallint, array['1.3.3']::text[], null::text, 'annually', array[11]::smallint[]),
+        ('Record Keeping Audit', 'audit', 'evidence', 7::smallint, array['7.1.2']::text[], null::text, 'annually', array[12]::smallint[]),
+        ('Bottle Preparation Audit', 'audit', 'evidence', 2::smallint, array['2.1.2']::text[], null::text, 'each_time', null::smallint[]),
+        ('Nappy Change Audit', 'audit', 'evidence', 2::smallint, array['2.1.1', '2.1.2']::text[], null::text, 'each_time', null::smallint[]),
+        ('Car Park Safety Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'Approved provider or nominated supervisor', 'monthly', null::smallint[]),
+        ('First Aid Kit Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'First aid officer', 'half_yearly', array[1, 7]::smallint[]),
+        ('Emergency Evacuation Kit Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'Appointed person', 'half_yearly', array[2, 8]::smallint[]),
+        ('Fire and Safety Equipment Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'Appointed person', 'half_yearly', array[3, 9]::smallint[]),
+        ('Spill Kit Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'Appointed person', 'half_yearly', array[4, 10]::smallint[]),
+        ('Menu Planning Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'Kitchen staff / educator', 'half_yearly', array[5, 11]::smallint[]),
+        ('Compliance Checklist', 'checklist', 'evidence', 7::smallint, null::text[], 'Approved provider or nominated supervisor', 'annually', array[1]::smallint[]),
+        ('CCS Compliance Checklist', 'checklist', 'evidence', 7::smallint, null::text[], 'Approved provider or nominated supervisor', 'annually', array[2]::smallint[]),
+        ('Document Organisation Checklist', 'checklist', 'evidence', 7::smallint, null::text[], 'Approved provider or nominated supervisor', 'annually', array[3]::smallint[]),
+        ('Information and Display Checklist', 'checklist', 'evidence', 7::smallint, null::text[], 'Approved provider or nominated supervisor', 'annually', array[4]::smallint[]),
+        ('Policy and Procedure Checklist', 'checklist', 'evidence', 7::smallint, null::text[], 'Approved provider or nominated supervisor', 'annually', array[5]::smallint[]),
+        ('End of Year Checklist', 'checklist', 'evidence', 7::smallint, null::text[], 'Approved provider or nominated supervisor', 'annually', array[12]::smallint[]),
+        ('Transportation Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'Appointed person', 'each_time', null::smallint[]),
+        ('Bomb Threat Checklist', 'checklist', 'evidence', 2::smallint, null::text[], 'Person who takes the call', 'each_time', null::smallint[]),
+        ('Opening and Closing Checklist', 'checklist', 'checklist', 3::smallint, null::text[], 'Educator', 'daily', null::smallint[]),
+        ('Bathroom and Nappy Change Cleaning Checklist', 'checklist', 'checklist', 2::smallint, null::text[], 'Educator', 'daily', null::smallint[]),
+        ('Indoor Cleaning Checklist', 'checklist', 'checklist', 2::smallint, null::text[], 'Educator', 'daily', null::smallint[]),
+        ('Outdoor Cleaning and Safety Checklist', 'checklist', 'checklist', 3::smallint, null::text[], 'Educator', 'daily', null::smallint[]),
+        ('Daily Kitchen Checklist', 'checklist', 'checklist', 2::smallint, null::text[], 'Kitchen staff / educator', 'daily', null::smallint[]),
+        ('Kitchen Cleaning Checklist', 'checklist', 'checklist', 2::smallint, null::text[], 'Kitchen staff / educator', 'daily', null::smallint[])
+    ) as library (
+      name, category, archetype, quality_area, nqs_refs, completed_by, cadence, cadence_months
+    )
+  loop
+    if not exists (
+      select 1
+      from public.form_templates as existing
+      where existing.is_system
+        and existing.org_id is null
+        and existing.name = seed.name
+    ) then
+      insert into public.form_templates (
+        org_id, name, archetype, schema, is_system, cadence, scope,
+        category, quality_area, nqs_refs, completed_by, cadence_months, description
+      ) values (
+        null,
+        seed.name,
+        seed.archetype,
+        case
+          when seed.archetype = 'checklist' then jsonb_build_object(
+            'archetype', 'checklist',
+            'items', jsonb_build_array(jsonb_build_object(
+              'id', 'done',
+              'label', 'The ' || seed.name || ' has been completed as per the centre''s checklist',
+              'type', 'checkbox',
+              'required', true
+            )),
+            'signoff', jsonb_build_object('required', true)
+          )
+          else '{}'::jsonb
+        end,
+        true,
+        seed.cadence,
+        'all_sites',
+        seed.category,
+        seed.quality_area,
+        seed.nqs_refs,
+        seed.completed_by,
+        seed.cadence_months,
+        library_description
+      );
+    end if;
+
+    update public.form_templates as templates
+    set
+      archetype = seed.archetype,
+      category = seed.category,
+      quality_area = seed.quality_area,
+      nqs_refs = seed.nqs_refs,
+      completed_by = seed.completed_by,
+      cadence = seed.cadence,
+      cadence_months = seed.cadence_months,
+      scope = 'all_sites',
+      description = library_description,
+      schema = case
+        when seed.archetype = 'checklist' then jsonb_build_object(
+          'archetype', 'checklist',
+          'items', jsonb_build_array(jsonb_build_object(
+            'id', 'done',
+            'label', 'The ' || seed.name || ' has been completed as per the centre''s checklist',
+            'type', 'checkbox',
+            'required', true
+          )),
+          'signoff', jsonb_build_object('required', true)
+        )
+        else '{}'::jsonb
+      end
+    where templates.is_system
+      and templates.org_id is null
+      and templates.name = seed.name;
+  end loop;
+end
+$$;
+
+insert into public.form_org_schedule (org_id, template_id, enabled)
+select orgs.id, templates.id, false
+from public.organizations as orgs
+join public.form_templates as templates
+  on templates.org_id is null
+ and templates.is_system
+ and templates.category = 'checklist'
+ and templates.cadence = 'daily'
+on conflict (org_id, template_id) do nothing;
