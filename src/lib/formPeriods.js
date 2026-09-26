@@ -6,6 +6,7 @@ import {
   isoWeekday,
   sydneyIsoDate,
 } from './sydneyTime'
+import { isLateForDueBy } from './formDueTimes'
 
 export { addDaysIso, daysInMonth, formatIso, isoWeekday }
 
@@ -90,8 +91,11 @@ export function isSubmissionLate(row) {
   if (row?.status !== 'complete') return false
   const explicit = String(row?.for_date ?? '').slice(0, 10)
   if (!isIsoDate(explicit)) return false
-  const submitted = submissionLocalDate(row.submitted_at)
-  return Boolean(submitted && submitted > explicit)
+  return isLateForDueBy({
+    forDate: explicit,
+    dueBy: row.due_by,
+    submittedAt: row.submitted_at,
+  })
 }
 
 function dateInPeriod(isoDate, bounds) {

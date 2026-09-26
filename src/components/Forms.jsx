@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FormDue } from './forms/FormDue'
+import { FormDueByDefault } from './forms/FormDueTimes'
 import { FormSiteExclusions } from './forms/FormSiteExclusions'
 import { FormSubmissions } from './forms/FormSubmissions'
 import { PageError, PageHeader, PageMuted } from './ui/page'
@@ -165,7 +166,11 @@ export function Forms() {
                       </div>
                     </CardHeader>
                     {isScheduledAllSitesTemplate(template) ? (
-                      <CardContent>
+                      <CardContent className="space-y-4">
+                        <FormDueByDefault
+                          organizationId={organizationId}
+                          template={template}
+                        />
                         <FormSiteExclusions
                           organizationId={organizationId}
                           templateId={template.id}

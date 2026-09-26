@@ -11,10 +11,12 @@ import {
   periodBounds,
   periodStatus,
 } from './formPeriods'
+import { dueByFor, dueStatusAt, templateTakesDueBy } from './formDueTimes'
 import { isSignatureDataUrl } from './formUploads'
 import { firstError } from './query'
 import { listSiteClosuresForSites, listSites } from './sites'
 import { supabase } from './supabase'
+import { normalizeTimeOfDay } from './sydneyTime'
 
 export {
   isoWeekday,
@@ -49,7 +51,7 @@ const ASSIGNMENT_FIELDS =
   'id, org_id, template_id, target_type, target_id, target_role, cadence, next_due, active, created_at'
 
 const TEMPLATE_FIELDS =
-  'id, org_id, name, archetype, schema, reg_ref, description, is_system, cadence, scope, archived_at, created_at'
+  'id, org_id, name, archetype, schema, reg_ref, description, is_system, cadence, scope, default_due_by, archived_at, created_at'
 
 const EXCLUSION_FIELDS = 'id, org_id, site_id, template_id, created_at'
 
@@ -65,6 +67,7 @@ function mapTemplate(row) {
     is_system: Boolean(row.is_system),
     cadence: row.cadence ?? null,
     scope: row.scope || 'on_demand',
+    default_due_by: normalizeTimeOfDay(row.default_due_by),
     archived_at: row.archived_at ?? null,
     created_at: row.created_at,
   }
@@ -162,12 +165,65 @@ export async function removeFormSiteExclusion(orgId, siteId, templateId) {
   return { error }
 }
 
+const DUE_TIME_FIELDS = 'id, org_id, site_id, template_id, due_by, created_at'
+
+function mapDueTime(row) {
+  return {
+    id: row.id,
+    org_id: row.org_id,
+    site_id: row.site_id ?? null,
+    template_id: row.template_id,
+    due_by: normalizeTimeOfDay(row.due_by),
+    created_at: row.created_at,
+  }
+}
+
+export async function listFormDueTimes(orgId) {
+  if (!orgId) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('form_site_due_times')
+    .select(DUE_TIME_FIELDS)
+    .eq('org_id', orgId)
+
+  if (error) return { data: [], error }
+  return { data: (data ?? []).map(mapDueTime), error: null }
+}
+
+// siteId null = the org's time for all its sites.
+export async function setFormDueTime(orgId, siteId, templateId, dueBy) {
+  const time = normalizeTimeOfDay(dueBy)
+  if (!time) return { data: null, error: { message: 'Enter a time.' } }
+  const { data, error } = await supabase
+    .from('form_site_due_times')
+    .upsert(
+      { org_id: orgId, site_id: siteId ?? null, template_id: templateId, due_by: time },
+      { onConflict: 'org_id,site_id,template_id' },
+    )
+    .select(DUE_TIME_FIELDS)
+    .single()
+
+  if (error) return { data: null, error }
+  return { data: mapDueTime(data), error: null }
+}
+
+export async function clearFormDueTime(orgId, siteId, templateId) {
+  let query = supabase
+    .from('form_site_due_times')
+    .delete()
+    .eq('org_id', orgId)
+    .eq('template_id', templateId)
+  query = siteId == null ? query.is('site_id', null) : query.eq('site_id', siteId)
+  const { error } = await query
+  return { error }
+}
+
 function mapDueSubmission(row) {
   return {
     site_id: row.site_id,
     template_id: row.template_id,
     status: row.status,
     for_date: row.for_date ? String(row.for_date).slice(0, 10) : '',
+    due_by: normalizeTimeOfDay(row.due_by),
     submitted_at: row.submitted_at ?? null,
   }
 }
@@ -181,7 +237,7 @@ async function listPeriodicDueSubmissions(orgId, templates, today) {
     .reduce((earliest, start) => (start < earliest ? start : earliest), today)
   const { data, error } = await supabase
     .from('form_submissions')
-    .select('site_id, template_id, status, for_date, submitted_at')
+    .select('site_id, template_id, status, for_date, due_by, submitted_at')
     .eq('org_id', orgId)
     .in('status', ['complete', 'missed'])
     .in(
@@ -201,7 +257,7 @@ async function listOnceDueSubmissions(orgId, pairs) {
     pairs.map(async ({ siteId, templateId }) => {
       const completes = await supabase
         .from('form_submissions')
-        .select('site_id, template_id, status, for_date, submitted_at')
+        .select('site_id, template_id, status, for_date, due_by, submitted_at')
         .eq('org_id', orgId)
         .eq('site_id', siteId)
         .eq('template_id', templateId)
@@ -250,17 +306,19 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
     return { data: [], error: { message: 'Enter a valid date.' } }
   }
 
-  const [sitesResult, templatesResult, exclusionsResult] = await Promise.all([
+  const [sitesResult, templatesResult, exclusionsResult, dueTimesResult] = await Promise.all([
     listSites(orgId),
     listFormTemplates(),
     listFormSiteExclusions(orgId),
+    listFormDueTimes(orgId),
   ])
-  const setupError = firstError(sitesResult, templatesResult, exclusionsResult)
+  const setupError = firstError(sitesResult, templatesResult, exclusionsResult, dueTimesResult)
   if (setupError) return { data: [], error: setupError }
 
   const sites = sitesResult.data ?? []
   const templates = (templatesResult.data ?? []).filter(isScheduledAllSitesTemplate)
   const exclusions = exclusionsResult.data ?? []
+  const dueTimes = dueTimesResult.data ?? []
 
   if (!sites.length || !templates.length) return { data: [], error: null }
 
@@ -297,15 +355,23 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
       }
 
       const bounds = periodBounds(template.cadence, today)
-      const status = periodStatus(submissions, site.id, template.id, bounds)
+      const periodResult = periodStatus(submissions, site.id, template.id, bounds)
+      const dueBy = templateTakesDueBy(template)
+        ? dueByFor(template, site.id, dueTimes).dueBy
+        : null
+      const forDate = template.cadence === 'daily' ? today : ''
       rows.push({
         site_id: site.id,
         site_name: site.name,
         template_id: template.id,
         template_name: template.name,
         cadence: template.cadence,
-        status,
-        late: status === 'done' && isLateInPeriod(submissions, site.id, template.id, bounds),
+        status: dueStatusAt({ status: periodResult, dueBy, forDate }),
+        due_by: dueBy,
+        for_date: forDate,
+        late:
+          periodResult === 'done' &&
+          isLateInPeriod(submissions, site.id, template.id, bounds),
       })
     }
   }
@@ -450,7 +516,7 @@ export async function setAssignmentActive(id, active) {
 }
 
 const SUBMISSION_FIELDS =
-  'id, org_id, assignment_id, template_id, site_id, staff_id, submitted_by, data, status, signed_off_by, signed_off_at, signed_by_staff_id, evidence, submitted_at, for_date, created_at'
+  'id, org_id, assignment_id, template_id, site_id, staff_id, submitted_by, data, status, signed_off_by, signed_off_at, signed_by_staff_id, evidence, submitted_at, for_date, due_by, created_at'
 
 function mapSubmission(row) {
   const payload = row.data && typeof row.data === 'object' ? row.data : {}
@@ -484,6 +550,7 @@ function mapSubmission(row) {
     evidence: Array.isArray(row.evidence) ? row.evidence : [],
     submitted_at: row.submitted_at,
     for_date: forDate,
+    due_by: normalizeTimeOfDay(row.due_by),
     late: isSubmissionLate({ ...row, for_date: forDate, status: row.status }),
     created_at: row.created_at,
   }

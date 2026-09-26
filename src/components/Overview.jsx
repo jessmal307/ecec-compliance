@@ -119,6 +119,7 @@ function summarizeDueBySite(rows) {
     if (existing) {
       existing.total += 1
       if (row.status === 'due') existing.due += 1
+      else if (row.status === 'overdue') existing.overdue += 1
       else if (row.status === 'done') existing.done += 1
       else if (row.status === 'missed') existing.missed += 1
     } else {
@@ -127,6 +128,7 @@ function summarizeDueBySite(rows) {
         site_name: row.site_name,
         total: 1,
         due: row.status === 'due' ? 1 : 0,
+        overdue: row.status === 'overdue' ? 1 : 0,
         done: row.status === 'done' ? 1 : 0,
         missed: row.status === 'missed' ? 1 : 0,
       })
@@ -135,18 +137,21 @@ function summarizeDueBySite(rows) {
 
   return [...bySite.values()].sort(
     (left, right) =>
-      right.due - left.due || left.site_name.localeCompare(right.site_name),
+      right.overdue - left.overdue ||
+      right.due - left.due ||
+      left.site_name.localeCompare(right.site_name),
   )
 }
 
 function formsDueCountLabel(row) {
   const parts = []
-  if (row.due > 0 && row.done === 0 && row.missed === 0) {
+  if (row.due > 0 && row.overdue === 0 && row.done === 0 && row.missed === 0) {
     return countLabel(row.due, 'due', 'due')
   }
-  if (row.done > 0 || row.due > 0) {
+  if (row.done > 0 || row.due > 0 || row.overdue > 0) {
     parts.push(`${row.done} of ${row.total} done`)
   }
+  if (row.overdue > 0) parts.push(countLabel(row.overdue, 'overdue', 'overdue'))
   if (row.missed > 0) parts.push(countLabel(row.missed, 'missed', 'missed'))
   return parts.join(' · ') || `${row.done} of ${row.total} done`
 }
@@ -739,7 +744,7 @@ export function Overview() {
                     ) : (
                       <ul className="divide-y divide-border">
                         {dueSites.map((row) => {
-                          const outstanding = row.due > 0
+                          const outstanding = row.due > 0 || row.overdue > 0
                           return (
                             <li
                               key={row.site_id}

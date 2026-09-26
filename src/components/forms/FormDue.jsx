@@ -11,17 +11,32 @@ import {
 } from '@/components/ui/card'
 import { PageError, PageMuted } from '../ui/page'
 import { cadenceLabel, computeDueForms } from '../../lib/forms'
+import { dueStatusAt } from '../../lib/formDueTimes'
 import { formatDate } from '../../lib/format'
 import { todayIsoDate } from '../../lib/compliance'
 import { paths } from '../../lib/paths'
+import { formatTimeOfDay } from '../../lib/sydneyTime'
+import { useMinuteClock } from '../../hooks/useMinuteClock'
+
+function statusBadgeLabel(status) {
+  if (status === 'done') return 'Done'
+  if (status === 'missed') return 'Missed'
+  if (status === 'overdue') return 'Overdue'
+  return 'Due'
+}
 
 export function FormDue({ organizationId }) {
   const today = todayIsoDate()
+  const now = useMinuteClock()
   const [searchParams] = useSearchParams()
   const siteFilter = searchParams.get('site') || ''
-  const [rows, setRows] = useState([])
+  const [loadedRows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const rows = useMemo(
+    () => loadedRows.map((row) => ({ ...row, status: dueStatusAt({ ...row, now }) })),
+    [loadedRows, now],
+  )
 
   useEffect(() => {
     if (!organizationId) return
@@ -65,7 +80,7 @@ export function FormDue({ organizationId }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Current period as of {formatDate(today)}. Scheduled forms only — due, done, or missed.
+        Current period as of {formatDate(today)}. Scheduled forms only — due, overdue, done, or missed.
       </p>
       <PageError>{error}</PageError>
       {loading ? (
@@ -82,6 +97,12 @@ export function FormDue({ organizationId }) {
                   <CardDescription>
                     {group.rows.filter((row) => row.status === 'due').length} due
                     {' · '}
+                    {group.rows.some((row) => row.status === 'overdue') ? (
+                      <>
+                        {group.rows.filter((row) => row.status === 'overdue').length} overdue
+                        {' · '}
+                      </>
+                    ) : null}
                     {group.rows.filter((row) => row.status === 'done').length} done
                     {' · '}
                     {group.rows.filter((row) => row.status === 'missed').length} missed
@@ -103,18 +124,19 @@ export function FormDue({ organizationId }) {
                                 ? 'secondary'
                                 : row.status === 'missed'
                                   ? 'outline'
-                                  : 'default'
+                                  : row.status === 'overdue'
+                                    ? 'destructive'
+                                    : 'default'
                             }
                           >
-                            {row.status === 'done'
-                              ? 'Done'
-                              : row.status === 'missed'
-                                ? 'Missed'
-                                : 'Due'}
+                            {statusBadgeLabel(row.status)}
                           </Badge>
+                          {row.status === 'due' && row.due_by ? (
+                            <Badge variant="outline">Due by {formatTimeOfDay(row.due_by)}</Badge>
+                          ) : null}
                           {row.late ? <Badge variant="outline">Late</Badge> : null}
                         </div>
-                        {row.status === 'due' ? (
+                        {row.status === 'due' || row.status === 'overdue' ? (
                           <Button asChild size="sm">
                             <Link to={`${paths.formComplete(row.template_id)}?site=${row.site_id}`}>
                               Complete

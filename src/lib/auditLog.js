@@ -1,6 +1,7 @@
 import { formatTimestamp } from './format'
 import { employmentStatusLabel } from './staff'
 import { supabase } from './supabase'
+import { formatTimeOfDay } from './sydneyTime'
 
 const AUDIT_FIELDS =
   'id, org_id, actor_id, actor_name, entity, entity_id, action, before, after, created_at'
@@ -95,6 +96,17 @@ export function formatAuditSentence(entry, names = { staff: {}, sites: {}, types
       : `${actor} set the floor PIN for ${name}`
   }
 
+  if (entry.entity === 'form_site_due_times') {
+    const form = names.templates?.[snapshot.template_id] || 'a form'
+    const where = snapshot.site_id
+      ? `at ${names.sites[snapshot.site_id] || 'a site'}`
+      : 'for all sites'
+    const time = (row) => formatTimeOfDay(row?.due_by) || 'no time'
+    if (entry.action === 'insert') return `${actor} set ${form} due by ${time(after)} ${where}`
+    if (entry.action === 'delete') return `${actor} removed the ${form} due-by time ${where}`
+    return `${actor} changed ${form} due by from ${time(before)} to ${time(after)} ${where}`
+  }
+
   if (entry.entity === 'sites') {
     const name = recordName(snapshot, 'site')
     if (entry.action === 'insert') return `${actor} added site ${name}`
@@ -151,10 +163,15 @@ async function loadRelatedNames(entries) {
   ])
   const siteIds = uniqueIds(snapshots.map((row) => row.site_id))
   const typeIds = uniqueIds(snapshots.map((row) => row.requirement_type_id))
+  const templateIds = uniqueIds(
+    entries
+      .filter((entry) => entry.entity === 'form_site_due_times')
+      .map((entry) => snapshotOf(entry).template_id),
+  )
 
-  const names = { staff: {}, sites: {}, types: {} }
+  const names = { staff: {}, sites: {}, types: {}, templates: {} }
 
-  const [staffResult, siteResult, typeResult] = await Promise.all([
+  const [staffResult, siteResult, typeResult, templateResult] = await Promise.all([
     staffIds.length
       ? supabase.from('staff').select('id, name').in('id', staffIds)
       : Promise.resolve({ data: [], error: null }),
@@ -164,11 +181,15 @@ async function loadRelatedNames(entries) {
     typeIds.length
       ? supabase.from('requirement_types').select('id, name').in('id', typeIds)
       : Promise.resolve({ data: [], error: null }),
+    templateIds.length
+      ? supabase.from('form_templates').select('id, name').in('id', templateIds)
+      : Promise.resolve({ data: [], error: null }),
   ])
 
   for (const row of staffResult.data ?? []) names.staff[row.id] = row.name
   for (const row of siteResult.data ?? []) names.sites[row.id] = row.name
   for (const row of typeResult.data ?? []) names.types[row.id] = row.name
+  for (const row of templateResult.data ?? []) names.templates[row.id] = row.name
 
   return names
 }

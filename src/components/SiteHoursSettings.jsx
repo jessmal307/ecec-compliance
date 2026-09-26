@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { SiteFormDueTimes } from './forms/FormDueTimes'
 import { Choice, DateInput, Field, FormSection, Input } from './ui/form'
 import { PageError, PageMuted } from './ui/page'
 import { formatDate } from '../lib/format'
@@ -217,6 +218,12 @@ export function SiteHoursSettings({
           )}
         </div>
       </FormSection>
+
+      <SiteFormDueTimes
+        organizationId={organizationId}
+        siteId={siteId}
+        disabled={disabled}
+      />
     </>
   )
 }
