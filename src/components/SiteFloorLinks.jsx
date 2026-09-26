@@ -31,7 +31,7 @@ function formatUsedAt(value) {
 }
 
 function floorLinkUrl(rawToken) {
-  return `${window.location.origin}${paths.siteForms(rawToken)}`
+  return `${window.location.origin}${paths.floorLink(rawToken)}`
 }
 
 export function SiteFloorLinks({ organizationId, siteId, disabled = false }) {

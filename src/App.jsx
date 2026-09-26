@@ -65,6 +65,14 @@ function AppShell() {
           }
         />
         <Route
+          path={paths.floor}
+          element={
+            <KioskShell>
+              <SiteForms />
+            </KioskShell>
+          }
+        />
+        <Route
           path="*"
           element={
             <GuestShell>
@@ -82,6 +90,14 @@ function AppShell() {
     <Routes>
       <Route
         path="/s/:token"
+        element={
+          <KioskShell>
+            <SiteForms />
+          </KioskShell>
+        }
+      />
+      <Route
+        path={paths.floor}
         element={
           <KioskShell>
             <SiteForms />

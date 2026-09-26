@@ -24,6 +24,8 @@ export const paths = {
   forgotPassword: '/forgot-password',
   resetPassword: '/reset-password',
   siteForms: (token) => `/s/${encodeURIComponent(token)}`,
+  floor: '/floor',
+  floorLink: (token) => `/floor#${encodeURIComponent(token)}`,
   privacy: '/privacy',
   terms: '/terms',
   security: '/security',

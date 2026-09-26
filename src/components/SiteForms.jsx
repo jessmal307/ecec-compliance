@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import {
+  clearStoredFloorToken,
+  readStoredFloorToken,
+  resolveFloorToken,
+  storeFloorToken,
+} from '../lib/floorDevice'
+import { paths } from '../lib/paths'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -49,6 +56,17 @@ function startState(archetype) {
 }
 
 const UPLOAD_FAILED_MESSAGE = 'Could not upload the signature. Try again.'
+const INACTIVE_NOTICES = {
+  missing: {
+    title: 'Open your floor link',
+    message: 'Open your centre’s floor link, or scan the QR poster, once on this device.',
+  },
+  inactive: { title: 'Link not active', message: INACTIVE_MESSAGE },
+  replaced: {
+    title: 'Link replaced',
+    message: 'This link has been replaced — ask your director for the new one.',
+  },
+}
 const SIGN_IN_AGAIN_NOTICE = 'Your sign-in has ended. Sign in again, then tap Save or Submit.'
 
 // Matches the server's field source in site-forms.
@@ -72,15 +90,11 @@ async function uploadDrawnSignature(dataUrl, upload) {
 }
 
 export function SiteForms() {
-  const { token: rawToken } = useParams()
-  let token = rawToken || ''
-  try {
-    token = rawToken ? decodeURIComponent(rawToken) : ''
-  } catch {
-    token = rawToken || ''
-  }
+  const { token: pathToken } = useParams()
+  const [token] = useState(() => resolveFloorToken(pathToken))
   const [loading, setLoading] = useState(true)
-  const [inactive, setInactive] = useState(false)
+  // '' while usable; otherwise 'missing', 'inactive' or 'replaced'.
+  const [inactive, setInactive] = useState('')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
   const [siteName, setSiteName] = useState('')
@@ -100,7 +114,7 @@ export function SiteForms() {
     try {
       const result = await getSiteForms(token)
       if (result.error?.status === 401) {
-        setInactive(true)
+        markUnauthorized()
         setError('')
         return
       }
@@ -108,10 +122,11 @@ export function SiteForms() {
         setError(result.error.message)
         return
       }
+      storeFloorToken(token)
       setSiteName(result.data?.site_name || '')
       setToday(result.data?.today || '')
       setForms(result.data?.forms || [])
-      setInactive(false)
+      setInactive('')
       setError('')
     } catch {
       setError('Could not reach the forms service. Try again.')
@@ -120,11 +135,24 @@ export function SiteForms() {
     }
   }
 
+  // A 401 on a token this device already had means it was revoked or replaced.
+  function markUnauthorized() {
+    if (token && readStoredFloorToken() === token) {
+      clearStoredFloorToken()
+      setInactive('replaced')
+      return
+    }
+    setInactive('inactive')
+  }
+
   useEffect(() => {
     if (!token) {
-      setInactive(true)
+      setInactive('missing')
       setLoading(false)
       return
+    }
+    if (pathToken) {
+      window.history.replaceState(window.history.state, '', paths.floorLink(token))
     }
     loadList()
   }, [token])
@@ -224,7 +252,7 @@ export function SiteForms() {
     )
     if (draft.error) {
       if (draft.error.status === 401) {
-        setInactive(true)
+        markUnauthorized()
         setSaving(false)
         return
       }
@@ -290,7 +318,7 @@ export function SiteForms() {
     )
     if (completed.error) {
       if (completed.error.status === 401) {
-        setInactive(true)
+        markUnauthorized()
         setSaving(false)
         return
       }
@@ -320,15 +348,16 @@ export function SiteForms() {
   if (loading) return <PageMuted>Loading forms…</PageMuted>
 
   if (inactive) {
+    const notice = INACTIVE_NOTICES[inactive] || INACTIVE_NOTICES.inactive
     return (
       <Card className="w-full max-w-lg">
         <CardHeader>
           <CardTitle className="text-2xl font-semibold tracking-tight">
-            Link not active
+            {notice.title}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-base text-muted-foreground">{INACTIVE_MESSAGE}</p>
+          <p className="text-base text-muted-foreground">{notice.message}</p>
         </CardContent>
       </Card>
     )
@@ -345,7 +374,7 @@ export function SiteForms() {
         onCancel={() => setSigningFor(null)}
         onInactive={() => {
           setSigningFor(null)
-          setInactive(true)
+          markUnauthorized()
         }}
       />
     )
