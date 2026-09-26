@@ -250,31 +250,43 @@ export function ImportStaff() {
     }
 
     const nextSheet = pickDefaultSheetName(data.sheetNames)
-    const rows = buildStaffImportPreview(data.workbook, nextSheet, 0)
     setWorkbook(data.workbook)
     setSheetNames(data.sheetNames)
     setSheetName(nextSheet)
-    applyPreview(
-      data.workbook,
-      nextSheet,
-      rows.rawRows?.length ? detectHeaderRowIndex(rows.rawRows) : 0,
-    )
+    try {
+      const rows = buildStaffImportPreview(data.workbook, nextSheet, 0)
+      applyPreview(
+        data.workbook,
+        nextSheet,
+        rows.rawRows?.length ? detectHeaderRowIndex(rows.rawRows) : 0,
+      )
+    } catch {
+      setError("Couldn't read this file")
+    }
   }
 
   function handleSheetChange(nextSheet) {
     setSheetName(nextSheet)
     if (!workbook) return
-    const next = buildStaffImportPreview(workbook, nextSheet, 0)
-    applyPreview(
-      workbook,
-      nextSheet,
-      next.rawRows?.length ? detectHeaderRowIndex(next.rawRows) : 0,
-    )
+    try {
+      const next = buildStaffImportPreview(workbook, nextSheet, 0)
+      applyPreview(
+        workbook,
+        nextSheet,
+        next.rawRows?.length ? detectHeaderRowIndex(next.rawRows) : 0,
+      )
+    } catch {
+      setError("Couldn't read this file")
+    }
   }
 
   function handleHeaderChange(nextIndex) {
     if (!workbook) return
-    applyPreview(workbook, sheetName, nextIndex)
+    try {
+      applyPreview(workbook, sheetName, nextIndex)
+    } catch {
+      setError("Couldn't read this file")
+    }
   }
 
   function resetImport() {

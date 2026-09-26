@@ -99,9 +99,18 @@ export function excelSerialToIso(serial) {
   return isoFromParts(parsed.y, parsed.m, parsed.d)
 }
 
+function cellIsExcelDate(cell) {
+  return (
+    cell?.t === 'n' &&
+    typeof cell.z === 'string' &&
+    cell.z !== '' &&
+    spreadsheetFormat().is_date(cell.z)
+  )
+}
+
 function cellDisplay(cell) {
   if (!cell || cell.v == null || cell.v === '') return ''
-  if (cell.t === 'n' && spreadsheetFormat().is_date(cell.z)) {
+  if (cellIsExcelDate(cell)) {
     return excelSerialToIso(Number(cell.v)) || ''
   }
   if (cell.t === 'd' && cell.v instanceof Date && !Number.isNaN(cell.v.getTime())) {
@@ -213,41 +222,52 @@ export async function readStaffImportWorkbook(file) {
 }
 
 export function buildStaffImportPreview(workbook, sheetName, headerRowIndex) {
-  const rows = sheetToRows(workbook, sheetName)
-  if (rows.length === 0 || rows.every(isEmptyRow)) {
+  try {
+    const rows = sheetToRows(workbook, sheetName)
+    if (rows.length === 0 || rows.every(isEmptyRow)) {
+      return {
+        error: 'That sheet is empty.',
+        columns: [],
+        records: [],
+        previewRows: [],
+        headerRowIndex: 0,
+        rawRows: [],
+      }
+    }
+
+    const preview = rowsToPreview(rows, headerRowIndex)
+    if (preview.columns.length === 0) {
+      return {
+        error: 'Could not find a header row.',
+        ...preview,
+        rawRows: rows,
+      }
+    }
+
+    if (preview.records.length === 0) {
+      return {
+        error: null,
+        emptyData: true,
+        ...preview,
+        rawRows: rows,
+      }
+    }
+
     return {
-      error: 'That sheet is empty.',
+      error: null,
+      emptyData: false,
+      ...preview,
+      rawRows: rows,
+    }
+  } catch {
+    return {
+      error: "Couldn't read this file",
       columns: [],
       records: [],
       previewRows: [],
       headerRowIndex: 0,
       rawRows: [],
     }
-  }
-
-  const preview = rowsToPreview(rows, headerRowIndex)
-  if (preview.columns.length === 0) {
-    return {
-      error: 'Could not find a header row.',
-      ...preview,
-      rawRows: rows,
-    }
-  }
-
-  if (preview.records.length === 0) {
-    return {
-      error: null,
-      emptyData: true,
-      ...preview,
-      rawRows: rows,
-    }
-  }
-
-  return {
-    error: null,
-    emptyData: false,
-    ...preview,
-    rawRows: rows,
   }
 }
 
