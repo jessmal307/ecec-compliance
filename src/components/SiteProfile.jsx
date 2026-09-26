@@ -751,6 +751,7 @@ export function SiteProfile() {
               <SiteFloorLinks
                 organizationId={organizationId}
                 siteId={siteId}
+                siteName={site?.name ?? ''}
                 disabled={infoBusy || siteArchived}
               />
             </CardContent>

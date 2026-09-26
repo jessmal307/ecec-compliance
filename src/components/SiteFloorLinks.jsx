@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FormSection, Input } from './ui/form'
 import { PageError, PageMuted } from './ui/page'
 import { useAuth } from '../hooks/useAuth'
+import { openFloorPoster } from '../lib/floorPoster'
 import { formatTimestamp } from '../lib/format'
 import { getOrganization } from '../lib/organizations'
 import { paths } from '../lib/paths'
@@ -34,7 +35,7 @@ function floorLinkUrl(rawToken) {
   return `${window.location.origin}${paths.floorLink(rawToken)}`
 }
 
-export function SiteFloorLinks({ organizationId, siteId, disabled = false }) {
+export function SiteFloorLinks({ organizationId, siteId, siteName = '', disabled = false }) {
   const { user } = useAuth()
   const [allowed, setAllowed] = useState(false)
   const [links, setLinks] = useState([])
@@ -155,6 +156,13 @@ export function SiteFloorLinks({ organizationId, siteId, disabled = false }) {
     }
   }
 
+  async function handlePrintPoster() {
+    if (!freshUrl) return
+    setError('')
+    const printed = await openFloorPoster({ siteName, url: freshUrl })
+    if (printed.error) setError(printed.error.message)
+  }
+
   const busy = disabled || saving || loading
 
   return (
@@ -168,14 +176,24 @@ export function SiteFloorLinks({ organizationId, siteId, disabled = false }) {
           <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-3">
             <p className="break-all text-sm font-medium">{freshUrl}</p>
             <p className="text-sm text-muted-foreground">{COPY_WARNING}</p>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={handleCopy}
-            >
-              {copied ? 'Copied' : 'Copy link'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={handleCopy}
+              >
+                {copied ? 'Copied' : 'Copy link'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={handlePrintPoster}
+              >
+                Print QR poster
+              </Button>
+            </div>
           </div>
         ) : null}
         <Field label="Label" hint="Optional. For example, Reception tablet.">
