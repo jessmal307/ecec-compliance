@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { buildProviderComplianceReport } from '../_shared/dashboardCompliance.js'
-import { hasServiceRoleAuth, logAuthMismatch } from '../_shared/serviceRoleAuth.ts'
+import { hasCronSecretKey } from '../_shared/cronAuth.ts'
 
 // Scheduled by supabase/cron_jobs.sql (rtc-monthly-report).
 
@@ -250,8 +250,7 @@ Deno.serve(async (req) => {
     return json({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500)
   }
 
-  if (!hasServiceRoleAuth(req, serviceRoleKey)) {
-    await logAuthMismatch(req, serviceRoleKey) // TEMP-DIAG
+  if (!hasCronSecretKey(req)) {
     return json({ error: 'Unauthorized' }, 401)
   }
 

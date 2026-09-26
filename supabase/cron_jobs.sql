@@ -3,7 +3,9 @@
 --
 -- Requires two Vault secrets, created once outside this file:
 --   project_url       https://<PROJECT_REF>.supabase.co (no trailing slash)
---   service_role_key  legacy service_role JWT (must equal SUPABASE_SERVICE_ROLE_KEY)
+--   cron_secret_key   the sb_secret_ key named "cron" (Settings > API Keys)
+-- Jobs send it on the apikey header; the functions check it against
+-- SUPABASE_SECRET_KEYS['cron'].
 -- Both are read from vault.decrypted_secrets when each job runs, so no key
 -- or project ref is stored here or in cron.job.command.
 --
@@ -32,8 +34,8 @@ select cron.schedule(
       || '/functions/v1/send-compliance-alerts',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || (
-        select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key'
+      'apikey', (
+        select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret_key'
       )
     ),
     body := '{}'::jsonb,
@@ -51,8 +53,8 @@ select cron.schedule(
       || '/functions/v1/send-monthly-compliance-report',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || (
-        select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key'
+      'apikey', (
+        select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret_key'
       )
     ),
     body := '{}'::jsonb,
@@ -60,3 +62,11 @@ select cron.schedule(
   );
   $$
 );
+
+-- Verify (run separately): expect exactly two rows, reads_vault and
+-- uses_cron_key true, key_or_ref_visible false.
+-- select jobname, schedule, active,
+--        command like '%vault.decrypted_secrets%' as reads_vault,
+--        command like '%cron_secret_key%' as uses_cron_key,
+--        command ~ '(sb_secret_|eyJ|\.supabase\.co)' as key_or_ref_visible
+-- from cron.job order by jobname;
