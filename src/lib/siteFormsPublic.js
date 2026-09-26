@@ -1,4 +1,9 @@
+import { createClient } from '@supabase/supabase-js'
 import { sydneyToday } from './sydneyTime'
+
+const FORM_UPLOADS_BUCKET = 'form-uploads'
+
+export const SIGNATURE_AGAIN_MESSAGE = 'Draw the sign-off signature again.'
 
 const INACTIVE_MESSAGE =
   'This link is no longer active — please contact your service.'
@@ -170,17 +175,45 @@ export async function saveSiteForm(token, body) {
   return siteFormsRequest(token, { method: 'POST', body })
 }
 
-export async function uploadSignature(signedUrl, blob) {
-  if (!signedUrl) return { error: { message: 'Could not upload the signature.' } }
-  const response = await fetch(signedUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': blob.type || 'image/png',
-    },
-    body: blob,
-  })
-  if (!response.ok) return { error: { message: 'Could not upload the signature.' } }
-  return { error: null }
+const UPLOAD_FAILED_MESSAGE = 'Could not upload the signature. Try again.'
+
+let anonClient = null
+
+// Anon-only client: never reads or refreshes a signed-in session in this browser.
+function floorLinkClient() {
+  const url = import.meta.env.VITE_SUPABASE_URL
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+  if (!url || !anonKey) return null
+  if (!anonClient) {
+    anonClient = createClient(url, anonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storageKey: 'rtc-floor-link',
+      },
+    })
+  }
+  return anonClient
+}
+
+export async function uploadSignature(upload, blob) {
+  const client = floorLinkClient()
+  if (!client || !upload?.path || !upload?.token) {
+    return { error: { message: UPLOAD_FAILED_MESSAGE } }
+  }
+  try {
+    const { error } = await client.storage
+      .from(FORM_UPLOADS_BUCKET)
+      .uploadToSignedUrl(upload.path, upload.token, blob, {
+        contentType: blob.type || 'image/png',
+        upsert: false,
+      })
+    if (error) return { error: { message: UPLOAD_FAILED_MESSAGE } }
+    return { error: null }
+  } catch {
+    return { error: { message: UPLOAD_FAILED_MESSAGE } }
+  }
 }
 
 export { INACTIVE_MESSAGE }

@@ -8,6 +8,7 @@ import { emptyHazardRow } from './forms/RiskMatrixFormRenderer'
 import { PageError, PageMuted, PageSuccess } from './ui/page'
 import {
   INACTIVE_MESSAGE,
+  SIGNATURE_AGAIN_MESSAGE,
   buildPublicSubmissionData,
   dataUrlToBlob,
   emptyFormState,
@@ -66,6 +67,7 @@ export function SiteForms() {
   const [formState, setFormState] = useState(() => emptyFormState())
   const [draftIds, setDraftIds] = useState({})
   const [saving, setSaving] = useState(false)
+  const [rendererKey, setRendererKey] = useState(0)
 
   async function loadList() {
     setLoading(true)
@@ -123,6 +125,12 @@ export function SiteForms() {
     setSaved('')
   }
 
+  // Remounting the renderer blanks the pad, which only reads its value on mount.
+  function clearSignature(state) {
+    setFormState({ ...state, signoff: { ...state.signoff, signature: '' } })
+    setRendererKey((key) => key + 1)
+  }
+
   async function persist(status) {
     if (!active) return
     setError('')
@@ -150,6 +158,7 @@ export function SiteForms() {
         setSaving(false)
         return
       }
+      if (draft.error.message === SIGNATURE_AGAIN_MESSAGE) clearSignature(nextState)
       setError(draft.error.message)
       setSaving(false)
       return
@@ -158,9 +167,18 @@ export function SiteForms() {
     const submissionId = draft.data.submission_id
     setDraftIds((current) => ({ ...current, [active.template_id]: submissionId }))
 
-    if (isSignatureDataUrl(nextState.signoff?.signature) && draft.data.upload) {
-      const blob = await dataUrlToBlob(nextState.signoff.signature)
-      const uploaded = await uploadSignature(draft.data.upload.signedUrl, blob)
+    if (isSignatureDataUrl(nextState.signoff?.signature)) {
+      let uploaded
+      if (!draft.data.upload) {
+        uploaded = { error: { message: 'Could not upload the signature. Try again.' } }
+      } else {
+        try {
+          const blob = await dataUrlToBlob(nextState.signoff.signature)
+          uploaded = await uploadSignature(draft.data.upload, blob)
+        } catch {
+          uploaded = { error: { message: 'Could not upload the signature. Try again.' } }
+        }
+      }
       if (uploaded.error) {
         setError(uploaded.error.message)
         setSaving(false)
@@ -192,6 +210,7 @@ export function SiteForms() {
         setSaving(false)
         return
       }
+      if (completed.error.message === SIGNATURE_AGAIN_MESSAGE) clearSignature(nextState)
       setError(completed.error.message)
       setSaving(false)
       return
@@ -237,6 +256,7 @@ export function SiteForms() {
         <Card>
           <CardContent className="space-y-5 pt-6">
             <FormRenderer
+              key={rendererKey}
               archetype={active.archetype}
               schema={active.schema}
               state={formState}
