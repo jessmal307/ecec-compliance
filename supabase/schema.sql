@@ -12,8 +12,27 @@ create table if not exists public.organizations (
 alter table public.organizations
   add column if not exists owner_id uuid references auth.users (id) on delete cascade;
 
-alter table public.organizations
-  add column if not exists alert_email text;
+-- Backfill runs only when the column is first added, so re-runs never
+-- refill an alert_email someone has cleared.
+do $$
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'organizations'
+      and column_name = 'alert_email'
+  ) then
+    alter table public.organizations add column alert_email text;
+
+    update public.organizations as org
+    set alert_email = users.email
+    from auth.users as users
+    where org.owner_id = users.id
+      and users.email is not null;
+  end if;
+end
+$$;
 
 alter table public.organizations
   add column if not exists plan text not null default 'core';
@@ -72,6 +91,7 @@ as $$
 $$;
 
 revoke all on function public.user_org_ids() from public;
+revoke all on function public.user_org_ids() from anon;
 grant execute on function public.user_org_ids() to authenticated;
 
 insert into public.org_members (org_id, user_id, role)
@@ -116,6 +136,35 @@ create policy "Users can update their own organization"
   using (id in (select public.user_org_ids()))
   with check (id in (select public.user_org_ids()));
 
+-- plan and owner_id change only via service_role or an admin (SQL editor,
+-- SECURITY DEFINER signup trigger). Invoker rights so current_user is the caller.
+create or replace function public.guard_organization_columns()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if current_user not in ('anon', 'authenticated') then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    new.plan := 'core';
+  elsif new.plan is distinct from old.plan
+     or new.owner_id is distinct from old.owner_id then
+    raise exception 'plan and owner_id can only be changed by the service role'
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_organization_columns on public.organizations;
+create trigger guard_organization_columns
+  before insert or update on public.organizations
+  for each row execute function public.guard_organization_columns();
+
 drop policy if exists "Users can select org members in their organization"
   on public.org_members;
 create policy "Users can select org members in their organization"
@@ -124,20 +173,13 @@ create policy "Users can select org members in their organization"
   to authenticated
   using (org_id in (select public.user_org_ids()));
 
-update public.organizations as org
-set alert_email = users.email
-from auth.users as users
-where org.owner_id = users.id
-  and org.alert_email is null
-  and users.email is not null;
-
 -- Creates an organization row for every new auth user.
 -- This still works when email confirmation is enabled (no session yet).
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   org_name text;
@@ -497,6 +539,110 @@ create policy "Users can delete staff_sites in their organization"
     )
   );
 
+create table if not exists public.requirement_types (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  name text not null,
+  mandatory boolean not null default true,
+  recheck_interval_days integer,
+  validity_months integer,
+  renewal_lead_days integer,
+  applies_to text not null default 'staff',
+  perpetual boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (org_id, name)
+);
+
+create index if not exists requirement_types_org_id_idx on public.requirement_types (org_id);
+
+alter table public.requirement_types
+  add column if not exists mandatory boolean not null default true;
+
+alter table public.requirement_types
+  add column if not exists recheck_interval_days integer;
+
+alter table public.requirement_types
+  add column if not exists validity_months integer;
+
+alter table public.requirement_types
+  add column if not exists renewal_lead_days integer;
+
+alter table public.requirement_types
+  add column if not exists applies_to text not null default 'staff';
+
+alter table public.requirement_types
+  add column if not exists perpetual boolean not null default false;
+
+alter table public.requirement_types
+  drop column if exists recheck_interval_months;
+
+alter table public.requirement_types drop constraint if exists requirement_types_applies_to_check;
+alter table public.requirement_types add constraint requirement_types_applies_to_check
+  check (applies_to in ('staff', 'site'));
+
+alter table public.requirement_types enable row level security;
+
+drop policy if exists "Users can view requirement types in their organization" on public.requirement_types;
+create policy "Users can view requirement types in their organization"
+  on public.requirement_types
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+drop policy if exists "Users can insert requirement types in their organization" on public.requirement_types;
+create policy "Users can insert requirement types in their organization"
+  on public.requirement_types
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+alter table public.requirement_types
+  add column if not exists archived_at timestamptz;
+
+alter table public.requirement_types
+  add column if not exists is_custom boolean not null default false;
+
+alter table public.requirement_types
+  add column if not exists customized boolean not null default false;
+
+create index if not exists requirement_types_org_id_archived_at_idx
+  on public.requirement_types (org_id, archived_at);
+
+drop policy if exists "Users can update requirement types in their organization" on public.requirement_types;
+create policy "Users can update requirement types in their organization"
+  on public.requirement_types
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+drop policy if exists "Users can delete requirement types in their organization" on public.requirement_types;
+create policy "Users can delete requirement types in their organization"
+  on public.requirement_types
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
 create table if not exists public.staff_requirement_exclusions (
   staff_id uuid not null references public.staff (id) on delete cascade,
   requirement_type_id uuid not null references public.requirement_types (id) on delete cascade,
@@ -689,110 +835,6 @@ create policy "Users can delete site requirement exclusions in their organizatio
     )
   );
 
-create table if not exists public.requirement_types (
-  id uuid primary key default gen_random_uuid(),
-  org_id uuid not null references public.organizations (id) on delete cascade,
-  name text not null,
-  mandatory boolean not null default true,
-  recheck_interval_days integer,
-  validity_months integer,
-  renewal_lead_days integer,
-  applies_to text not null default 'staff',
-  perpetual boolean not null default false,
-  created_at timestamptz not null default now(),
-  unique (org_id, name)
-);
-
-create index if not exists requirement_types_org_id_idx on public.requirement_types (org_id);
-
-alter table public.requirement_types
-  add column if not exists mandatory boolean not null default true;
-
-alter table public.requirement_types
-  add column if not exists recheck_interval_days integer;
-
-alter table public.requirement_types
-  add column if not exists validity_months integer;
-
-alter table public.requirement_types
-  add column if not exists renewal_lead_days integer;
-
-alter table public.requirement_types
-  add column if not exists applies_to text not null default 'staff';
-
-alter table public.requirement_types
-  add column if not exists perpetual boolean not null default false;
-
-alter table public.requirement_types
-  drop column if exists recheck_interval_months;
-
-alter table public.requirement_types drop constraint if exists requirement_types_applies_to_check;
-alter table public.requirement_types add constraint requirement_types_applies_to_check
-  check (applies_to in ('staff', 'site'));
-
-alter table public.requirement_types enable row level security;
-
-drop policy if exists "Users can view requirement types in their organization" on public.requirement_types;
-create policy "Users can view requirement types in their organization"
-  on public.requirement_types
-  for select
-  to authenticated
-  using (
-    org_id in (
-      select public.user_org_ids()
-    )
-  );
-
-drop policy if exists "Users can insert requirement types in their organization" on public.requirement_types;
-create policy "Users can insert requirement types in their organization"
-  on public.requirement_types
-  for insert
-  to authenticated
-  with check (
-    org_id in (
-      select public.user_org_ids()
-    )
-  );
-
-alter table public.requirement_types
-  add column if not exists archived_at timestamptz;
-
-alter table public.requirement_types
-  add column if not exists is_custom boolean not null default false;
-
-alter table public.requirement_types
-  add column if not exists customized boolean not null default false;
-
-create index if not exists requirement_types_org_id_archived_at_idx
-  on public.requirement_types (org_id, archived_at);
-
-drop policy if exists "Users can update requirement types in their organization" on public.requirement_types;
-create policy "Users can update requirement types in their organization"
-  on public.requirement_types
-  for update
-  to authenticated
-  using (
-    org_id in (
-      select public.user_org_ids()
-    )
-  )
-  with check (
-    org_id in (
-      select public.user_org_ids()
-    )
-  );
-
-drop policy if exists "Users can delete requirement types in their organization" on public.requirement_types;
-create policy "Users can delete requirement types in their organization"
-  on public.requirement_types
-  for delete
-  to authenticated
-  using (
-    org_id in (
-      select public.user_org_ids()
-    )
-  );
-
 create or replace function public.normalized_requirement_name(raw text)
 returns text
 language sql
@@ -812,7 +854,7 @@ create or replace function public.cleanup_requirement_types(target_org_id uuid)
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   rec record;
@@ -1073,18 +1115,35 @@ create or replace function public.seed_requirement_types(target_org_id uuid)
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 begin
   perform public.cleanup_requirement_types(target_org_id);
 end;
 $$;
 
+-- Called only by handle_new_user (runs as the function owner) and below.
+revoke all on function public.cleanup_requirement_types(uuid) from public;
+revoke all on function public.cleanup_requirement_types(uuid) from anon;
+revoke all on function public.cleanup_requirement_types(uuid) from authenticated;
+revoke all on function public.seed_requirement_types(uuid) from public;
+revoke all on function public.seed_requirement_types(uuid) from anon;
+revoke all on function public.seed_requirement_types(uuid) from authenticated;
+
+-- Seeds only orgs with no requirement types, so re-runs never touch existing
+-- orgs. A default type added to the list above later will NOT reach existing
+-- orgs through this block: ship an explicit one-off migration for that.
 do $$
 declare
   org_record record;
 begin
-  for org_record in select id from public.organizations loop
+  for org_record in
+    select org.id
+    from public.organizations as org
+    where not exists (
+      select 1 from public.requirement_types as types where types.org_id = org.id
+    )
+  loop
     perform public.seed_requirement_types(org_record.id);
   end loop;
 end;
@@ -1325,11 +1384,13 @@ where threshold in ('0', '7', '30');
 delete from public.alerts
 where threshold not in ('renewal', 'expired', 'recheck');
 
+-- recheck alerts repeat by design; only renewal/expired are once-per-item.
 delete from public.alerts a
 using public.alerts b
 where a.ctid > b.ctid
   and a.compliance_item_id = b.compliance_item_id
-  and a.threshold = b.threshold;
+  and a.threshold = b.threshold
+  and a.threshold in ('renewal', 'expired');
 
 alter table public.alerts
   add column if not exists created_at timestamptz not null default now();
@@ -1352,12 +1413,25 @@ alter table public.alerts
   add constraint alerts_threshold_check
   check (threshold in ('renewal', 'expired', 'recheck'));
 
-alter table public.alerts drop constraint if exists alerts_compliance_item_id_fkey;
-alter table public.alerts
-  add constraint alerts_compliance_item_id_fkey
-  foreign key (compliance_item_id)
-  references public.compliance_items (id)
-  on delete cascade;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.alerts'::regclass
+      and conname = 'alerts_compliance_item_id_fkey'
+      and contype = 'f'
+      and confdeltype = 'c'
+  ) then
+    alter table public.alerts drop constraint if exists alerts_compliance_item_id_fkey;
+    alter table public.alerts
+      add constraint alerts_compliance_item_id_fkey
+      foreign key (compliance_item_id)
+      references public.compliance_items (id)
+      on delete cascade;
+  end if;
+end
+$$;
 
 create unique index if not exists alerts_item_renewal_expired_once_idx
   on public.alerts (compliance_item_id, threshold)
@@ -1620,13 +1694,20 @@ begin
 
     v_actor_name := coalesce(nullif(v_actor_name, ''), 'System');
 
+    -- organizations has no org_id column; its own id is the org.
     if tg_op = 'DELETE' then
-      v_org_id := old.org_id;
+      v_org_id := coalesce(
+        (to_jsonb(old)->>'org_id')::uuid,
+        case when tg_table_name = 'organizations' then old.id end
+      );
       v_entity_id := old.id;
       v_before := to_jsonb(old);
       v_after := null;
     else
-      v_org_id := new.org_id;
+      v_org_id := coalesce(
+        (to_jsonb(new)->>'org_id')::uuid,
+        case when tg_table_name = 'organizations' then new.id end
+      );
       v_entity_id := new.id;
       v_after := to_jsonb(new);
       if tg_op = 'UPDATE' then
@@ -1690,6 +1771,11 @@ create trigger audit_compliance_items_change
   after insert or update or delete on public.compliance_items
   for each row execute function public.audit_log_change();
 
+drop trigger if exists audit_organizations_change on public.organizations;
+create trigger audit_organizations_change
+  after insert or update or delete on public.organizations
+  for each row execute function public.audit_log_change();
+
 -- Forms engine (Plus). Core orgs cannot read or write these tables.
 create or replace function public.org_has_plan(target_org_id uuid, min_plan text)
 returns boolean
@@ -1702,6 +1788,14 @@ as $$
     select 1
     from public.organizations as org
     where org.id = target_org_id
+      and (
+        auth.uid() is null
+        or org.id in (
+          select members.org_id
+          from public.org_members as members
+          where members.user_id = auth.uid()
+        )
+      )
       and case org.plan
         when 'pro' then 2
         when 'plus' then 1
@@ -1717,6 +1811,7 @@ as $$
 $$;
 
 revoke all on function public.org_has_plan(uuid, text) from public;
+revoke all on function public.org_has_plan(uuid, text) from anon;
 grant execute on function public.org_has_plan(uuid, text) to authenticated;
 
 create or replace function public.user_plus_org_ids()
@@ -1733,6 +1828,7 @@ as $$
 $$;
 
 revoke all on function public.user_plus_org_ids() from public;
+revoke all on function public.user_plus_org_ids() from anon;
 grant execute on function public.user_plus_org_ids() to authenticated;
 
 create table if not exists public.form_templates (
@@ -1904,7 +2000,21 @@ where older.status = 'complete'
     )
   );
 
-drop index if exists public.form_submissions_site_template_for_date_complete_idx;
+-- Replace only an older definition that lacked the for_date filter.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_indexes
+    where schemaname = 'public'
+      and indexname = 'form_submissions_site_template_for_date_complete_idx'
+      and indexdef not like '%for_date IS NOT NULL%'
+  ) then
+    drop index public.form_submissions_site_template_for_date_complete_idx;
+  end if;
+end
+$$;
+
 create unique index if not exists form_submissions_site_template_for_date_complete_idx
   on public.form_submissions (site_id, template_id, for_date)
   where status = 'complete' and for_date is not null;
@@ -2051,6 +2161,18 @@ create policy "Plus users can insert form submissions"
     org_id in (
       select public.user_plus_org_ids()
     )
+    and (
+      site_id is null
+      or site_id in (
+        select site.id from public.sites as site
+        where site.org_id = form_submissions.org_id
+      )
+    )
+    and template_id in (
+      select template.id from public.form_templates as template
+      where template.org_id = form_submissions.org_id
+         or template.org_id is null
+    )
   );
 
 drop policy if exists "Plus users can update form submissions"
@@ -2069,6 +2191,18 @@ create policy "Plus users can update form submissions"
     org_id in (
       select public.user_plus_org_ids()
     )
+    and (
+      site_id is null
+      or site_id in (
+        select site.id from public.sites as site
+        where site.org_id = form_submissions.org_id
+      )
+    )
+    and template_id in (
+      select template.id from public.form_templates as template
+      where template.org_id = form_submissions.org_id
+         or template.org_id is null
+    )
   );
 
 drop policy if exists "Plus users can delete form submissions"
@@ -2078,10 +2212,34 @@ create policy "Plus users can delete form submissions"
   for delete
   to authenticated
   using (
-    org_id in (
+    status = 'draft'
+    and org_id in (
       select public.user_plus_org_ids()
     )
   );
+
+-- Completion time and signer come from the server, never the client.
+-- service_role (site-forms) has no auth.uid(), so its signer stays null.
+create or replace function public.stamp_form_submission_completion()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.status = 'complete'
+     and (tg_op = 'INSERT' or old.status is distinct from 'complete') then
+    new.submitted_at := now();
+    new.signed_off_at := now();
+    new.signed_off_by := auth.uid();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists stamp_form_submission_completion on public.form_submissions;
+create trigger stamp_form_submission_completion
+  before insert or update on public.form_submissions
+  for each row execute function public.stamp_form_submission_completion();
 
 drop trigger if exists audit_form_submissions_change on public.form_submissions;
 create trigger audit_form_submissions_change
