@@ -41,6 +41,7 @@ export function SiteFloorLinks({ organizationId, siteId, siteName = '', disabled
   const [links, setLinks] = useState([])
   const [label, setLabel] = useState('')
   const [freshUrl, setFreshUrl] = useState('')
+  const [replaced, setReplaced] = useState(false)
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -119,6 +120,7 @@ export function SiteFloorLinks({ organizationId, siteId, siteName = '', disabled
         setError(revoked.error.message)
         setLinks((current) => [created.data, ...current])
         setFreshUrl(floorLinkUrl(rawToken))
+        setReplaced(false)
         setLabel('')
         setSaving(false)
         return
@@ -130,6 +132,7 @@ export function SiteFloorLinks({ organizationId, siteId, siteName = '', disabled
       ...current.filter((row) => row.id !== revokeId),
     ])
     setFreshUrl(floorLinkUrl(rawToken))
+    setReplaced(Boolean(revokeId))
     setLabel('')
     setSaving(false)
   }
@@ -176,6 +179,12 @@ export function SiteFloorLinks({ organizationId, siteId, siteName = '', disabled
           <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-3">
             <p className="break-all text-sm font-medium">{freshUrl}</p>
             <p className="text-sm text-muted-foreground">{COPY_WARNING}</p>
+            {replaced ? (
+              <p className="text-sm text-foreground">
+                Print the new poster and re-open the new link on the centre
+                tablet — the old poster and tablet link have stopped working.
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -187,7 +196,7 @@ export function SiteFloorLinks({ organizationId, siteId, siteName = '', disabled
               </Button>
               <Button
                 type="button"
-                variant="outline"
+                variant={replaced ? 'default' : 'outline'}
                 disabled={busy}
                 onClick={handlePrintPoster}
               >

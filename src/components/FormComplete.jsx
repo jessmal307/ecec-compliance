@@ -445,7 +445,7 @@ export function FormComplete() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title={template?.name || 'Complete form'}
-        description="Choose a site, fill the form, then save a draft or submit."
+        description="Choose a site, fill the form, then save a draft or submit. This is the office path. Centre staff use the floor link on the tablet."
         actions={
           <Button asChild variant="outline">
             <Link to={paths.forms}>Back to forms</Link>

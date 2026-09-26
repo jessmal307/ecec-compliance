@@ -187,6 +187,24 @@ export function buildExpiredItems(args) {
   return buildRequiredItemsByStatus('Expired', args)
 }
 
+export function buildRecheckDueItems({ visibleItems, requirementTypes }) {
+  const typeFor = (item) =>
+    requirementTypes.find((type) => type.id === item.requirement_type_id) ?? item
+  const matched = visibleItems.filter(
+    (item) => attentionStatus(item, typeFor(item)) === 'Recheck due',
+  )
+  matched.sort((left, right) =>
+    String(recheckDueDate(left, typeFor(left)) ?? '').localeCompare(
+      String(recheckDueDate(right, typeFor(right)) ?? ''),
+    ),
+  )
+  return {
+    items: matched,
+    staffItems: matched.filter((item) => item.ownerKind === 'staff'),
+    siteItems: matched.filter((item) => item.ownerKind !== 'staff'),
+  }
+}
+
 export function visibleComplianceItems({
   items,
   activeStaff,

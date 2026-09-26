@@ -6,10 +6,9 @@ function emptyToNull(value) {
 }
 
 function defaultOrgName(user) {
-  const fromMeta = user.user_metadata?.organization_name
+  const fromMeta = String(user.user_metadata?.organization_name ?? '').trim()
   if (fromMeta) return fromMeta
-  const localPart = user.email?.split('@')[0] ?? 'My'
-  return `${localPart}'s organization`
+  return 'My organisation'
 }
 
 export async function getOrganization(id) {

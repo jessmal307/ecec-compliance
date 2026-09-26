@@ -487,7 +487,10 @@ export function Overview() {
       value: dashboard.recheckDueCount,
       hint: 'Periodic verification is overdue',
       icon: RefreshCw,
-      href: dashboard.recheckDueCount > 0 ? paths.attention : null,
+      href:
+        dashboard.recheckDueCount > 0
+          ? `${paths.attention}?status=recheck`
+          : null,
     },
     {
       label: 'Missing',

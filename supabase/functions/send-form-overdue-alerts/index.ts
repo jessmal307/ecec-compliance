@@ -52,7 +52,7 @@ function escapeHtml(value: string) {
 }
 
 function lineFor(formName: string, siteName: string, dueBy: string) {
-  return `${formName} at ${siteName} is not done — it was due at ${formatTimeOfDay(dueBy)}. Complete it on the centre iPad.`
+  return `${formName} at ${siteName} is not done — it was due at ${formatTimeOfDay(dueBy)}. Open RoadToComply on the centre tablet (the floor link) to complete it.`
 }
 
 function emailHtml(lines: string[]) {

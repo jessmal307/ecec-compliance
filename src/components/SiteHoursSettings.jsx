@@ -127,8 +127,8 @@ export function SiteHoursSettings({
   return (
     <>
       <FormSection
-        title="Operating days"
-        description="Scheduled forms will later use these days. Defaults to Monday–Friday."
+        title="Opening hours & closures"
+        description="Days this centre is open, and dates it is closed. Defaults to Monday–Friday."
       >
         <fieldset className="space-y-2" disabled={disabled}>
           <legend className="sr-only">Operating days</legend>

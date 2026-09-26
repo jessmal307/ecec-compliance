@@ -16,6 +16,7 @@ import { useAuth } from '../hooks/useAuth'
 import {
   buildExpiredItems,
   buildExpiringSoonItems,
+  buildRecheckDueItems,
   buildUrgentItems,
   visibleComplianceItems,
 } from '../lib/attention'
@@ -44,6 +45,7 @@ export function Attention() {
   const statusFilter = attentionStatusFilter(searchParams)
   const expiringOnly = statusFilter === 'expiring'
   const expiredOnly = statusFilter === 'expired'
+  const recheckOnly = statusFilter === 'recheck'
   const [items, setItems] = useState([])
   const [staff, setStaff] = useState([])
   const [sites, setSites] = useState([])
@@ -219,6 +221,7 @@ export function Attention() {
 
     if (expiredOnly) return buildExpiredItems(args)
     if (expiringOnly) return buildExpiringSoonItems(args)
+    if (recheckOnly) return buildRecheckDueItems(args)
     return buildUrgentItems(args)
   }, [
     items,
@@ -229,6 +232,7 @@ export function Attention() {
     siteExclusions,
     expiredOnly,
     expiringOnly,
+    recheckOnly,
   ])
 
   const listProps = {
@@ -254,14 +258,18 @@ export function Attention() {
             ? 'Expired'
             : expiringOnly
               ? 'Expiring in 30 days'
-              : 'Needs attention'
+              : recheckOnly
+                ? 'Recheck due'
+                : 'Needs attention'
         }
         description={
           expiredOnly
             ? 'Required items that are past their expiry date, most overdue first.'
             : expiringOnly
               ? 'Required items that expire within 30 days, soonest first.'
-              : 'Expired items first, then overdue rechecks, then soonest to expire.'
+              : recheckOnly
+                ? 'Required items whose periodic verification is due, most overdue first.'
+                : 'Expired items first, then overdue rechecks, then soonest to expire.'
         }
       />
 
@@ -281,10 +289,12 @@ export function Attention() {
                 ? 'Expired items'
                 : expiringOnly
                   ? 'Expiring items'
-                  : 'All urgent items'}
+                  : recheckOnly
+                    ? 'Recheck due'
+                    : 'All urgent items'}
             </CardTitle>
             <CardDescription>
-              {expiredOnly || expiringOnly
+              {expiredOnly || expiringOnly || recheckOnly
                 ? 'Click an item to open it on the staff or site profile.'
                 : 'Staff-level and site-level records that are expired, overdue for recheck, or coming due.'}
             </CardDescription>
@@ -323,7 +333,9 @@ export function Attention() {
                       ? 'No staff items are expired.'
                       : expiringOnly
                         ? 'No staff items expire in the next 30 days.'
-                        : undefined
+                        : recheckOnly
+                          ? 'No staff items are due for recheck.'
+                          : undefined
                   }
                   {...listProps}
                 />
@@ -337,7 +349,9 @@ export function Attention() {
                       ? 'No site items are expired.'
                       : expiringOnly
                         ? 'No site items expire in the next 30 days.'
-                        : undefined
+                        : recheckOnly
+                          ? 'No site items are due for recheck.'
+                          : undefined
                   }
                   {...listProps}
                 />

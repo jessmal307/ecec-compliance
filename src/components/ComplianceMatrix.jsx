@@ -21,7 +21,7 @@ import {
 import { PageError, PageMuted } from './ui/page'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select } from './ui/form'
-import { useAuth } from '../hooks/useAuth'
+import { sydneyToday } from '../lib/sydneyTime'
 import {
   filterMatrix,
   filterSiteMatrix,
@@ -347,7 +347,7 @@ export function ComplianceMatrix() {
         ...matrix,
         ownerHeader: siteView ? 'Site' : 'Staff',
       }),
-      `compliance-${siteView ? 'site' : 'staff'}-matrix-${new Date().toISOString().slice(0, 10)}.csv`,
+      `compliance-${siteView ? 'site' : 'staff'}-matrix-${sydneyToday()}.csv`,
     )
   }
 

@@ -61,7 +61,7 @@ export function ownerRequirementPath(item) {
 
 export function attentionStatusFilter(search) {
   const status = new URLSearchParams(search).get('status')
-  if (status === 'expiring' || status === 'expired') return status
+  if (status === 'expiring' || status === 'expired' || status === 'recheck') return status
   return null
 }
 
@@ -71,6 +71,10 @@ export function isExpiringAttentionPath(search) {
 
 export function isExpiredAttentionPath(search) {
   return attentionStatusFilter(search) === 'expired'
+}
+
+export function isRecheckAttentionPath(search) {
+  return attentionStatusFilter(search) === 'recheck'
 }
 
 export function isSitesPath(pathname) {

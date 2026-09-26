@@ -39,12 +39,6 @@ const STEPS = [
     description: 'People whose certificates and checks you will track.',
     to: paths.newStaff,
   },
-  {
-    key: 'requirements',
-    title: 'Set up requirements',
-    description: 'Review the requirement types used for compliance.',
-    to: settingsHref('requirements'),
-  },
 ]
 
 const INTRO_STEPS = [
@@ -264,6 +258,17 @@ export function GetStarted({ steps }) {
             )
           })}
         </ol>
+        <p className="mt-4 border-t border-border pt-4 text-base text-muted-foreground md:text-sm">
+          <Link
+            to={settingsHref('requirements')}
+            className="font-medium text-card-foreground underline underline-offset-4"
+          >
+            Review requirements
+          </Link>
+          {' — '}
+          optional. The standard certificate types are already set up. Open
+          them if you want to change what is tracked.
+        </p>
       </CardContent>
     </Card>
   )

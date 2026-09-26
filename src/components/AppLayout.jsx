@@ -15,7 +15,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ComingSoonDialog, ComingSoonNavItem, RESERVED_FEATURES } from './ComingSoon'
 import { FeedbackButton } from './FeedbackDialog'
 import { SitesSidebarItem } from './SitesNav'
 import { ThemeToggle } from './ThemeToggle'
@@ -27,6 +26,7 @@ import {
   isExpiredAttentionPath,
   isExpiringAttentionPath,
   isFormsPath,
+  isRecheckAttentionPath,
   isSettingsNavPath,
   isSitesPath,
   paths,
@@ -77,6 +77,7 @@ function pageTitle(pathname, search = '') {
   if (pathname === paths.attention) {
     if (isExpiredAttentionPath(search)) return 'Expired'
     if (isExpiringAttentionPath(search)) return 'Expiring in 30 days'
+    if (isRecheckAttentionPath(search)) return 'Recheck due'
     return 'Needs attention'
   }
   if (pathname === paths.settings) return 'Settings'
@@ -96,15 +97,6 @@ function isOverviewPath(pathname) {
 
 const collapsedTipClass =
   'relative after:pointer-events-none after:absolute after:top-1/2 after:left-full after:z-50 after:ml-2 after:hidden after:-translate-y-1/2 after:whitespace-nowrap after:rounded-md after:bg-popover after:px-2 after:py-1 after:text-xs after:font-medium after:text-popover-foreground after:shadow-sm after:ring-1 after:ring-foreground/10 after:content-[attr(data-label)] hover:after:block'
-
-function reservedNavClassName(collapsed = false) {
-  return [
-    collapsed
-      ? `flex size-11 items-center justify-center rounded-lg text-base font-medium no-underline transition-colors ${collapsedTipClass}`
-      : 'flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-base font-medium no-underline transition-colors md:text-sm',
-    'text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-muted-foreground',
-  ].join(' ')
-}
 
 function navClassName(isActive, collapsed = false) {
   return [
@@ -126,7 +118,7 @@ function tabClassName(isActive) {
   ].join(' ')
 }
 
-function SidebarNav({ collapsed, onNavigate, onOpenSoon, showForms }) {
+function SidebarNav({ collapsed, onNavigate, showForms }) {
   const { pathname } = useLocation()
   const visiblePages = pages.filter(
     (item) => item.to !== paths.forms || showForms,
@@ -177,22 +169,6 @@ function SidebarNav({ collapsed, onNavigate, onOpenSoon, showForms }) {
           </NavLink>
         )
       })}
-      <div
-        className={cn(
-          'border-t border-sidebar-border',
-          collapsed ? 'mt-1 flex flex-col items-center pt-1' : 'mt-2 pt-2',
-        )}
-      >
-        {RESERVED_FEATURES.map((feature) => (
-          <ComingSoonNavItem
-            key={feature.id}
-            feature={feature}
-            collapsed={collapsed}
-            className={reservedNavClassName(collapsed)}
-            onOpen={onOpenSoon}
-          />
-        ))}
-      </div>
     </nav>
   )
 }
@@ -253,7 +229,6 @@ function BottomTabBar({
   moreOpen,
   onToggleMore,
   onCloseMenus,
-  onOpenSoon,
   showForms,
 }) {
   return (
@@ -289,17 +264,6 @@ function BottomTabBar({
             <Settings className="size-4 shrink-0" />
             Settings
           </NavLink>
-          {RESERVED_FEATURES.map((feature) => (
-            <ComingSoonNavItem
-              key={feature.id}
-              feature={feature}
-              className={reservedNavClassName()}
-              onOpen={(next) => {
-                onCloseMenus()
-                onOpenSoon(next)
-              }}
-            />
-          ))}
         </div>
       ) : null}
 
@@ -361,7 +325,6 @@ export function AppLayout() {
   const { signOut, user, organizationId } = useAuth()
   const { pathname, search } = useLocation()
   const [moreForPath, setMoreForPath] = useState(null)
-  const [soonFeature, setSoonFeature] = useState(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
   const [organization, setOrganization] = useState(null)
   const moreOpen = moreForPath === pathname
@@ -417,7 +380,6 @@ export function AppLayout() {
         <SidebarBrand collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
         <SidebarNav
           collapsed={sidebarCollapsed}
-          onOpenSoon={setSoonFeature}
           showForms={showForms}
         />
         {sidebarCollapsed ? null : (
@@ -464,11 +426,8 @@ export function AppLayout() {
           setMoreForPath((current) => (current === pathname ? null : pathname))
         }}
         onCloseMenus={closeMenus}
-        onOpenSoon={setSoonFeature}
         showForms={showForms}
       />
-
-      <ComingSoonDialog feature={soonFeature} onOpenChange={setSoonFeature} />
     </div>
   )
 }

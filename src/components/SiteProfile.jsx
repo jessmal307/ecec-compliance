@@ -566,6 +566,27 @@ export function SiteProfile() {
     setInfo((current) => ({ ...current, [field]: value }))
   }
 
+  async function handleOperatingDaysChange(next) {
+    const previous = info.operatingDays
+    setInfoField('operatingDays', next)
+    if (!siteId || !next.length) return
+
+    const { data, error: saveError } = await updateSite(siteId, {
+      operatingDays: next,
+    })
+    if (saveError) {
+      setInfoField('operatingDays', previous)
+      setError(saveError.message)
+      return
+    }
+
+    setSite(data)
+    setInfo((current) => ({
+      ...current,
+      operatingDays: data.operating_days ?? next,
+    }))
+  }
+
   const infoBusy = savingInfo || loading
   const siteArchived = isArchived(site)
 
@@ -641,6 +662,13 @@ export function SiteProfile() {
             }}
           />
           )}
+          <SiteHoursSettings
+            organizationId={organizationId}
+            siteId={siteId}
+            operatingDays={info.operatingDays ?? DEFAULT_OPERATING_DAYS}
+            onOperatingDaysChange={handleOperatingDaysChange}
+            disabled={infoBusy}
+          />
           <Tabs value={profileTab} onValueChange={setProfileTab}>
             <TabsList>
               <TabsTrigger value="details">Site information</TabsTrigger>
@@ -719,7 +747,7 @@ export function SiteProfile() {
                     </Field>
                     <Field
                       label="Alert email"
-                      hint="Overdue form emails go here. If empty, the organisation alert email is used."
+                      hint="Same-day overdue form emails go here. If this is empty, they go to the organisation alert email."
                       className="col-span-full"
                     >
                       <Input
@@ -748,16 +776,6 @@ export function SiteProfile() {
                     </Field>
                   </FieldGrid>
                 </FormSection>
-
-                <SiteHoursSettings
-                  organizationId={organizationId}
-                  siteId={siteId}
-                  operatingDays={info.operatingDays ?? DEFAULT_OPERATING_DAYS}
-                  onOperatingDaysChange={(next) =>
-                    setInfoField('operatingDays', next)
-                  }
-                  disabled={infoBusy}
-                />
 
                 <FormActions>
                   <Button type="submit" disabled={infoBusy}>

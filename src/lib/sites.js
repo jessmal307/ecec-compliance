@@ -121,14 +121,17 @@ export async function updateSite(id, {
   alertEmail,
   operatingDays,
 }) {
-  const payload = {
-    name,
-    address: emptyToNull(address),
-    service_approval_number: emptyToNull(serviceApprovalNumber),
-    phone: emptyToNull(phone),
-    nominated_supervisor: emptyToNull(nominatedSupervisor),
-    alert_email: emptyToNull(alertEmail),
+  const payload = {}
+  if (name !== undefined) payload.name = name
+  if (address !== undefined) payload.address = emptyToNull(address)
+  if (serviceApprovalNumber !== undefined) {
+    payload.service_approval_number = emptyToNull(serviceApprovalNumber)
   }
+  if (phone !== undefined) payload.phone = emptyToNull(phone)
+  if (nominatedSupervisor !== undefined) {
+    payload.nominated_supervisor = emptyToNull(nominatedSupervisor)
+  }
+  if (alertEmail !== undefined) payload.alert_email = emptyToNull(alertEmail)
   if (operatingDays !== undefined) {
     const days = Array.isArray(operatingDays)
       ? operatingDays.map(Number).filter((day) => day >= 1 && day <= 7)

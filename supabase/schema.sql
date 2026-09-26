@@ -3416,3 +3416,35 @@ alter table public.form_overdue_alerts enable row level security;
 revoke all on table public.form_overdue_alerts from public;
 revoke all on table public.form_overdue_alerts from anon;
 revoke all on table public.form_overdue_alerts from authenticated;
+
+-- Head-office digest: each missed form (site + template + period) is mailed once.
+-- Service role only. Claim status 'sending' before the digest send; 'sent' after.
+create table if not exists public.form_digest_misses (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid not null references public.sites (id) on delete cascade,
+  template_id uuid not null references public.form_templates (id) on delete cascade,
+  for_date date not null,
+  status text not null default 'sending',
+  created_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+
+alter table public.form_digest_misses
+  drop constraint if exists form_digest_misses_site_template_date_key;
+alter table public.form_digest_misses
+  add constraint form_digest_misses_site_template_date_key
+  unique (site_id, template_id, for_date);
+
+alter table public.form_digest_misses drop constraint if exists form_digest_misses_status_check;
+alter table public.form_digest_misses add constraint form_digest_misses_status_check
+  check (status in ('sending', 'sent'));
+
+create index if not exists form_digest_misses_status_created_at_idx
+  on public.form_digest_misses (status, created_at);
+
+alter table public.form_digest_misses enable row level security;
+
+revoke all on table public.form_digest_misses from public;
+revoke all on table public.form_digest_misses from anon;
+revoke all on table public.form_digest_misses from authenticated;

@@ -28,6 +28,8 @@ import { Requirements } from './Requirements'
 import { useAuth } from '../hooks/useAuth'
 import { getOrganization, updateOrganization } from '../lib/organizations'
 import { authRedirectUrl, paths } from '../lib/paths'
+
+const PLAN_LABELS = { core: 'Core', plus: 'Plus', pro: 'Pro' }
 import { supabase } from '../lib/supabase'
 
 function displayNameFromUser(user) {
@@ -50,6 +52,7 @@ export function AccountSettings() {
   const [loginEmail, setLoginEmail] = useState(user?.email ?? '')
   const [confirmEmail, setConfirmEmail] = useState('')
   const [orgName, setOrgName] = useState('')
+  const [plan, setPlan] = useState('core')
   const [alertEmail, setAlertEmail] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -99,6 +102,7 @@ export function AccountSettings() {
       }
 
       setOrgName(data.name ?? '')
+      setPlan(data.plan ?? 'core')
       setAlertEmail(data.alert_email || user?.email || '')
       setLoading(false)
     }
@@ -493,6 +497,11 @@ export function AccountSettings() {
                           />
                         </Field>
                       </FieldGrid>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        Plan: {PLAN_LABELS[plan] ?? 'Core'}. Plus adds forms,
+                        due-by times, the floor link, and same-day overdue form
+                        emails.
+                      </p>
                     </FormSection>
 
                     <PageError>{orgError}</PageError>
@@ -519,7 +528,7 @@ export function AccountSettings() {
                       <FieldGrid>
                         <Field
                           label="Alert email"
-                          hint="Renewal, expired, and recheck alerts are sent to this address."
+                          hint="The 6:30am digest (including missed forms) and the monthly report go here."
                           className="col-span-full"
                         >
                           <Input

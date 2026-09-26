@@ -32,6 +32,11 @@ export function AuthForm({ mode = 'login' }) {
     setMessage('')
     setConsentError('')
 
+    if (isSignUp && !organizationName.trim()) {
+      setError('Enter your organisation name.')
+      return
+    }
+
     if (isSignUp && !acceptedLegal) {
       setConsentError(
         'Please agree to the Privacy Policy, Terms of Service, and Security statement.',
