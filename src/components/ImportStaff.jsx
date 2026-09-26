@@ -573,6 +573,7 @@ export function ImportStaff() {
   function renderMatchSelect(column) {
     return (
       <Select
+        className="w-auto max-w-full"
         value={destinationValue(
           column,
           { ...columnMap, siteColumn: centreColumn },
@@ -627,6 +628,7 @@ export function ImportStaff() {
         </div>
         <Field label="Centre" className="font-normal">
           <Select
+            className="w-auto max-w-full"
             value={centreId}
             onChange={(event) => {
               const site = sites.find((item) => item.id === event.target.value)
@@ -786,6 +788,7 @@ export function ImportStaff() {
             {sheetNames.length > 1 ? (
               <Field label="Which sheet?">
                 <Select
+                  className="w-auto max-w-full"
                   value={sheetName}
                   onChange={(event) => handleSheetChange(event.target.value)}
                   aria-label="Which sheet?"
@@ -823,11 +826,25 @@ export function ImportStaff() {
         <Card>
           <CardHeader>
             <CardTitle>Check columns</CardTitle>
-            <CardDescription>
-              {headerConfirmed
-                ? `We matched ${matches.matched.length} of ${columns.length} columns.`
-                : 'Which row has your column names?'}
-            </CardDescription>
+            {headerConfirmed ? (
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <p className="text-base text-muted-foreground md:text-sm">
+                  We matched {matches.matched.length} of {columns.length} columns.
+                </p>
+                <button
+                  type="button"
+                  className="text-sm font-medium underline underline-offset-4"
+                  onClick={() => {
+                    headerPicked.current = false
+                    setHeaderConfirmed(false)
+                  }}
+                >
+                  Choose a different row
+                </button>
+              </div>
+            ) : (
+              <CardDescription>Which row has your column names?</CardDescription>
+            )}
           </CardHeader>
           <CardContent className="space-y-6">
             {!headerConfirmed ? (
@@ -859,28 +876,80 @@ export function ImportStaff() {
               </div>
             ) : (
               <>
-                <ul className="space-y-1 text-sm">
-                  {matches.matched.map((match) => (
-                    <li key={match.column}>
-                      {match.column} → {match.label}
-                    </li>
-                  ))}
-                </ul>
+                {matches.unmatched.length || !usingCentreColumn ? (
+                  <div className="space-y-4">
+                    <h3 className="text-base font-medium text-card-foreground">
+                      {matches.unmatched.length + (usingCentreColumn ? 0 : 1) === 1
+                        ? 'One question before we continue'
+                        : 'Questions before we continue'}
+                    </h3>
+                    {matches.unmatched.map((column) => (
+                      <Field key={column} label={`What's in your "${column}" column?`}>
+                        {renderMatchSelect(column)}
+                      </Field>
+                    ))}
+                    {usingCentreColumn ? null : (
+                      <Field label="Which centre do these staff work at?">
+                        {sites.length === 0 ? (
+                          <p className="text-sm font-normal text-muted-foreground">
+                            Add a centre first.{' '}
+                            <Link
+                              to={paths.sites}
+                              className="font-medium text-card-foreground underline underline-offset-2"
+                            >
+                              Add a centre
+                            </Link>
+                          </p>
+                        ) : (
+                          <Select
+                            className="w-auto max-w-full"
+                            value={selectedSiteId}
+                            onChange={(event) => {
+                              setCentreIgnored(true)
+                              setSelectedSiteId(event.target.value)
+                            }}
+                            aria-label="Which centre do these staff work at?"
+                          >
+                            <option value="">Choose a centre</option>
+                            {sites.map((site) => (
+                              <option key={site.id} value={site.id}>
+                                {site.name}
+                              </option>
+                            ))}
+                          </Select>
+                        )}
+                      </Field>
+                    )}
+                  </div>
+                ) : null}
+                {matches.matched.length ? (
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="py-2 pr-4 font-medium">Your column</th>
+                        <th className="py-2 font-medium">Becomes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {matches.matched.map((match) => (
+                        <tr key={match.column} className="border-b border-border last:border-b-0">
+                          <td className="py-2 pr-4">{match.column}</td>
+                          <td className="py-2">{match.label}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : null}
                 {foundCertificates.length ? (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-base text-card-foreground">
                     Certificates found:{' '}
                     {foundCertificates.map((type) => type.name).join(', ')}.
                   </p>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-base text-card-foreground">
                     No certificate columns found. You can add certificates later.
                   </p>
                 )}
-                {matches.unmatched.map((column) => (
-                  <Field key={column} label={`What's in your "${column}" column?`}>
-                    {renderMatchSelect(column)}
-                  </Field>
-                ))}
                 <button
                   type="button"
                   className="text-sm font-medium underline underline-offset-4"
@@ -902,47 +971,7 @@ export function ImportStaff() {
                     Centres come from the “{centreColumn}” column. Several centres
                     in one cell can be separated by ; or ,.
                   </p>
-                ) : (
-                  <Field label="Which centre do these staff work at?">
-                    {sites.length === 0 ? (
-                      <p className="text-sm font-normal text-muted-foreground">
-                        Add a centre first.{' '}
-                        <Link
-                          to={paths.sites}
-                          className="font-medium text-card-foreground underline underline-offset-2"
-                        >
-                          Add a centre
-                        </Link>
-                      </p>
-                    ) : (
-                      <Select
-                        value={selectedSiteId}
-                        onChange={(event) => {
-                          setCentreIgnored(true)
-                          setSelectedSiteId(event.target.value)
-                        }}
-                        aria-label="Which centre do these staff work at?"
-                      >
-                        <option value="">Choose a centre</option>
-                        {sites.map((site) => (
-                          <option key={site.id} value={site.id}>
-                            {site.name}
-                          </option>
-                        ))}
-                      </Select>
-                    )}
-                  </Field>
-                )}
-                <button
-                  type="button"
-                  className="text-sm text-muted-foreground underline underline-offset-4"
-                  onClick={() => {
-                    headerPicked.current = false
-                    setHeaderConfirmed(false)
-                  }}
-                >
-                  Choose a different row
-                </button>
+                ) : null}
               </>
             )}
             <div className="flex flex-wrap gap-2">
