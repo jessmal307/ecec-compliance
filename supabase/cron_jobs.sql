@@ -65,13 +65,16 @@ select cron.schedule(
   $$
 );
 
--- Rate limit windows are at most an hour; a day of history is plenty.
+-- Rate limit windows are at most an hour and floor sessions last 15 minutes;
+-- a day of history is plenty.
 select cron.schedule(
   'rtc-purge-rate-limits',
   '15 17 * * *',
   $$
   delete from public.site_access_rate_limits
   where window_start < now() - interval '1 day';
+  delete from public.floor_sessions
+  where expires_at < now() - interval '1 day';
   $$
 );
 

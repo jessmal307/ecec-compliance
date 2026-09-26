@@ -2938,3 +2938,209 @@ alter table public.alerts
 
 create index if not exists alerts_email_send_id_idx
   on public.alerts (email_send_id);
+
+-- Floor link staff signing. The staff member who signed a floor-link
+-- submission with their PIN. Only site-forms (service role) sets it.
+alter table public.form_submissions
+  add column if not exists signed_by_staff_id uuid;
+
+alter table public.form_submissions
+  drop constraint if exists form_submissions_signed_by_staff_id_fkey;
+alter table public.form_submissions
+  add constraint form_submissions_signed_by_staff_id_fkey
+  foreign key (signed_by_staff_id) references public.staff (id) on delete restrict;
+
+create index if not exists form_submissions_signed_by_staff_id_idx
+  on public.form_submissions (signed_by_staff_id)
+  where signed_by_staff_id is not null;
+
+-- App users can never set or change the signer; service role passes through.
+create or replace function public.guard_form_submission_signer()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if auth.uid() is not null then
+    if tg_op = 'INSERT' then
+      new.signed_by_staff_id := null;
+    else
+      new.signed_by_staff_id := old.signed_by_staff_id;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_form_submission_signer on public.form_submissions;
+create trigger guard_form_submission_signer
+  before insert or update on public.form_submissions
+  for each row execute function public.guard_form_submission_signer();
+
+-- Service-role only. PBKDF2-SHA256 of the 4-digit PIN, hashed in the browser.
+-- No audit trigger: set_staff_pin logs the event without the hash.
+create table if not exists public.staff_pins (
+  staff_id uuid primary key references public.staff (id) on delete cascade,
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  salt text not null,
+  pin_hash text not null,
+  iterations integer not null,
+  set_by uuid references auth.users (id) on delete set null,
+  set_at timestamptz not null default now()
+);
+
+alter table public.staff_pins drop constraint if exists staff_pins_salt_check;
+alter table public.staff_pins add constraint staff_pins_salt_check
+  check (salt ~ '^[0-9a-f]{32}$');
+
+alter table public.staff_pins drop constraint if exists staff_pins_pin_hash_check;
+alter table public.staff_pins add constraint staff_pins_pin_hash_check
+  check (pin_hash ~ '^[0-9a-f]{64}$');
+
+-- The upper bound caps site-forms CPU per PIN check.
+alter table public.staff_pins drop constraint if exists staff_pins_iterations_check;
+alter table public.staff_pins add constraint staff_pins_iterations_check
+  check (iterations between 100000 and 1000000);
+
+create index if not exists staff_pins_org_id_idx on public.staff_pins (org_id);
+
+alter table public.staff_pins enable row level security;
+
+revoke all on table public.staff_pins from public;
+revoke all on table public.staff_pins from anon;
+revoke all on table public.staff_pins from authenticated;
+
+-- Service-role only. Raw session token is never stored — only SHA-256 hex.
+create table if not exists public.floor_sessions (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid not null references public.sites (id) on delete cascade,
+  site_access_token_id uuid not null
+    references public.site_access_tokens (id) on delete cascade,
+  staff_id uuid not null references public.staff (id) on delete cascade,
+  token_hash text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  constraint floor_sessions_token_hash_key unique (token_hash)
+);
+
+alter table public.floor_sessions drop constraint if exists floor_sessions_token_hash_check;
+alter table public.floor_sessions add constraint floor_sessions_token_hash_check
+  check (token_hash ~ '^[0-9a-f]{64}$');
+
+create index if not exists floor_sessions_staff_id_idx on public.floor_sessions (staff_id);
+create index if not exists floor_sessions_expires_at_idx on public.floor_sessions (expires_at);
+
+alter table public.floor_sessions enable row level security;
+
+revoke all on table public.floor_sessions from public;
+revoke all on table public.floor_sessions from anon;
+revoke all on table public.floor_sessions from authenticated;
+
+-- Plus members of the staff member's org only. Ends that person's floor
+-- sessions and writes an audit row that never contains the hash.
+create or replace function public.set_staff_pin(
+  p_staff_id uuid,
+  p_salt text,
+  p_hash text,
+  p_iterations integer
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_org_id uuid;
+  v_existed boolean;
+  v_actor_id uuid := auth.uid();
+  v_actor_name text;
+  v_set_at timestamptz := now();
+begin
+  select staff.org_id
+  into v_org_id
+  from public.staff as staff
+  where staff.id = p_staff_id
+    and staff.org_id in (select public.user_plus_org_ids());
+
+  if v_org_id is null then
+    raise exception 'Not allowed.' using errcode = '42501';
+  end if;
+
+  if p_salt is null or p_salt !~ '^[0-9a-f]{32}$'
+     or p_hash is null or p_hash !~ '^[0-9a-f]{64}$'
+     or p_iterations is null or p_iterations not between 100000 and 1000000 then
+    raise exception 'Invalid PIN hash.' using errcode = '22023';
+  end if;
+
+  select exists (
+    select 1 from public.staff_pins as pins where pins.staff_id = p_staff_id
+  )
+  into v_existed;
+
+  insert into public.staff_pins as pins (
+    staff_id, org_id, salt, pin_hash, iterations, set_by, set_at
+  ) values (
+    p_staff_id, v_org_id, p_salt, p_hash, p_iterations, v_actor_id, v_set_at
+  )
+  on conflict (staff_id) do update
+  set
+    org_id = excluded.org_id,
+    salt = excluded.salt,
+    pin_hash = excluded.pin_hash,
+    iterations = excluded.iterations,
+    set_by = excluded.set_by,
+    set_at = excluded.set_at;
+
+  delete from public.floor_sessions as sessions
+  where sessions.staff_id = p_staff_id;
+
+  select coalesce(
+    nullif(users.raw_user_meta_data->>'display_name', ''),
+    nullif(users.email, ''),
+    'System'
+  )
+  into v_actor_name
+  from auth.users as users
+  where users.id = v_actor_id;
+
+  insert into public.audit_log (
+    org_id, actor_id, actor_name, entity, entity_id, action, before, after
+  ) values (
+    v_org_id,
+    v_actor_id,
+    coalesce(nullif(v_actor_name, ''), 'System'),
+    'staff_pins',
+    p_staff_id,
+    case when v_existed then 'update' else 'insert' end,
+    null,
+    jsonb_build_object('pin', case when v_existed then 'reset' else 'set' end)
+  );
+
+  return v_set_at;
+end;
+$$;
+
+revoke all on function public.set_staff_pin(uuid, text, text, integer) from public;
+revoke all on function public.set_staff_pin(uuid, text, text, integer) from anon;
+grant execute on function public.set_staff_pin(uuid, text, text, integer) to authenticated;
+
+-- When the PIN was last set, or null (no PIN, or not a Plus member of the org).
+create or replace function public.staff_pin_status(p_staff_id uuid)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select pins.set_at
+  from public.staff_pins as pins
+  join public.staff as staff
+    on staff.id = pins.staff_id
+  where pins.staff_id = p_staff_id
+    and staff.org_id in (select public.user_plus_org_ids())
+$$;
+
+revoke all on function public.staff_pin_status(uuid) from public;
+revoke all on function public.staff_pin_status(uuid) from anon;
+grant execute on function public.staff_pin_status(uuid) to authenticated;
