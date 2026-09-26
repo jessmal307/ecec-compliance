@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { dueByFor, dueStatusAt } from '../_shared/formDueTimes.js'
+import { checklistItemType, yesNoNaErrors } from '../_shared/formAnswers.js'
 import { scheduleEnabled } from '../_shared/formSchedule.js'
 import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
 import { sydneyToday } from '../_shared/sydneyTime.js'
@@ -478,15 +479,27 @@ function validateSubmission(
   const source = archetype === 'checklist' ? schema?.items : schema?.fields ?? schema?.items
   const fields = Array.isArray(source)
     ? archetype === 'checklist'
-      ? source.map((item) => ({ ...(item as object), type: 'checkbox' }))
+      ? source.map((item) => ({
+          ...(item as object),
+          type: checklistItemType(item),
+        }))
       : source
     : []
 
   for (const field of fields as { id?: string; label?: string; type?: string; required?: boolean }[]) {
+    if (field.type === 'yes_no_na') continue
     if (!field.required) continue
     if (!fieldFilled(field, (values as Record<string, unknown>)[field.id || ''])) {
       errors.push(`Fill ${field.label || 'required fields'}.`)
     }
+  }
+
+  if (archetype === 'checklist') {
+    const notes =
+      data.notes && typeof data.notes === 'object'
+        ? (data.notes as Record<string, unknown>)
+        : {}
+    errors.push(...yesNoNaErrors(schema, values, notes))
   }
 
   const signoffSchema = schema?.signoff as { required?: boolean; signature?: boolean } | undefined

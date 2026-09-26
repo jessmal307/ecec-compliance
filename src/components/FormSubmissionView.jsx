@@ -3,11 +3,14 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { FormActionList } from './forms/FormActionList'
 import { FormRenderer } from './forms/FormRenderer'
 import { useFormsAccess } from './Forms'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { formatDate, formatTimestamp } from '../lib/format'
+import { listFormActions } from '../lib/formActions'
 import { archetypeLabel, getFormSubmission, getFormTemplate } from '../lib/forms'
+import { listStaff } from '../lib/staff'
 import { getFormUploadUrl, isSignatureDataUrl } from '../lib/formUploads'
 import { firstError } from '../lib/query'
 import { formsHref, paths } from '../lib/paths'
@@ -26,6 +29,8 @@ export function FormSubmissionView() {
   const [template, setTemplate] = useState(null)
   const [signatureUrls, setSignatureUrls] = useState({})
   const [evidenceUrls, setEvidenceUrls] = useState([])
+  const [actions, setActions] = useState([])
+  const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -63,8 +68,20 @@ export function FormSubmissionView() {
         setLoading(false)
         return
       }
+      const [actionsResult, staffResult] = await Promise.all([
+        listFormActions(data.org_id, { submissionId: data.id }),
+        listStaff(data.org_id),
+      ])
+      if (cancelled) return
+      if (actionsResult.error || staffResult.error) {
+        setError((actionsResult.error || staffResult.error).message)
+        setLoading(false)
+        return
+      }
       setSubmission(data)
       setTemplate(templateResult.data)
+      setActions(actionsResult.data)
+      setStaff(staffResult.data ?? [])
       setLoading(false)
     }
 
@@ -208,6 +225,17 @@ export function FormSubmissionView() {
                 </ul>
               </div>
             ) : null}
+            <div className="space-y-3 border-t border-border pt-5">
+              <h3 className="text-sm font-medium">Actions</h3>
+              <FormActionList
+                actions={actions}
+                staff={staff}
+                onError={setError}
+                onChanged={(row) =>
+                  setActions((current) => current.map((item) => (item.id === row.id ? row : item)))
+                }
+              />
+            </div>
           </CardContent>
         </Card>
       )}

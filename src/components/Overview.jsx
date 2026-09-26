@@ -40,6 +40,7 @@ import {
   listSiteRequirementExclusionsForOrg,
 } from '../lib/exclusions'
 import { buildOwnerGaps } from '../lib/gaps'
+import { actionCountLabel, listFormActions, summarizeOpenActions } from '../lib/formActions'
 import { computeDueForms } from '../lib/forms'
 import { daysUntil } from '../lib/format'
 import { getOrganization } from '../lib/organizations'
@@ -239,6 +240,7 @@ export function Overview() {
   const [siteExclusions, setSiteExclusions] = useState([])
   const [organization, setOrganization] = useState(null)
   const [dueRows, setDueRows] = useState([])
+  const [actionCounts, setActionCounts] = useState(() => new Map())
   const [formsError, setFormsError] = useState('')
   const [formsLoading, setFormsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -415,6 +417,7 @@ export function Overview() {
   useEffect(() => {
     if (!organizationId || !showFormsDue) {
       setDueRows([])
+      setActionCounts(new Map())
       setFormsError('')
       setFormsLoading(false)
       return
@@ -426,18 +429,21 @@ export function Overview() {
     async function load() {
       setFormsLoading(true)
       setFormsError('')
-      const { data, error: loadError } = await computeDueForms(
-        organizationId,
-        todayIsoDate(),
-      )
+      const today = todayIsoDate()
+      const [dueResult, actionsResult] = await Promise.all([
+        computeDueForms(organizationId, today),
+        listFormActions(organizationId, { status: 'open' }),
+      ])
       if (cancelled) return
-      if (loadError) {
-        setFormsError(loadError.message)
+      if (dueResult.error || actionsResult.error) {
+        setFormsError((dueResult.error || actionsResult.error).message)
         setDueRows([])
+        setActionCounts(new Map())
         setFormsLoading(false)
         return
       }
-      setDueRows(data)
+      setDueRows(dueResult.data)
+      setActionCounts(summarizeOpenActions(actionsResult.data, today))
       setFormsLoading(false)
     }
 
@@ -710,6 +716,16 @@ export function Overview() {
                               {' · '}
                               {recheckDueCount} recheck due
                             </p>
+                            {actionCountLabel(actionCounts.get(site.id)) ? (
+                              <p className="text-xs text-muted-foreground">
+                                <Link
+                                  to={`${paths.actions}?site=${site.id}`}
+                                  className="underline underline-offset-2"
+                                >
+                                  {actionCountLabel(actionCounts.get(site.id))}
+                                </Link>
+                              </p>
+                            ) : null}
                           </li>
                         ),
                       )}

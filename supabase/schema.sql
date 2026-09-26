@@ -2067,14 +2067,7 @@ alter table public.form_templates drop constraint if exists form_templates_nqs_r
 alter table public.form_templates add constraint form_templates_nqs_refs_check
   check (
     nqs_refs is null
-    or (
-      cardinality(nqs_refs) > 0
-      and not exists (
-        select 1
-        from unnest(nqs_refs) as ref
-        where ref !~ '^[0-9]+\.[0-9]+\.[0-9]+$'
-      )
-    )
+    or nqs_refs::text ~ '^\{([0-9]+\.[0-9]+\.[0-9]+)(,[0-9]+\.[0-9]+\.[0-9]+)*\}$'
   );
 
 create table if not exists public.form_assignments (
@@ -3928,3 +3921,531 @@ join public.form_templates as templates
  and templates.category = 'checklist'
  and templates.cadence = 'daily'
 on conflict (org_id, template_id) do nothing;
+
+-- Follow-up actions. Separate from the locked submission: closing, reassigning,
+-- and changing the due date update this table only.
+create table if not exists public.form_actions (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid not null references public.sites (id) on delete cascade,
+  submission_id uuid references public.form_submissions (id) on delete cascade,
+  template_id uuid references public.form_templates (id) on delete set null,
+  source_item_id text,
+  description text not null,
+  action_required text not null default '',
+  quality_area smallint,
+  owner_staff_id uuid references public.staff (id) on delete set null,
+  owner_name text,
+  due_date date,
+  status text not null default 'open',
+  added_to_qip boolean not null default false,
+  closed_at timestamptz,
+  closed_by uuid references auth.users (id) on delete set null,
+  closed_note text,
+  created_at timestamptz not null default now(),
+  created_by uuid references auth.users (id) on delete set null,
+  created_by_staff_id uuid references public.staff (id) on delete set null
+);
+
+alter table public.form_actions
+  add column if not exists submission_id uuid references public.form_submissions (id) on delete cascade;
+alter table public.form_actions
+  add column if not exists template_id uuid references public.form_templates (id) on delete set null;
+alter table public.form_actions
+  add column if not exists source_item_id text;
+alter table public.form_actions
+  add column if not exists action_required text;
+alter table public.form_actions
+  add column if not exists quality_area smallint;
+alter table public.form_actions
+  add column if not exists owner_staff_id uuid references public.staff (id) on delete set null;
+alter table public.form_actions
+  add column if not exists owner_name text;
+alter table public.form_actions
+  add column if not exists due_date date;
+alter table public.form_actions
+  add column if not exists status text;
+alter table public.form_actions
+  add column if not exists added_to_qip boolean;
+alter table public.form_actions
+  add column if not exists closed_at timestamptz;
+alter table public.form_actions
+  add column if not exists closed_by uuid references auth.users (id) on delete set null;
+alter table public.form_actions
+  add column if not exists closed_note text;
+alter table public.form_actions
+  add column if not exists created_by uuid references auth.users (id) on delete set null;
+alter table public.form_actions
+  add column if not exists created_by_staff_id uuid references public.staff (id) on delete set null;
+
+update public.form_actions
+set action_required = ''
+where action_required is null;
+
+update public.form_actions
+set status = 'open'
+where status is null
+   or status not in ('open', 'closed');
+
+update public.form_actions
+set added_to_qip = false
+where added_to_qip is null;
+
+update public.form_actions
+set quality_area = null
+where quality_area is not null
+  and quality_area not between 1 and 7;
+
+update public.form_actions
+set owner_name = null
+where owner_name is not null
+  and btrim(owner_name) = '';
+
+update public.form_actions
+set closed_at = null,
+    closed_by = null,
+    closed_note = null
+where status = 'open';
+
+update public.form_actions
+set status = 'open',
+    closed_at = null,
+    closed_by = null,
+    closed_note = null
+where status = 'closed'
+  and (
+    closed_at is null
+    or closed_note is null
+    or btrim(closed_note) = ''
+  );
+
+alter table public.form_actions
+  alter column action_required set default '';
+alter table public.form_actions
+  alter column action_required set not null;
+alter table public.form_actions
+  alter column status set default 'open';
+alter table public.form_actions
+  alter column status set not null;
+alter table public.form_actions
+  alter column added_to_qip set default false;
+alter table public.form_actions
+  alter column added_to_qip set not null;
+
+alter table public.form_actions drop constraint if exists form_actions_status_check;
+alter table public.form_actions add constraint form_actions_status_check
+  check (status in ('open', 'closed'));
+
+alter table public.form_actions drop constraint if exists form_actions_description_check;
+alter table public.form_actions add constraint form_actions_description_check
+  check (length(btrim(description)) > 0);
+
+alter table public.form_actions drop constraint if exists form_actions_quality_area_check;
+alter table public.form_actions add constraint form_actions_quality_area_check
+  check (quality_area is null or quality_area between 1 and 7);
+
+alter table public.form_actions drop constraint if exists form_actions_closed_check;
+alter table public.form_actions add constraint form_actions_closed_check
+  check (
+    (
+      status = 'open'
+      and closed_at is null
+      and closed_by is null
+      and closed_note is null
+    )
+    or (
+      status = 'closed'
+      and closed_at is not null
+      and length(btrim(closed_note)) > 0
+    )
+  );
+
+create index if not exists form_actions_org_id_idx
+  on public.form_actions (org_id);
+create index if not exists form_actions_site_id_idx
+  on public.form_actions (site_id);
+create index if not exists form_actions_submission_id_idx
+  on public.form_actions (submission_id);
+create index if not exists form_actions_org_status_idx
+  on public.form_actions (org_id, status);
+
+drop index if exists public.form_actions_submission_item_key;
+create unique index form_actions_submission_item_key
+  on public.form_actions (submission_id, source_item_id)
+  where submission_id is not null
+    and source_item_id is not null;
+
+alter table public.form_actions enable row level security;
+
+revoke all on table public.form_actions from public;
+revoke all on table public.form_actions from anon;
+grant select, insert, update on table public.form_actions to authenticated;
+
+drop policy if exists "Plus users can view form actions" on public.form_actions;
+create policy "Plus users can view form actions"
+  on public.form_actions
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can insert form actions" on public.form_actions;
+create policy "Plus users can insert form actions"
+  on public.form_actions
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can update form actions" on public.form_actions;
+create policy "Plus users can update form actions"
+  on public.form_actions
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop trigger if exists audit_form_actions_change on public.form_actions;
+create trigger audit_form_actions_change
+  after insert or update or delete on public.form_actions
+  for each row execute function public.audit_log_change();
+
+-- Site, submission, template, and staff must belong to the action's org.
+-- Authenticated callers cannot spoof the creator or reopen a closed action.
+create or replace function public.guard_form_action()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_site_org uuid;
+  v_sub_org uuid;
+  v_sub_site uuid;
+  v_template_org uuid;
+  v_staff_org uuid;
+begin
+  select sites.org_id
+  into v_site_org
+  from public.sites as sites
+  where sites.id = new.site_id;
+
+  if v_site_org is distinct from new.org_id then
+    raise exception 'site does not belong to this organisation'
+      using errcode = '23514';
+  end if;
+
+  if new.submission_id is not null then
+    select submissions.org_id, submissions.site_id
+    into v_sub_org, v_sub_site
+    from public.form_submissions as submissions
+    where submissions.id = new.submission_id;
+
+    if v_sub_org is distinct from new.org_id or v_sub_site is distinct from new.site_id then
+      raise exception 'submission does not belong to this site'
+        using errcode = '23514';
+    end if;
+  end if;
+
+  if new.template_id is not null then
+    select templates.org_id
+    into v_template_org
+    from public.form_templates as templates
+    where templates.id = new.template_id;
+
+    if v_template_org is not null and v_template_org is distinct from new.org_id then
+      raise exception 'template does not belong to this organisation'
+        using errcode = '23514';
+    end if;
+  end if;
+
+  if new.owner_staff_id is not null then
+    select staff.org_id
+    into v_staff_org
+    from public.staff as staff
+    where staff.id = new.owner_staff_id;
+
+    if v_staff_org is distinct from new.org_id then
+      raise exception 'owner does not belong to this organisation'
+        using errcode = '23514';
+    end if;
+  end if;
+
+  if new.created_by_staff_id is not null then
+    select staff.org_id
+    into v_staff_org
+    from public.staff as staff
+    where staff.id = new.created_by_staff_id;
+
+    if v_staff_org is distinct from new.org_id then
+      raise exception 'creator does not belong to this organisation'
+        using errcode = '23514';
+    end if;
+  end if;
+
+  if new.owner_name is not null and btrim(new.owner_name) = '' then
+    new.owner_name := null;
+  end if;
+
+  if current_user in ('anon', 'authenticated') then
+    if tg_op = 'INSERT' then
+      new.created_by := auth.uid();
+      new.created_by_staff_id := null;
+      new.status := 'open';
+      new.closed_at := null;
+      new.closed_by := null;
+      new.closed_note := null;
+    else
+      new.org_id := old.org_id;
+      new.site_id := old.site_id;
+      new.submission_id := old.submission_id;
+      new.template_id := old.template_id;
+      new.source_item_id := old.source_item_id;
+      new.created_by := old.created_by;
+      new.created_by_staff_id := old.created_by_staff_id;
+      new.created_at := old.created_at;
+
+      if old.status = 'closed' then
+        new.status := 'closed';
+        new.closed_at := old.closed_at;
+        new.closed_by := old.closed_by;
+        new.closed_note := old.closed_note;
+      elsif new.status = 'closed' then
+        if length(btrim(coalesce(new.closed_note, ''))) = 0 then
+          raise exception 'Enter a note to close this action'
+            using errcode = '23514';
+        end if;
+        new.closed_by := auth.uid();
+        new.closed_at := now();
+      else
+        new.status := 'open';
+        new.closed_at := null;
+        new.closed_by := null;
+        new.closed_note := null;
+      end if;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_form_action on public.form_actions;
+create trigger guard_form_action
+  before insert or update on public.form_actions
+  for each row execute function public.guard_form_action();
+
+-- A completed checklist "No" becomes an action, due 7 days after the
+-- submission unless the form already set a date. Evidence audits copy the
+-- action rows the director added. Same transaction as completion.
+create or replace function public.raise_form_actions()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_archetype text;
+  v_schema jsonb;
+  v_quality smallint;
+  v_item jsonb;
+  v_action jsonb;
+  v_item_id text;
+  v_value text;
+  v_note text;
+  v_due_text text;
+  v_due date;
+  v_default_due date;
+  v_owner_text text;
+  v_owner uuid;
+  v_owner_name text;
+  v_description text;
+begin
+  if new.status is distinct from 'complete' then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and old.status = 'complete' then
+    return new;
+  end if;
+
+  select templates.archetype, templates.schema, templates.quality_area
+  into v_archetype, v_schema, v_quality
+  from public.form_templates as templates
+  where templates.id = new.template_id;
+
+  if v_archetype is null then
+    return new;
+  end if;
+
+  v_default_due := (timezone('Australia/Sydney', coalesce(new.submitted_at, now())))::date + 7;
+
+  if v_archetype = 'checklist' then
+    for v_item in
+      select elem
+      from jsonb_array_elements(coalesce(v_schema->'items', '[]'::jsonb)) as elem
+    loop
+      if coalesce(v_item->>'answers', '') is distinct from 'yes_no_na' then
+        continue;
+      end if;
+
+      v_item_id := nullif(btrim(coalesce(v_item->>'id', '')), '');
+      if v_item_id is null then
+        continue;
+      end if;
+
+      v_value := coalesce(
+        new.data->'values'->>v_item_id,
+        new.data->'fields'->>v_item_id,
+        ''
+      );
+      if v_value is distinct from 'no' then
+        continue;
+      end if;
+
+      v_note := btrim(coalesce(new.data->'notes'->>v_item_id, ''));
+      if v_note = '' then
+        raise exception 'Enter the action taken for %', coalesce(v_item->>'label', 'this item')
+          using errcode = '23514';
+      end if;
+
+      v_due_text := btrim(coalesce(new.data #>> array['action_details', v_item_id, 'due_date'], ''));
+      if v_due_text ~ '^\d{4}-\d{2}-\d{2}$' then
+        v_due := v_due_text::date;
+      else
+        v_due := v_default_due;
+      end if;
+
+      v_owner_text := btrim(coalesce(new.data #>> array['action_details', v_item_id, 'owner_staff_id'], ''));
+      v_owner := null;
+      if v_owner_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+        v_owner := v_owner_text::uuid;
+      end if;
+      v_owner_name := nullif(btrim(coalesce(new.data #>> array['action_details', v_item_id, 'owner_name'], '')), '');
+      v_description := nullif(btrim(coalesce(v_item->>'label', '')), '');
+
+      insert into public.form_actions (
+        org_id, site_id, submission_id, template_id, source_item_id,
+        description, action_required, quality_area,
+        owner_staff_id, owner_name, due_date,
+        created_by, created_by_staff_id
+      ) values (
+        new.org_id,
+        new.site_id,
+        new.id,
+        new.template_id,
+        v_item_id,
+        coalesce(v_description, 'Action'),
+        v_note,
+        v_quality,
+        v_owner,
+        v_owner_name,
+        v_due,
+        auth.uid(),
+        new.signed_by_staff_id
+      )
+      on conflict (submission_id, source_item_id)
+        where submission_id is not null and source_item_id is not null
+        do nothing;
+    end loop;
+  elsif v_archetype = 'evidence' then
+    for v_action in
+      select elem
+      from jsonb_array_elements(coalesce(new.data->'actions', '[]'::jsonb)) as elem
+    loop
+      v_description := nullif(btrim(coalesce(v_action->>'description', '')), '');
+      if v_description is null then
+        continue;
+      end if;
+
+      v_due_text := btrim(coalesce(v_action->>'due_date', ''));
+      v_due := null;
+      if v_due_text ~ '^\d{4}-\d{2}-\d{2}$' then
+        v_due := v_due_text::date;
+      end if;
+
+      v_owner_text := btrim(coalesce(v_action->>'owner_staff_id', ''));
+      v_owner := null;
+      if v_owner_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+        v_owner := v_owner_text::uuid;
+      end if;
+
+      insert into public.form_actions (
+        org_id, site_id, submission_id, template_id,
+        description, action_required, quality_area,
+        owner_staff_id, owner_name, due_date, added_to_qip,
+        created_by, created_by_staff_id
+      ) values (
+        new.org_id,
+        new.site_id,
+        new.id,
+        new.template_id,
+        v_description,
+        btrim(coalesce(v_action->>'action_required', '')),
+        v_quality,
+        v_owner,
+        nullif(btrim(coalesce(v_action->>'owner_name', '')), ''),
+        v_due,
+        coalesce(v_action->>'added_to_qip', '') = 'true',
+        auth.uid(),
+        new.signed_by_staff_id
+      );
+    end loop;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists raise_form_actions on public.form_submissions;
+create trigger raise_form_actions
+  after insert or update on public.form_submissions
+  for each row execute function public.raise_form_actions();
+
+-- Overdue actions in the morning digest: one claim per action per due date.
+-- A changed due date can be reported once more. Service role only.
+create table if not exists public.form_action_digest (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  action_id uuid not null references public.form_actions (id) on delete cascade,
+  due_date date not null,
+  status text not null default 'sending',
+  created_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+
+alter table public.form_action_digest
+  drop constraint if exists form_action_digest_action_date_key;
+alter table public.form_action_digest
+  add constraint form_action_digest_action_date_key
+  unique (action_id, due_date);
+
+alter table public.form_action_digest drop constraint if exists form_action_digest_status_check;
+alter table public.form_action_digest add constraint form_action_digest_status_check
+  check (status in ('sending', 'sent'));
+
+create index if not exists form_action_digest_status_created_at_idx
+  on public.form_action_digest (status, created_at);
+
+alter table public.form_action_digest enable row level security;
+
+revoke all on table public.form_action_digest from public;
+revoke all on table public.form_action_digest from anon;
+revoke all on table public.form_action_digest from authenticated;
+
+revoke all on function public.guard_form_action() from public;
+revoke all on function public.guard_form_action() from anon;
+revoke all on function public.raise_form_actions() from public;
+revoke all on function public.raise_form_actions() from anon;

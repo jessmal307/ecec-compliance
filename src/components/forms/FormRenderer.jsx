@@ -11,6 +11,8 @@ export function FormRenderer({
   onStateChange,
   readOnly = false,
   signatureUrls = {},
+  staff = [],
+  showActionFields = false,
 }) {
   const [internal, setInternal] = useState(() => ({
     ...emptyFormState(),
@@ -31,6 +33,17 @@ export function FormRenderer({
     setCurrent({ ...current, notes: { ...current.notes, [id]: next } })
   }
 
+  function handleActionDetail(id, patch) {
+    const details = current.actionDetails || {}
+    setCurrent({
+      ...current,
+      actionDetails: {
+        ...details,
+        [id]: { ...details[id], ...patch },
+      },
+    })
+  }
+
   if (archetype === 'evidence') return null
 
   if (archetype === 'checklist') {
@@ -40,8 +53,12 @@ export function FormRenderer({
         values={current.values}
         notes={current.notes}
         signoff={current.signoff}
+        actionDetails={current.actionDetails}
+        staff={staff}
+        showActionFields={showActionFields}
         onChange={handleChange}
         onNoteChange={handleNoteChange}
+        onActionDetailChange={handleActionDetail}
         onSignoffChange={(signoff) => setCurrent({ ...current, signoff })}
         readOnly={readOnly}
         signatureUrls={signatureUrls}

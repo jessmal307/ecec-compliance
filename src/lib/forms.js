@@ -1,5 +1,6 @@
 import { todayIsoDate } from './compliance'
 import { isIsoDate } from './dates'
+import { checklistItemType, evidenceActionErrors, yesNoNaErrors } from './formAnswers'
 import { evidenceCompletionErrors } from './evidenceCompletion'
 import {
   addCalendarMonthsIso,
@@ -715,6 +716,11 @@ function mapSubmission(row) {
         : [],
     missed_reason: String(payload.missedReason || '').trim(),
     completed_on: typeof payload.completed_on === 'string' ? payload.completed_on.slice(0, 10) : '',
+    action_details:
+      payload.action_details && typeof payload.action_details === 'object'
+        ? payload.action_details
+        : {},
+    actions: Array.isArray(payload.actions) ? payload.actions : [],
     status: row.status,
     signed_off_by: row.signed_off_by,
     signed_off_at: row.signed_off_at,
@@ -735,10 +741,11 @@ export function emptyFormState() {
     notes: {},
     signoff: { name: '', date: todayIsoDate(), note: '', signature: '' },
     rows: [],
+    actionDetails: {},
   }
 }
 
-export function buildSubmissionData({ room, values, notes, signoff, rows }) {
+export function buildSubmissionData({ room, values, notes, signoff, rows, actionDetails, actions }) {
   const fields = values || {}
   const hazards = rows || []
   return {
@@ -754,6 +761,8 @@ export function buildSubmissionData({ room, values, notes, signoff, rows }) {
     },
     rows: hazards,
     hazards,
+    action_details: actionDetails || {},
+    actions: Array.isArray(actions) ? actions : [],
   }
 }
 
@@ -766,11 +775,16 @@ function fieldFilled(field, value) {
 }
 
 export function validateFormSubmission(schema, archetype, state) {
-  if (archetype === 'evidence') return evidenceCompletionErrors(state?.fileCount)
+  if (archetype === 'evidence') {
+    return [
+      ...evidenceCompletionErrors(state?.fileCount),
+      ...evidenceActionErrors(state?.actions),
+    ]
+  }
   const errors = []
   const fields =
     archetype === 'checklist'
-      ? (schema?.items ?? []).map((item) => ({ ...item, type: 'checkbox' }))
+      ? (schema?.items ?? []).map((item) => ({ ...item, type: checklistItemType(item) }))
       : Array.isArray(schema?.fields)
         ? schema.fields
         : Array.isArray(schema?.items)
@@ -778,10 +792,15 @@ export function validateFormSubmission(schema, archetype, state) {
           : []
 
   for (const field of fields) {
+    if (field.type === 'yes_no_na') continue
     if (!field.required) continue
     if (!fieldFilled(field, state.values?.[field.id])) {
       errors.push(`Fill ${field.label || 'required fields'}.`)
     }
+  }
+
+  if (archetype === 'checklist') {
+    errors.push(...yesNoNaErrors(schema, state.values, state.notes))
   }
 
   if (schema?.signoff?.required) {

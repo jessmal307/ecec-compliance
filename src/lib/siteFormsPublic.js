@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { checklistItemType, yesNoNaErrors } from './formAnswers'
 import { sydneyToday } from './sydneyTime'
 
 const FORM_UPLOADS_BUCKET = 'form-uploads'
@@ -40,7 +41,7 @@ export function validateFormSubmission(schema, archetype, state) {
   const errors = []
   const fields =
     archetype === 'checklist'
-      ? (schema?.items ?? []).map((item) => ({ ...item, type: 'checkbox' }))
+      ? (schema?.items ?? []).map((item) => ({ ...item, type: checklistItemType(item) }))
       : Array.isArray(schema?.fields)
         ? schema.fields
         : Array.isArray(schema?.items)
@@ -48,10 +49,15 @@ export function validateFormSubmission(schema, archetype, state) {
           : []
 
   for (const field of fields) {
+    if (field.type === 'yes_no_na') continue
     if (!field.required) continue
     if (!fieldFilled(field, state.values?.[field.id])) {
       errors.push(`Fill ${field.label || 'required fields'}.`)
     }
+  }
+
+  if (archetype === 'checklist') {
+    errors.push(...yesNoNaErrors(schema, state.values, state.notes))
   }
 
   if (schema?.signoff?.required) {

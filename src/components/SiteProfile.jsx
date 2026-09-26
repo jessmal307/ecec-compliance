@@ -40,6 +40,7 @@ import { StatusBadge } from './StatusBadge'
 import { Table, Td, Th, THead, Tr } from './ui/data-table'
 import { Field, FieldGrid, FormActions, FormSection, Input } from './ui/form'
 import { PageError, PageHeader, PageMuted } from './ui/page'
+import { SiteOpenActions } from './forms/SiteOpenActions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { useAuth } from '../hooks/useAuth'
 import { paths } from '../lib/paths'
@@ -669,6 +670,7 @@ export function SiteProfile() {
             onOperatingDaysChange={handleOperatingDaysChange}
             disabled={infoBusy}
           />
+          <SiteOpenActions organizationId={organizationId} siteId={siteId} />
           <Tabs value={profileTab} onValueChange={setProfileTab}>
             <TabsList>
               <TabsTrigger value="details">Site information</TabsTrigger>

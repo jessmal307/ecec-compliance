@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FileDropZone } from './FileDropZone'
+import { AuditActionsEditor } from './forms/AuditActionsEditor'
 import { FormRenderer } from './forms/FormRenderer'
 import { useFormsAccess } from './Forms'
 import { useAuth } from '../hooks/useAuth'
@@ -38,6 +39,7 @@ import {
 } from '../lib/formUploads'
 import { firstError } from '../lib/query'
 import { listSites } from '../lib/sites'
+import { listStaff } from '../lib/staff'
 import { paths } from '../lib/paths'
 
 function collectSignatureFieldIds(schema, archetype) {
@@ -63,6 +65,8 @@ export function FormComplete() {
   const { allowed, loading: accessLoading } = useFormsAccess()
   const [template, setTemplate] = useState(null)
   const [sites, setSites] = useState([])
+  const [staff, setStaff] = useState([])
+  const [auditActions, setAuditActions] = useState([])
   const [siteId, setSiteId] = useState('')
   const [forDate, setForDate] = useState(() => initialCoverDate(searchParams.get('date')))
   const [completionDate, setCompletionDate] = useState(todayIsoDate)
@@ -88,13 +92,14 @@ export function FormComplete() {
     async function load() {
       setLoading(true)
       setError('')
-      const [templateResult, sitesResult, draftResult] = await Promise.all([
+      const [templateResult, sitesResult, staffResult, draftResult] = await Promise.all([
         getFormTemplate(templateId),
         listSites(organizationId),
+        listStaff(organizationId),
         draftParam ? getFormSubmission(draftParam) : Promise.resolve({ data: null, error: null }),
       ])
       if (cancelled) return
-      const loadError = firstError(templateResult, sitesResult, draftResult)
+      const loadError = firstError(templateResult, sitesResult, staffResult, draftResult)
       if (loadError) {
         setError(loadError.message)
         setLoading(false)
@@ -109,6 +114,7 @@ export function FormComplete() {
       }
       setTemplate(templateResult.data)
       setSites(sitesResult.data ?? [])
+      setStaff(staffResult.data ?? [])
       if (draftResult.data) {
         setDraftId(draftResult.data.id)
         setSiteId(draftResult.data.site_id || '')
@@ -129,7 +135,11 @@ export function FormComplete() {
             signature: draftResult.data.signoff.signature || '',
           },
           rows: draftResult.data.rows,
+          actionDetails: draftResult.data.action_details || {},
         })
+        setAuditActions(
+          Array.isArray(draftResult.data.actions) ? draftResult.data.actions : [],
+        )
         setEvidence(draftResult.data.evidence)
       } else {
         setForDate(initialCoverDate(dateParam))
@@ -259,6 +269,7 @@ export function FormComplete() {
       const issues = validateFormSubmission(template.schema, template.archetype, {
         ...formState,
         fileCount: evidence.length + pendingFiles.length,
+        actions: auditActions,
       })
       if (issues.length) {
         setError(issues[0])
@@ -364,6 +375,8 @@ export function FormComplete() {
         : formState.notes,
       signoff: isEvidence ? { name: '', date: '', note: '', signature: '' } : nextSignoff,
       rows: isEvidence ? [] : formState.rows,
+      actionDetails: isEvidence ? {} : formState.actionDetails,
+      actions: isEvidence ? auditActions : [],
     })
     if (isEvidence && !coversScheduled) submissionData.completed_on = completionDate
     const { data, error: saveError } = await updateFormSubmission(submissionId, {
@@ -597,6 +610,8 @@ export function FormComplete() {
                 state={formState}
                 onStateChange={setFormState}
                 signatureUrls={signatureUrls}
+                staff={staff}
+                showActionFields
               />
             )}
 
@@ -623,6 +638,15 @@ export function FormComplete() {
                 }
               />
             </Field>
+
+            {template.archetype === 'evidence' ? (
+              <AuditActionsEditor
+                actions={auditActions}
+                staff={staff}
+                disabled={saving}
+                onChange={setAuditActions}
+              />
+            ) : null}
 
             {isScheduledAllSitesTemplate(template) ? (
               <Field

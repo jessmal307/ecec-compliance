@@ -835,17 +835,27 @@ function orgHasForms(org: { plan?: string | null }) {
   return org.plan === 'plus' || org.plan === 'pro'
 }
 
-function formsOnlyHtml(orgName: string, overdueBySite: Map<string, OverdueFormRow[]>) {
-  const sections = [...overdueBySite.entries()]
-    .filter(([, rows]) => rows.length > 0)
-    .map(([, rows]) => {
-      const siteName = rows[0]?.site_name || 'Site'
-      return `<h2>${escapeHtml(siteName)}</h2><h3>Overdue forms</h3><ul>${rows
-        .map(
-          (row) =>
-            `<li>${escapeHtml(row.template_name)} — ${escapeHtml(row.label)}</li>`,
-        )
-        .join('')}</ul>`
+function formsOnlyHtml(
+  orgName: string,
+  overdueBySite: Map<string, OverdueFormRow[]>,
+  actionsBySite: Map<string, OverdueActionRow[]> = new Map(),
+) {
+  const siteIds = new Set([...overdueBySite.keys(), ...actionsBySite.keys()])
+  const sections = [...siteIds]
+    .map((siteId) => {
+      const forms = overdueBySite.get(siteId) ?? []
+      const actions = actionsBySite.get(siteId) ?? []
+      const siteName = forms[0]?.site_name || actions[0]?.site_name || 'Site'
+      const formList =
+        forms.length === 0
+          ? ''
+          : `<h3>Overdue forms</h3><ul>${forms
+              .map(
+                (row) =>
+                  `<li>${escapeHtml(row.template_name)} — ${escapeHtml(row.label)}</li>`,
+              )
+              .join('')}</ul>`
+      return `<h2>${escapeHtml(siteName)}</h2>${formList}${actionListHtml(actions)}`
     })
     .join('')
 
@@ -859,11 +869,14 @@ function digestHtml(
   orgName: string,
   digest: OrgDigest,
   overdueBySite?: Map<string, OverdueFormRow[]>,
+  actionsBySite?: Map<string, OverdueActionRow[]>,
 ): string {
+  const seen = new Set(digest.sites.map((site) => site.id))
   const sections = digest.sites
     .map((site) => {
       const rows = renderSiteLines(site.lines)
       const overdue = overdueBySite?.get(site.id) ?? []
+      const actions = actionsBySite?.get(site.id) ?? []
       const forms =
         overdue.length === 0
           ? ''
@@ -873,14 +886,22 @@ function digestHtml(
                   `<li>${escapeHtml(row.template_name)} — ${escapeHtml(row.label)}</li>`,
               )
               .join('')}</ul>`
-      return `<h2>${escapeHtml(site.name)} — ${escapeHtml(countsLine(site))}</h2>${rows}${forms}`
+      return `<h2>${escapeHtml(site.name)} — ${escapeHtml(countsLine(site))}</h2>${rows}${forms}${actionListHtml(actions)}`
+    })
+    .join('')
+
+  const actionOnly = [...(actionsBySite?.entries() ?? [])]
+    .filter(([siteId, rows]) => !seen.has(siteId) && rows.length > 0)
+    .map(([, rows]) => {
+      const siteName = rows[0]?.site_name || 'Site'
+      return `<h2>${escapeHtml(siteName)}</h2>${actionListHtml(rows)}`
     })
     .join('')
 
   return `
     <p>Compliance items needing attention for ${escapeHtml(orgName)}.</p>
     <p><strong>${escapeHtml(countsLine(digest))}</strong></p>
-    ${sections || '<p>Nothing needs attention.</p>'}
+    ${sections}${actionOnly || (sections ? '' : '<p>Nothing needs attention.</p>')}
   `
 }
 
@@ -1455,6 +1476,158 @@ async function markDigestMissesSent(supabase: ReturnType<typeof createClient>, i
   return error ? error.message ?? 'unknown error' : null
 }
 
+type OverdueActionRow = {
+  action_id: string
+  site_id: string
+  site_name: string
+  description: string
+  due_date: string
+}
+
+function actionKey(row: { action_id: string; due_date: string }) {
+  return `${row.action_id}:${String(row.due_date).slice(0, 10)}`
+}
+
+function groupActionsBySite(rows: OverdueActionRow[]) {
+  const bySite = new Map<string, OverdueActionRow[]>()
+  for (const row of rows) {
+    const list = bySite.get(row.site_id) ?? []
+    list.push(row)
+    bySite.set(row.site_id, list)
+  }
+  return bySite
+}
+
+function actionListHtml(rows: OverdueActionRow[]) {
+  if (!rows.length) return ''
+  return `<h3>Overdue actions</h3><ul>${rows
+    .map(
+      (row) =>
+        `<li>${escapeHtml(row.description)} — due ${escapeHtml(row.due_date)}</li>`,
+    )
+    .join('')}</ul>`
+}
+
+async function clearStaleActionDigest(supabase: ReturnType<typeof createClient>) {
+  const cutoff = new Date(Date.now() - DIGEST_MISS_STALE_MINUTES * 60_000).toISOString()
+  const { data, error } = await retryOnJwtSkew(
+    () =>
+      supabase
+        .from('form_action_digest')
+        .select('id')
+        .eq('status', 'sending')
+        .lt('created_at', cutoff),
+    'stale form_action_digest',
+  )
+  if (error) return error.message ?? 'unknown error'
+  const ids = (data ?? []).map((row) => row.id as string)
+  if (!ids.length) return null
+  const { error: deleteError } = await supabase.from('form_action_digest').delete().in('id', ids)
+  return deleteError ? deleteError.message ?? 'unknown error' : null
+}
+
+async function loadReportedActionKeys(
+  supabase: ReturnType<typeof createClient>,
+  orgId: string,
+) {
+  const { data, error } = await retryOnJwtSkew(
+    () =>
+      supabase
+        .from('form_action_digest')
+        .select('action_id, due_date')
+        .eq('org_id', orgId),
+    'form_action_digest',
+  )
+  if (error) return { keys: null as Set<string> | null, error: error.message ?? 'unknown error' }
+  return {
+    keys: new Set(
+      (data ?? []).map((row) =>
+        actionKey({
+          action_id: row.action_id as string,
+          due_date: String(row.due_date),
+        }),
+      ),
+    ),
+    error: null as string | null,
+  }
+}
+
+async function loadOverdueActionsForOrg(
+  supabase: ReturnType<typeof createClient>,
+  orgId: string,
+  today: string,
+): Promise<OverdueActionRow[]> {
+  const { data, error } = await retryOnJwtSkew(
+    () =>
+      supabase
+        .from('form_actions')
+        .select('id, site_id, description, due_date')
+        .eq('org_id', orgId)
+        .eq('status', 'open')
+        .lt('due_date', today),
+    'overdue form_actions',
+  )
+  if (error) throw error
+  const siteIds = [...new Set((data ?? []).map((row) => row.site_id as string))]
+  const names = new Map<string, string>()
+  if (siteIds.length) {
+    const { data: sites, error: sitesError } = await retryOnJwtSkew(
+      () => supabase.from('sites').select('id, name').in('id', siteIds),
+      'overdue action sites',
+    )
+    if (sitesError) throw sitesError
+    for (const site of sites ?? []) names.set(site.id as string, String(site.name || 'Site'))
+  }
+  return (data ?? []).map((row) => ({
+    action_id: row.id as string,
+    site_id: row.site_id as string,
+    site_name: names.get(row.site_id as string) || 'Site',
+    description: String(row.description || 'Action'),
+    due_date: String(row.due_date).slice(0, 10),
+  }))
+}
+
+async function claimActionDigest(
+  supabase: ReturnType<typeof createClient>,
+  orgId: string,
+  rows: OverdueActionRow[],
+) {
+  const claimed: { id: string; row: OverdueActionRow }[] = []
+  for (const row of rows) {
+    const { data, error } = await supabase
+      .from('form_action_digest')
+      .insert({
+        org_id: orgId,
+        action_id: row.action_id,
+        due_date: row.due_date,
+        status: 'sending',
+      })
+      .select('id')
+      .single()
+    if (error?.code === '23505') continue
+    if (error || !data?.id) {
+      return { claimed, error: error?.message ?? 'no id' }
+    }
+    claimed.push({ id: data.id as string, row })
+  }
+  return { claimed, error: null as string | null }
+}
+
+async function releaseActionDigest(supabase: ReturnType<typeof createClient>, ids: string[]) {
+  if (!ids.length) return null
+  const { error } = await supabase.from('form_action_digest').delete().in('id', ids)
+  return error ? error.message ?? 'unknown error' : null
+}
+
+async function markActionDigestSent(supabase: ReturnType<typeof createClient>, ids: string[]) {
+  if (!ids.length) return null
+  const { error } = await supabase
+    .from('form_action_digest')
+    .update({ status: 'sent', sent_at: new Date().toISOString() })
+    .in('id', ids)
+  return error ? error.message ?? 'unknown error' : null
+}
+
 async function loadOverdueFormsForOrg(
   supabase: ReturnType<typeof createClient>,
   orgId: string,
@@ -1678,6 +1851,10 @@ Deno.serve(async (req) => {
   const staleMisses = await clearStaleDigestMisses(supabase)
   if (staleMisses) {
     summary.errors.push(`Failed to clear stale missed-form claims: ${staleMisses}`)
+  }
+  const staleActions = await clearStaleActionDigest(supabase)
+  if (staleActions) {
+    summary.errors.push(`Failed to clear stale action claims: ${staleActions}`)
   }
 
   async function ownerEmail(ownerId: string): Promise<string | null> {
@@ -2040,6 +2217,7 @@ Deno.serve(async (req) => {
     const entries = pendingByOrg.get(orgId) ?? []
 
     let formRows: OverdueFormRow[] = []
+    let actionRows: OverdueActionRow[] = []
     if (orgHasForms(org)) {
       try {
         const loaded = await loadOverdueFormsForOrg(supabase, orgId, today)
@@ -2057,9 +2235,23 @@ Deno.serve(async (req) => {
       } catch (error) {
         summary.errors.push(`Skipped overdue forms for org ${orgId}: ${errorMessage(error)}`)
       }
+
+      try {
+        const loadedActions = await loadOverdueActionsForOrg(supabase, orgId, today)
+        const reportedActions = await loadReportedActionKeys(supabase, orgId)
+        if (reportedActions.error || !reportedActions.keys) {
+          summary.errors.push(
+            `Skipped overdue actions for org ${orgId}: ${reportedActions.error ?? 'unknown error'}`,
+          )
+        } else {
+          actionRows = loadedActions.filter((row) => !reportedActions.keys?.has(actionKey(row)))
+        }
+      } catch (error) {
+        summary.errors.push(`Skipped overdue actions for org ${orgId}: ${errorMessage(error)}`)
+      }
     }
 
-    if (!entries.length && formRows.length === 0) continue
+    if (!entries.length && formRows.length === 0 && actionRows.length === 0) continue
 
     const configuredAlertEmail = org.alert_email?.trim()
     const to = configuredAlertEmail || (org.owner_id ? await ownerEmail(org.owner_id) : null)
@@ -2070,7 +2262,9 @@ Deno.serve(async (req) => {
 
     const subject = entries.length
       ? `Compliance digest: ${entries.length} ${entries.length === 1 ? 'item' : 'items'} need attention — ${org.name}`
-      : `Compliance digest: missed forms — ${org.name}`
+      : formRows.length
+        ? `Compliance digest: missed forms — ${org.name}`
+        : `Compliance digest: overdue actions — ${org.name}`
 
     const digest = digestByOrg.get(orgId)
     if (entries.length && !digest) {
@@ -2132,7 +2326,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!entries.length && claimedMisses.length === 0) {
+    let claimedActions: { id: string; row: OverdueActionRow }[] = []
+    if (actionRows.length) {
+      const claimed = await claimActionDigest(supabase, orgId, actionRows)
+      claimedActions = claimed.claimed
+      if (claimed.error) {
+        const releaseActions = await releaseActionDigest(
+          supabase,
+          claimedActions.map((row) => row.id),
+        )
+        summary.errors.push(
+          `Skipped overdue actions for org ${orgId}: ${claimed.error}` +
+            (releaseActions ? ` (release failed: ${releaseActions})` : ''),
+        )
+        claimedActions = []
+      }
+    }
+
+    if (!entries.length && claimedMisses.length === 0 && claimedActions.length === 0) {
       const releaseError = await releaseClaim(supabase, claim.id)
       if (releaseError) {
         summary.errors.push(`Failed to release empty digest for org ${orgId}: ${releaseError}`)
@@ -2141,6 +2352,7 @@ Deno.serve(async (req) => {
     }
 
     const mailedForms = groupOverdueBySite(claimedMisses.map((row) => row.row))
+    const mailedActions = groupActionsBySite(claimedActions.map((row) => row.row))
 
     let sendError: Error | null
     try {
@@ -2150,8 +2362,8 @@ Deno.serve(async (req) => {
         to,
         subject,
         html: entries.length
-          ? digestHtml(org.name, digest as OrgDigest, mailedForms)
-          : formsOnlyHtml(org.name, mailedForms),
+          ? digestHtml(org.name, digest as OrgDigest, mailedForms, mailedActions)
+          : formsOnlyHtml(org.name, mailedForms, mailedActions),
       }))
     } catch (error) {
       sendError = new Error(errorMessage(error))
@@ -2162,13 +2374,26 @@ Deno.serve(async (req) => {
         supabase,
         claimedMisses.map((row) => row.id),
       )
+      const releaseActions = await releaseActionDigest(
+        supabase,
+        claimedActions.map((row) => row.id),
+      )
       const releaseError = await releaseClaim(supabase, claim.id)
       summary.errors.push(
         `Failed to email digest for org ${orgId}: ${sendError.message}` +
           (releaseMisses ? ` (missed forms release failed: ${releaseMisses})` : '') +
+          (releaseActions ? ` (actions release failed: ${releaseActions})` : '') +
           (releaseError ? ` (release failed: ${releaseError})` : ''),
       )
       continue
+    }
+
+    const markActions = await markActionDigestSent(
+      supabase,
+      claimedActions.map((row) => row.id),
+    )
+    if (markActions) {
+      summary.errors.push(`Sent digest but failed to mark actions sent for org ${orgId}: ${markActions}`)
     }
 
     const markMisses = await markDigestMissesSent(

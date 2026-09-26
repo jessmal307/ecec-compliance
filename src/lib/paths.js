@@ -13,6 +13,7 @@ export const paths = {
   sites: '/sites',
   siteProfile: (siteId) => `/sites/${siteId}`,
   forms: '/forms',
+  actions: '/actions',
   formPreview: (templateId) => `/forms/${templateId}`,
   formComplete: (templateId) => `/forms/${templateId}/complete`,
   formSubmission: (submissionId) => `/forms/submissions/${submissionId}`,

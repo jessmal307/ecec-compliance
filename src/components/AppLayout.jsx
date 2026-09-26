@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   Ellipsis,
   FileText,
+  ListChecks,
   LayoutDashboard,
   LogOut,
   PanelLeft,
@@ -54,6 +55,7 @@ const pages = [
   { to: paths.home, label: 'Overview', icon: LayoutDashboard, end: true },
   { to: paths.compliance, label: 'Compliance', icon: ClipboardCheck },
   { to: paths.forms, label: 'Forms', icon: FileText },
+  { to: paths.actions, label: 'Actions', icon: ListChecks },
   { to: paths.staff, label: 'Staff', icon: Users },
   { to: paths.sites, label: 'Sites', icon: Building2 },
   { to: paths.settings, label: 'Settings', icon: Settings },
@@ -63,6 +65,7 @@ function pageTitle(pathname, search = '') {
   if (pathname === paths.home) return 'Overview'
   if (pathname === paths.compliance) return 'Compliance'
   if (pathname === paths.forms) return 'Forms'
+  if (pathname === paths.actions) return 'Actions'
   if (pathname.startsWith(`${paths.forms}/submissions/`)) return 'Submission'
   if (pathname.endsWith('/complete')) return 'Complete form'
   if (pathname.startsWith(`${paths.forms}/`)) return 'Form preview'
@@ -121,7 +124,8 @@ function tabClassName(isActive) {
 function SidebarNav({ collapsed, onNavigate, showForms }) {
   const { pathname } = useLocation()
   const visiblePages = pages.filter(
-    (item) => item.to !== paths.forms || showForms,
+    (item) =>
+      (item.to !== paths.forms && item.to !== paths.actions) || showForms,
   )
 
   return (
@@ -252,6 +256,16 @@ function BottomTabBar({
             >
               <FileText className="size-4 shrink-0" />
               Forms
+            </NavLink>
+          ) : null}
+          {showForms ? (
+            <NavLink
+              to={paths.actions}
+              onClick={onCloseMenus}
+              className={navClassName(pathname === paths.actions)}
+            >
+              <ListChecks className="size-4 shrink-0" />
+              Actions
             </NavLink>
           ) : null}
           <NavLink
