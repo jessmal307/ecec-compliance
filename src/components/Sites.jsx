@@ -184,11 +184,11 @@ export function Sites() {
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
-        title="Sites"
+        title="Centres"
         description={
           archivedOnly
-            ? 'Archived sites are hidden from lists, dashboards, and alerts. Restore to bring them back.'
-            : 'Open a site to view its profile. Use New site to create one.'
+            ? 'Archived centres are hidden from lists, dashboards, and alerts. Restore to bring them back.'
+            : 'Open a centre to view its profile. Use New centre to create one.'
         }
         actions={
           creating ? null : (
@@ -200,7 +200,7 @@ export function Sites() {
               }}
               disabled={!organizationId}
             >
-              New site
+              New centre
             </Button>
           )
         }
@@ -211,14 +211,14 @@ export function Sites() {
       {creating ? (
         <Card>
           <CardHeader>
-            <CardTitle>New site</CardTitle>
+            <CardTitle>New centre</CardTitle>
             <CardDescription>Service details and contact information.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-5" onSubmit={handleSubmit}>
               <FormSection title="Details">
                 <FieldGrid>
-                  <Field label="Site name">
+                  <Field label="Centre name">
                     <Input
                       type="text"
                       name="name"
@@ -301,8 +301,8 @@ export function Sites() {
           <CardTitle>Services</CardTitle>
           <CardDescription>
             {archivedOnly
-              ? 'Restore a site or delete it permanently.'
-              : 'Sites in your organisation. Archive hides a site without deleting it.'}
+              ? 'Restore a centre or delete it permanently.'
+              : 'Centres in your organisation. Archive hides a centre without deleting it.'}
           </CardDescription>
           <CardAction>
             <span className="text-sm tabular-nums text-muted-foreground">
@@ -331,10 +331,10 @@ export function Sites() {
             </PageMuted>
           ) : sites.length === 0 ? (
             <PageMuted>
-              {archivedOnly ? 'No archived sites.' : 'No sites yet.'}
+              {archivedOnly ? 'No archived centres.' : 'No centres yet.'}
             </PageMuted>
           ) : filteredSites.length === 0 ? (
-            <PageMuted>No matching sites.</PageMuted>
+            <PageMuted>No matching centres.</PageMuted>
           ) : (
             <Table>
               <THead>
@@ -410,7 +410,7 @@ export function Sites() {
           if (!open) setPendingArchive(null)
         }}
         title={
-          pendingArchive ? siteArchiveTitle(pendingArchive.name) : 'Archive site?'
+          pendingArchive ? siteArchiveTitle(pendingArchive.name) : 'Archive centre?'
         }
         description={SITE_ARCHIVE_WARNING}
         confirming={Boolean(pendingArchive && deletingId === pendingArchive.id)}

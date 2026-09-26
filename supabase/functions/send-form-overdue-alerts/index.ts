@@ -393,7 +393,7 @@ Deno.serve(async (req) => {
       list.push({
         orgId: site.org_id as string,
         siteId: site.id as string,
-        siteName: String(site.name || 'Site'),
+        siteName: String(site.name || 'Centre'),
         templateId: template.id as string,
         templateName: String(template.name || 'Form'),
         dueBy,

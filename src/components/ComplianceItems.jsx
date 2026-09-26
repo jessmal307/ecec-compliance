@@ -221,7 +221,7 @@ export function ComplianceItems({ embedded = false }) {
       return
     }
     if (!belongsToStaff && !siteId) {
-      setError('Add a site first.')
+      setError('Add a centre first.')
       return
     }
 
@@ -388,7 +388,7 @@ export function ComplianceItems({ embedded = false }) {
       {embedded ? null : (
         <PageHeader
           title="Compliance items"
-          description="Track certificates and checks. Each item belongs to one staff member or one site."
+          description="Track certificates and checks. Each item belongs to one staff member or one centre."
         />
       )}
 
@@ -468,7 +468,7 @@ export function ComplianceItems({ embedded = false }) {
                       onChange={() => setOwnerKind('site')}
                       disabled={formBusy}
                     >
-                      Site
+                      Centre
                     </Choice>
                   </ChoiceRow>
                 </Field>
@@ -493,7 +493,7 @@ export function ComplianceItems({ embedded = false }) {
                     </Select>
                   </Field>
                 ) : (
-                  <Field label="Site">
+                  <Field label="Centre">
                     <Select
                       name="site_id"
                       value={siteId}
@@ -502,7 +502,7 @@ export function ComplianceItems({ embedded = false }) {
                       disabled={formBusy || sites.length === 0}
                     >
                       {sites.length === 0 ? (
-                        <option value="">No sites yet</option>
+                        <option value="">No centres yet</option>
                       ) : (
                         sites.map((site) => (
                           <option key={site.id} value={site.id}>
@@ -596,7 +596,7 @@ export function ComplianceItems({ embedded = false }) {
                         <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
                           {item.ownerName}
                           {' · '}
-                          {item.ownerKind === 'staff' ? 'Staff' : 'Site'}
+                          {item.ownerKind === 'staff' ? 'Staff' : 'Centre'}
                         </p>
                       </Td>
                       <Td slot="extra">
@@ -607,7 +607,7 @@ export function ComplianceItems({ embedded = false }) {
                           {item.ownerName}
                         </Link>
                         <p className="text-xs text-muted-foreground">
-                          {item.ownerKind === 'staff' ? 'Staff' : 'Site'}
+                          {item.ownerKind === 'staff' ? 'Staff' : 'Centre'}
                         </p>
                       </Td>
                       <Td

@@ -170,7 +170,7 @@ export function Landing() {
             </div>
             <p className="max-w-xl text-sm text-[var(--landing-slate)]">
               Your first month is free — no card required. Built for NSW
-              multi-site operators, with your data kept in Australia.
+              multi-centre operators, with your data kept in Australia.
             </p>
           </div>
 
@@ -291,7 +291,7 @@ export function Landing() {
           <h2 className="text-3xl md:text-4xl">Who it's for</h2>
           <ul className="mt-8 flex flex-wrap gap-3">
             {[
-              'Multi-site private operators',
+              'Multi-centre private operators',
               'Approved providers',
               'Operations managers',
               'Compliance coordinators',

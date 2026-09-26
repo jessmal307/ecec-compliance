@@ -90,7 +90,7 @@ export function FormDue({ organizationId }) {
       {loading ? (
         <PageMuted>Loading due forms…</PageMuted>
       ) : groups.length === 0 ? (
-        <PageMuted>Nothing applicable today. Closed days and excluded sites are omitted.</PageMuted>
+        <PageMuted>Nothing applicable today. Closed days and excluded centres are omitted.</PageMuted>
       ) : (
         <ul className="grid grid-cols-1 gap-3">
           {groups.map((group) => (

@@ -183,7 +183,7 @@ async function orgIdForSite(siteId) {
   if (!data?.org_id) {
     return {
       orgId: null,
-      error: { message: 'This site is missing an organisation.' },
+      error: { message: 'This centre is missing an organisation.' },
     }
   }
 

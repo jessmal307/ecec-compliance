@@ -56,7 +56,7 @@ function valuesFromType(type) {
 }
 
 function levelLabel(appliesTo) {
-  return appliesTo === 'site' ? 'Site' : 'Staff'
+  return appliesTo === 'site' ? 'Centre' : 'Staff'
 }
 
 function TypeFormFields({ values, setValues, saving, allowLevel = true }) {
@@ -89,7 +89,7 @@ function TypeFormFields({ values, setValues, saving, allowLevel = true }) {
             aria-label="Level"
           >
             <option value="staff">Staff</option>
-            <option value="site">Site</option>
+            <option value="site">Centre</option>
           </Select>
         </Field>
       ) : null}
@@ -407,7 +407,7 @@ export function Requirements({ embedded = false }) {
           description={
             archivedOnly
               ? 'Archived types are hidden from add-requirement pickers and gaps. Restore to use them again.'
-              : 'Requirement types used for staff and site compliance checks.'
+              : 'Requirement types used for staff and centre compliance checks.'
           }
         />
       )}
@@ -654,7 +654,7 @@ export function Requirements({ embedded = false }) {
         title={`Change ${pendingLevelChange?.type.name ?? 'this type'} to ${levelLabel(pendingLevelChange?.values.applies_to)}?`}
         description={
           pendingLevelChange
-            ? `This type already has ${pendingLevelChange.count} recorded ${pendingLevelChange.count === 1 ? 'item' : 'items'}. Changing the level does not move those records — they stay on their current staff or site.`
+            ? `This type already has ${pendingLevelChange.count} recorded ${pendingLevelChange.count === 1 ? 'item' : 'items'}. Changing the level does not move those records — they stay on their current staff or centre.`
             : ''
         }
         confirming={saving}

@@ -187,7 +187,7 @@ function reportHtml(
     <p>${escapeHtml(month)}</p>
     <p><strong>Overall: ${escapeHtml(percentLabel(report.org.percent))}</strong></p>
     <p>${escapeHtml(totalsLine(report.org))}</p>
-    ${siteSections || '<p>No sites yet.</p>'}
+    ${siteSections || '<p>No centres yet.</p>'}
     ${unassigned}
   `
 }

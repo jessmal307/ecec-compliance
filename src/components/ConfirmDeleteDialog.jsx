@@ -15,13 +15,13 @@ export const STAFF_ARCHIVE_WARNING =
   'This hides them from lists, dashboards, gaps, and alerts. You can restore them later from Archived.'
 
 export const SITE_ARCHIVE_WARNING =
-  'This hides the site from lists, dashboards, gaps, and alerts. You can restore it later from Archived.'
+  'This hides the centre from lists, dashboards, gaps, and alerts. You can restore it later from Archived.'
 
 export const ITEM_ARCHIVE_WARNING =
   'This hides the record from lists, profiles, dashboards, and alerts. You can restore it later from Archived.'
 
 export const STAFF_DELETE_WARNING =
-  'This permanently deletes their compliance records and site assignments. This cannot be undone. Prefer Archive unless you need a genuine data-deletion request.'
+  'This permanently deletes their compliance records and centre assignments. This cannot be undone. Prefer Archive unless you need a genuine data-deletion request.'
 
 export const SITE_DELETE_WARNING =
   'This permanently deletes its compliance records and staff assignments. This cannot be undone. Prefer Archive unless you need a genuine data-deletion request.'
@@ -30,7 +30,7 @@ export const ITEM_DELETE_WARNING =
   'This permanently deletes the recorded check and any uploaded document. This cannot be undone. Prefer Archive unless you need a genuine data-deletion request.'
 
 export const TYPE_ARCHIVE_WARNING =
-  'This hides the type from add-requirement pickers and gap calculations. Existing recorded items stay on staff and site profiles. You can restore it later from Archived.'
+  'This hides the type from add-requirement pickers and gap calculations. Existing recorded items stay on staff and centre profiles. You can restore it later from Archived.'
 
 export const TYPE_DELETE_WARNING = TYPE_ARCHIVE_WARNING
 

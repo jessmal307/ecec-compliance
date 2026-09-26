@@ -116,7 +116,7 @@ export function FloorSignIn({ token, siteName, formName, notice = '', onSignedIn
           ) : loading ? (
             <PageMuted>Loading staff…</PageMuted>
           ) : staff.length === 0 ? (
-            <PageMuted>No staff can sign at this site yet. Ask your director.</PageMuted>
+            <PageMuted>No staff can sign at this centre yet. Ask your director.</PageMuted>
           ) : (
             <ul className="flex flex-col gap-2">
               {staff.map((person) => (

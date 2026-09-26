@@ -15,8 +15,8 @@ import { firstError } from '../../lib/query'
 import { formatTimeOfDay } from '../../lib/sydneyTime'
 
 const SOURCE_LABELS = {
-  site: 'set for this site',
-  org: 'your organisation’s time for all sites',
+  site: 'set for this centre',
+  org: 'your organisation’s time for all centres',
   default: 'RoadToComply default',
 }
 
@@ -155,11 +155,11 @@ export function FormDueByDefault({ organizationId, template }) {
   return (
     <div className="space-y-2 border-b border-border pb-4">
       <label htmlFor={inputId} className="block text-sm font-medium">
-        Due by (all sites)
+        Due by (all centres)
       </label>
       <p className="text-sm text-muted-foreground">
-        {dueSummary(dueBy, source)}. Shows as Overdue after this time; a site can set its own in
-        its site settings.
+        {dueSummary(dueBy, source)}. Shows as Overdue after this time; a centre can set its own in
+        its centre settings.
       </p>
       <PageError>{error}</PageError>
       <DueTimeEditor
@@ -257,7 +257,7 @@ export function SiteFormDueTimes({ organizationId, siteId, disabled = false }) {
       {loading ? (
         <PageMuted>Loading due-by times…</PageMuted>
       ) : templates.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No daily forms apply to this site.</p>
+        <p className="text-sm text-muted-foreground">No daily forms apply to this centre.</p>
       ) : (
         <ul className="divide-y divide-border">
           {templates.map((template) => {

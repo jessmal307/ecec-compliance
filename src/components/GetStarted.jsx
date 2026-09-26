@@ -29,8 +29,8 @@ export function setupProgress({ sites, staff, requirementTypes }) {
 const STEPS = [
   {
     key: 'site',
-    title: 'Add your first site',
-    description: 'A service location to assign staff and site checks.',
+    title: 'Add your first centre',
+    description: 'A service location to assign staff and centre checks.',
     to: paths.sites,
   },
   {
@@ -43,7 +43,7 @@ const STEPS = [
 
 const INTRO_STEPS = [
   {
-    title: 'Add your sites.',
+    title: 'Add your centres.',
     to: paths.sites,
   },
   {

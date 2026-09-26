@@ -346,9 +346,9 @@ export function ComplianceMatrix() {
     downloadCsv(
       matrixCsv({
         ...matrix,
-        ownerHeader: siteView ? 'Site' : 'Staff',
+        ownerHeader: siteView ? 'Centre' : 'Staff',
       }),
-      `compliance-${siteView ? 'site' : 'staff'}-matrix-${sydneyToday()}.csv`,
+      `compliance-${siteView ? 'centre' : 'staff'}-matrix-${sydneyToday()}.csv`,
     )
   }
 
@@ -360,15 +360,15 @@ export function ComplianceMatrix() {
     ? 'No organization yet. Sign out and back in if this persists.'
     : viewOwners.length === 0
       ? siteView
-        ? 'Add sites to see the matrix.'
+        ? 'Add centres to see the matrix.'
         : 'Add staff to see the matrix.'
       : viewTypes.length === 0
         ? siteView
-          ? 'Add site requirement types to see the matrix.'
+          ? 'Add centre requirement types to see the matrix.'
           : 'Add staff requirement types to see the matrix.'
         : filtering
           ? siteView
-            ? 'No matching sites or requirements.'
+            ? 'No matching centres or requirements.'
             : 'No matching staff or requirements.'
           : 'Nothing to show yet.'
 
@@ -382,11 +382,11 @@ export function ComplianceMatrix() {
   return (
     <Card className="compliance-matrix">
       <CardHeader>
-        <CardTitle>{siteView ? 'Site matrix' : 'Staff matrix'}</CardTitle>
+        <CardTitle>{siteView ? 'Centre matrix' : 'Staff matrix'}</CardTitle>
         <CardDescription>
           {siteView
-            ? 'Site requirement types across services.'
-            : 'Staff requirement types across people. Default view is all sites.'}
+            ? 'Centre requirement types across services.'
+            : 'Staff requirement types across people. Default view is all centres.'}
         </CardDescription>
         <CardAction className="no-print flex flex-wrap gap-2">
           <Button
@@ -417,7 +417,7 @@ export function ComplianceMatrix() {
           <Tabs value={view} onValueChange={handleViewChange}>
             <TabsList>
               <TabsTrigger value="staff">Staff requirements</TabsTrigger>
-              <TabsTrigger value="sites">Site requirements</TabsTrigger>
+              <TabsTrigger value="sites">Centre requirements</TabsTrigger>
             </TabsList>
           </Tabs>
           <div
@@ -430,11 +430,11 @@ export function ComplianceMatrix() {
             <Select
               value={siteFilter}
               onChange={(event) => setSiteFilter(event.target.value)}
-              aria-label="Filter by site"
+              aria-label="Filter by centre"
             >
-              <option value="">All sites</option>
+              <option value="">All centres</option>
               {siteView ? null : (
-                <option value="unassigned">No site assigned</option>
+                <option value="unassigned">No centre assigned</option>
               )}
               {sites.map((site) => (
                 <option key={site.id} value={site.id}>

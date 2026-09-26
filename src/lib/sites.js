@@ -10,7 +10,7 @@ const SITE_FIELDS =
 export { DEFAULT_OPERATING_DAYS }
 
 export const EMPTY_OPERATING_DAYS_MESSAGE =
-  'Select at least one operating day. To pause this site temporarily, add closure dates; to stop it entirely, archive the site.'
+  'Select at least one operating day. To pause this centre temporarily, add closure dates; to stop it entirely, archive the centre.'
 
 export const WEEKDAY_OPTIONS = [
   { value: 1, label: 'Mon' },

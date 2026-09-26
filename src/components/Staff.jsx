@@ -62,12 +62,12 @@ function compareNames(left, right) {
 }
 
 function primarySiteName(member) {
-  if (!member.sites?.length) return 'No site assigned'
+  if (!member.sites?.length) return 'No centre assigned'
   return [...member.sites].sort((a, b) => compareNames(a.name, b.name))[0].name
 }
 
 function sitesLabel(member) {
-  if (member.sites.length === 0) return 'No site'
+  if (member.sites.length === 0) return 'No centre'
   const names = [...member.sites].sort((a, b) => compareNames(a.name, b.name))
   if (names.length === 1) return names[0].name
   return `${names[0].name} +${names.length - 1}`
@@ -197,8 +197,8 @@ export function Staff() {
       if (grouped) {
         const siteCompare = compareNames(primarySiteName(a), primarySiteName(b))
         if (siteCompare !== 0) {
-          if (primarySiteName(a) === 'No site assigned') return 1
-          if (primarySiteName(b) === 'No site assigned') return -1
+          if (primarySiteName(a) === 'No centre assigned') return 1
+          if (primarySiteName(b) === 'No centre assigned') return -1
           return siteCompare
         }
       }
@@ -282,7 +282,7 @@ export function Staff() {
         <CardHeader>
           <CardTitle>People</CardTitle>
           <CardDescription>
-            Search, filter by site or employment, 25 per page. Use Archived to
+            Search, filter by centre or employment, 25 per page. Use Archived to
             restore or permanently delete.
           </CardDescription>
           <CardAction>
@@ -299,7 +299,7 @@ export function Staff() {
           <ListFilters
             query={query}
             onQueryChange={setQuery}
-            queryPlaceholder="Search name, role, or site"
+            queryPlaceholder="Search name, role, or centre"
             status={statusFilter}
             onStatusChange={setStatusFilter}
             statusOptions={EMPLOYMENT_FILTERS}
@@ -331,7 +331,7 @@ export function Staff() {
                 <Th className="py-1.5">Role</Th>
                 <Th className="py-1.5">Status</Th>
                 <Th className="py-1.5">Progress</Th>
-                <Th className="py-1.5">Sites</Th>
+                <Th className="py-1.5">Centres</Th>
                 {archivedOnly ? <Th className="py-1.5 text-right">Actions</Th> : null}
               </THead>
               <tbody>
@@ -424,7 +424,7 @@ export function Staff() {
                           className="max-w-40 truncate py-1.5 text-muted-foreground"
                           title={
                             member.sites.length === 0
-                              ? 'No site assigned'
+                              ? 'No centre assigned'
                               : member.sites.map((site) => site.name).join(', ')
                           }
                         >

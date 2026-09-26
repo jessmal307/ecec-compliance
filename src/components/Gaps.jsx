@@ -143,7 +143,7 @@ export function Gaps() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Compliance gaps"
-        description="Staff and sites with missing or expired required items, ordered by how many need attention."
+        description="Staff and centres with missing or expired required items, ordered by how many need attention."
         actions={
           <Button asChild variant="outline" size="sm">
             <Link to={paths.home}>Back to overview</Link>
@@ -157,7 +157,7 @@ export function Gaps() {
         <CardHeader>
           <CardTitle>All gaps</CardTitle>
           <CardDescription>
-            One row per person or site. Open a profile to fill in missing or expired items.
+            One row per person or centre. Open a profile to fill in missing or expired items.
           </CardDescription>
           <CardAction>
             <span className="text-sm tabular-nums text-muted-foreground">
@@ -192,7 +192,7 @@ export function Gaps() {
                         {row.name}
                       </Link>
                       <p className="mt-0.5 text-xs text-muted-foreground md:hidden">
-                        {row.kind === 'staff' ? 'Staff' : 'Site'}
+                        {row.kind === 'staff' ? 'Staff' : 'Centre'}
                         {row.detail ? ` · ${row.detail}` : ''}
                       </p>
                       {row.detail ? (
@@ -202,7 +202,7 @@ export function Gaps() {
                       ) : null}
                     </Td>
                     <Td slot="extra" className="text-muted-foreground">
-                      {row.kind === 'staff' ? 'Staff' : 'Site'}
+                      {row.kind === 'staff' ? 'Staff' : 'Centre'}
                     </Td>
                     <Td slot="meta">
                       <GapCategories

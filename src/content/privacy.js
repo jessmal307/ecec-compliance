@@ -6,7 +6,7 @@ export const PRIVACY_SECTIONS = [
   {
     heading: 'What we collect',
     paragraphs: [
-      "To help you track compliance, we store: your account details (name, email, organisation name); your sites' details; your staff members' names, roles, and contact details; and compliance records — certificate types, reference numbers, issue and expiry dates, and any documents you choose to upload. We deliberately collect only what's needed to track compliance — no home addresses, dates of birth, or other personal details.",
+      "To help you track compliance, we store: your account details (name, email, organisation name); your centres' details; your staff members' names, roles, and contact details; and compliance records — certificate types, reference numbers, issue and expiry dates, and any documents you choose to upload. We deliberately collect only what's needed to track compliance — no home addresses, dates of birth, or other personal details.",
     ],
   },
   {

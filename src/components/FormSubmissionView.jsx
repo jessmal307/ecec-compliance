@@ -160,7 +160,7 @@ export function FormSubmissionView() {
             </div>
             <CardTitle>{submission.template_name}</CardTitle>
             <p className="text-base text-muted-foreground md:text-sm">
-              {submission.site_name || 'No site'}
+              {submission.site_name || 'No centre'}
               {submission.room ? ` · ${submission.room}` : ''}
               {submission.for_date ? ` · covers ${formatDate(submission.for_date)}` : ''}
               {!submission.for_date && submission.completed_on

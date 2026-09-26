@@ -75,7 +75,7 @@ export function UrgentAttentionList({
           (kind === 'staff'
             ? 'Nothing needs attention for staff.'
             : kind === 'sites'
-              ? 'Nothing needs attention for sites.'
+              ? 'Nothing needs attention for centres.'
               : 'Nothing needs attention.')}
       </p>
     )
@@ -129,7 +129,7 @@ export function UrgentAttentionList({
                   </span>
                 </Link>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {item.ownerKind === 'staff' ? 'Staff' : 'Site'}
+                  {item.ownerKind === 'staff' ? 'Staff' : 'Centre'}
                   {' · '}
                   {attentionMeta(item, status, dueDate)}
                   {item.label && item.label !== item.typeName

@@ -234,7 +234,7 @@ export function FormComplete() {
     setError('')
     setSaved('')
     if (!siteId) {
-      setError('Choose a site.')
+      setError('Choose a centre.')
       return
     }
     const isEvidence = template.archetype === 'evidence'
@@ -435,7 +435,7 @@ export function FormComplete() {
     setError('')
     setSaved('')
     if (!siteId) {
-      setError('Choose a site.')
+      setError('Choose a centre.')
       return
     }
     const dateError = validateIsoDate(forDate, {
@@ -505,8 +505,8 @@ export function FormComplete() {
         title={template?.name || 'Complete form'}
         description={
           template?.archetype === 'evidence'
-            ? 'Choose a site, add the completion date and at least one file, then submit.'
-            : 'Choose a site, fill the form, then save a draft or submit. This is the office path. Centre staff use the floor link on the tablet.'
+            ? 'Choose a centre, add the completion date and at least one file, then submit.'
+            : 'Choose a centre, fill the form, then save a draft or submit. This is the office path. Centre staff use the floor link on the tablet.'
         }
         actions={
           <Button asChild variant="outline">
@@ -543,13 +543,13 @@ export function FormComplete() {
             <CardTitle className="w-full">{template.name}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <Field label="Site (required)">
+            <Field label="Centre (required)">
               <Select
                 value={siteId}
                 onChange={(event) => setSiteId(event.target.value)}
                 disabled={saving}
               >
-                <option value="">Select a site…</option>
+                <option value="">Select a centre…</option>
                 {sites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}

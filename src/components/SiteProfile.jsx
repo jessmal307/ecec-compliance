@@ -573,16 +573,16 @@ export function SiteProfile() {
   return (
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
-        title={site?.name ?? 'Site profile'}
+        title={site?.name ?? 'Centre'}
         description={
           siteArchived
-            ? 'This site is archived, so it is hidden from lists, dashboards, and alerts.'
-            : 'Site details and every site-level requirement type for your organization.'
+            ? 'This centre is archived, so it is hidden from lists, dashboards, and alerts.'
+            : 'Centre details and every centre-level requirement type for your organization.'
         }
         actions={
           <>
             <Button asChild variant="outline" size="sm">
-              <Link to={paths.sites}>Back to sites</Link>
+              <Link to={paths.sites}>Back to centres</Link>
             </Button>
             {siteArchived ? (
               <Button
@@ -601,7 +601,7 @@ export function SiteProfile() {
                 onClick={() => setPendingSiteArchive(true)}
                 disabled={loading || deletingSite}
               >
-                Archive site
+                Archive centre
               </Button>
             )}
           </>
@@ -641,7 +641,7 @@ export function SiteProfile() {
           <SiteOpenActions organizationId={organizationId} siteId={siteId} />
           <Tabs value={profileTab} onValueChange={setProfileTab}>
             <TabsList>
-              <TabsTrigger value="details">Site information</TabsTrigger>
+              <TabsTrigger value="details">Centre information</TabsTrigger>
               <TabsTrigger value="requirements">
                 Requirements
                 <span className="ml-1.5 tabular-nums text-muted-foreground">
@@ -658,7 +658,7 @@ export function SiteProfile() {
             <TabsContent value="details">
           <Card>
             <CardHeader>
-              <CardTitle>Site information</CardTitle>
+              <CardTitle>Centre information</CardTitle>
               <CardDescription>Service details and contact.</CardDescription>
             </CardHeader>
             <CardContent>
@@ -772,7 +772,7 @@ export function SiteProfile() {
             </CardHeader>
             <CardContent className="px-0">
               {rows.length === 0 ? (
-                <PageMuted>No site-level requirement types yet.</PageMuted>
+                <PageMuted>No centre-level requirement types yet.</PageMuted>
               ) : (
                 <Table>
                   <THead>
@@ -979,7 +979,7 @@ export function SiteProfile() {
               <CardTitle>Staff</CardTitle>
               <CardDescription>
                 {siteStaff.length === 0
-                  ? 'No staff are assigned to this site yet.'
+                  ? 'No staff are assigned to this centre yet.'
                   : activeStaffCount === 0
                     ? 'Assigned staff are inactive, so their requirements are not tracked.'
                     : staffWithGaps === 0
@@ -1062,7 +1062,7 @@ export function SiteProfile() {
       <ConfirmDeleteDialog
         open={pendingSiteArchive}
         onOpenChange={setPendingSiteArchive}
-        title={siteArchiveTitle(site?.name ?? 'this site')}
+        title={siteArchiveTitle(site?.name ?? 'this centre')}
         description={SITE_ARCHIVE_WARNING}
         confirming={deletingSite}
         onConfirm={handleArchiveSite}

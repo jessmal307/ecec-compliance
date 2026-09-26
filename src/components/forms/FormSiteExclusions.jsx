@@ -79,16 +79,16 @@ export function FormSiteExclusions({ organizationId, templateId }) {
   }
 
   if (loading) {
-    return <PageMuted>Loading sites…</PageMuted>
+    return <PageMuted>Loading centres…</PageMuted>
   }
 
   if (!sites.length) {
-    return <PageMuted>Add a site to choose where this form applies.</PageMuted>
+    return <PageMuted>Add a centre to choose where this form applies.</PageMuted>
   }
 
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">Applies to all active sites unless excluded.</p>
+      <p className="text-sm text-muted-foreground">Applies to all active centres unless excluded.</p>
       <PageError>{error}</PageError>
       <ul className="space-y-1.5">
         {sites.map((site) => {

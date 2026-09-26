@@ -77,7 +77,7 @@ export function SitesNavLinks({ onNavigate, sites, error, loading }) {
   return (
     <div className="flex flex-col gap-0.5">
       {loading && sites.length === 0 ? (
-        <p className="px-2.5 py-2 text-xs text-muted-foreground">Loading sites…</p>
+        <p className="px-2.5 py-2 text-xs text-muted-foreground">Loading centres…</p>
       ) : null}
 
       {error ? (
@@ -99,7 +99,7 @@ export function SitesNavLinks({ onNavigate, sites, error, loading }) {
       ))}
 
       {!loading && !error && sites.length === 0 ? (
-        <p className="px-2.5 py-2 text-xs text-muted-foreground">No sites yet.</p>
+        <p className="px-2.5 py-2 text-xs text-muted-foreground">No centres yet.</p>
       ) : null}
 
       <div className="mt-0.5 border-t border-sidebar-border pt-0.5">
@@ -122,7 +122,7 @@ export function SitesNavLinks({ onNavigate, sites, error, loading }) {
           className={childNavClassName(adding)}
         >
           <Plus className="size-4 shrink-0" />
-          Add site
+          Add centre
         </NavLink>
       </div>
     </div>
@@ -146,8 +146,8 @@ export function SitesSidebarItem({ onNavigate, navClassName, collapsed = false }
       <NavLink
         to={paths.sites}
         onClick={onNavigate}
-        data-label="Sites"
-        aria-label="Sites"
+        data-label="Centres"
+        aria-label="Centres"
         className={navClassName(sectionActive)}
       >
         <Building2 className="size-4 shrink-0" />
@@ -164,7 +164,7 @@ export function SitesSidebarItem({ onNavigate, navClassName, collapsed = false }
         onClick={() => setExpanded((open) => !open)}
       >
         <Building2 className="size-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-left">Sites</span>
+        <span className="min-w-0 flex-1 truncate text-left">Centres</span>
         <ChevronDown
           className={`size-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
         />

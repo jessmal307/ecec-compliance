@@ -858,7 +858,7 @@ function formsOnlyHtml(
     .map((siteId) => {
       const forms = overdueBySite.get(siteId) ?? []
       const actions = actionsBySite.get(siteId) ?? []
-      const siteName = forms[0]?.site_name || actions[0]?.site_name || 'Site'
+      const siteName = forms[0]?.site_name || actions[0]?.site_name || 'Centre'
       return `<h2>${escapeHtml(siteName)}</h2>${missedFormsHtml(forms)}${actionListHtml(actions)}`
     })
     .join('')
@@ -888,7 +888,7 @@ function digestHtml(
   const actionOnly = [...(actionsBySite?.entries() ?? [])]
     .filter(([siteId, rows]) => !seen.has(siteId) && rows.length > 0)
     .map(([, rows]) => {
-      const siteName = rows[0]?.site_name || 'Site'
+      const siteName = rows[0]?.site_name || 'Centre'
       return `<h2>${escapeHtml(siteName)}</h2>${actionListHtml(rows)}`
     })
     .join('')
@@ -1527,12 +1527,12 @@ async function loadOverdueActionsForOrg(
       'overdue action sites',
     )
     if (sitesError) throw sitesError
-    for (const site of sites ?? []) names.set(site.id as string, String(site.name || 'Site'))
+    for (const site of sites ?? []) names.set(site.id as string, String(site.name || 'Centre'))
   }
   return (data ?? []).map((row) => ({
     action_id: row.id as string,
     site_id: row.site_id as string,
-    site_name: names.get(row.site_id as string) || 'Site',
+    site_name: names.get(row.site_id as string) || 'Centre',
     description: String(row.description || 'Action'),
     due_date: String(row.due_date).slice(0, 10),
   }))

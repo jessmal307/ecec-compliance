@@ -66,7 +66,7 @@ export function ActivityLog({ organizationId }) {
       <CardHeader>
         <CardTitle>Activity log</CardTitle>
         <CardDescription>
-          Who changed staff, sites, requirement types, and compliance records.
+          Who changed staff, centres, requirement types, and compliance records.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

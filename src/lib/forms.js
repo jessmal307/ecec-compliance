@@ -48,7 +48,7 @@ export const FORM_CADENCES = [
 ]
 
 export const FORM_TARGET_TYPES = [
-  { value: 'site', label: 'A site' },
+  { value: 'site', label: 'A centre' },
   { value: 'staff', label: 'A staff member' },
   { value: 'role', label: 'A role' },
   { value: 'org', label: 'Whole organisation' },
@@ -657,7 +657,7 @@ export function assignmentTargetLabel(assignment, { sites = [], staff = [] } = {
     return assignment.target_role || 'Role'
   }
   if (assignment.target_type === 'site') {
-    return sites.find((site) => site.id === assignment.target_id)?.name || 'Unknown site'
+    return sites.find((site) => site.id === assignment.target_id)?.name || 'Unknown centre'
   }
   if (assignment.target_type === 'staff') {
     return staff.find((member) => member.id === assignment.target_id)?.name || 'Unknown staff'
@@ -1000,7 +1000,7 @@ export async function createMissedSubmission(orgId, {
   reason,
 }) {
   const missedReason = String(reason || '').trim()
-  if (!siteId) return { data: null, error: { message: 'Choose a site.' } }
+  if (!siteId) return { data: null, error: { message: 'Choose a centre.' } }
   if (!isIsoDate(forDate)) {
     return { data: null, error: { message: 'Enter the date this covers.' } }
   }

@@ -581,7 +581,7 @@ async function resolveToken(supabase: Supabase, rawToken: string) {
       orgId: data.org_id as string,
       orgName: org?.name || 'Organisation',
       siteId: data.site_id as string,
-      siteName: site?.name || 'Site',
+      siteName: site?.name || 'Centre',
       operatingDays: normalizeOperatingDays(site?.operating_days),
       siteCreatedAt: site?.created_at ?? null,
     } satisfies TokenContext,
@@ -868,7 +868,7 @@ async function handlePost(
 
   const templates = await loadApplicableTemplates(supabase, context.orgId, context.siteId)
   const template = templates.find((row) => sameId(row.id, templateId))
-  if (!template) return json({ error: 'This form is not available for this site.' }, 403)
+  if (!template) return json({ error: 'This form is not available for this centre.' }, 403)
 
   if (isScheduledTemplate(template)) {
     if (template.cadence === 'daily') {
@@ -889,13 +889,13 @@ async function handlePost(
           day: today,
         })
       ) {
-        return json({ error: 'This form is not available for this site.' }, 403)
+        return json({ error: 'This form is not available for this centre.' }, 403)
       }
     }
     const notBefore = notBeforeIso(context.siteCreatedAt, template.created_at)
     const bounds = periodBounds(template.cadence || 'once', today, template.cadence_months)
     if (bounds?.start && notBefore && bounds.start < notBefore) {
-      return json({ error: 'This form is not available for this site.' }, 403)
+      return json({ error: 'This form is not available for this centre.' }, 403)
     }
   }
 
@@ -944,7 +944,7 @@ async function handlePost(
       !sameId(existing.site_id, context.siteId) ||
       !sameId(existing.template_id, template.id)
     ) {
-      return json({ error: 'This form is not available for this site.' }, 403)
+      return json({ error: 'This form is not available for this centre.' }, 403)
     }
     if (existing.status === 'complete' || existing.status === 'missed') {
       return json({ error: 'This submission is locked.' }, 409)

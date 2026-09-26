@@ -24,7 +24,7 @@ export const TERMS_SECTIONS = [
   {
     heading: 'Your data',
     paragraphs: [
-      'You are responsible for the accuracy of the sites, staff, and compliance records you enter. Our Privacy & Data Handling policy explains what we collect and how we store it.',
+      'You are responsible for the accuracy of the centres, staff, and compliance records you enter. Our Privacy & Data Handling policy explains what we collect and how we store it.',
     ],
   },
   {

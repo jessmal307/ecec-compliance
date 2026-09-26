@@ -125,7 +125,7 @@ test('uses a column as centres when at least half the values match', () => {
 
 test('plain reasons and pasted rows', () => {
   assert.equal(
-    plainIssue({ code: 'site', message: 'Unknown site "West".' }),
+    plainIssue({ code: 'site', message: 'Unknown centre "West".' }),
     '“West” isn’t one of your centres.',
   )
   const pasted = workbookFromPaste(

@@ -629,7 +629,7 @@ export function StaffProfile() {
           <Card>
             <CardHeader>
               <CardTitle>Personal information</CardTitle>
-              <CardDescription>Contact, employment, sites, and notes.</CardDescription>
+              <CardDescription>Contact, employment, centres, and notes.</CardDescription>
             </CardHeader>
             <CardContent>
               <form className="space-y-5" onSubmit={handleSaveInfo}>
@@ -727,10 +727,10 @@ export function StaffProfile() {
                   </FieldGrid>
                 </FormSection>
 
-                <FormSection title="Sites they work at">
+                <FormSection title="Centres they work at">
                   {sites.length === 0 ? (
                     <p className="text-sm font-normal text-muted-foreground">
-                      No sites yet. Add a site first.
+                      No centres yet. Add a centre first.
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-2">

@@ -88,7 +88,7 @@ export function AssignForm({ organizationId, template, onCancel, onSaved }) {
     setError('')
 
     if (form.target_type === 'site' && !form.target_id) {
-      setError('Choose a site.')
+      setError('Choose a centre.')
       return
     }
     if (form.target_type === 'staff' && !form.target_id) {
@@ -155,13 +155,13 @@ export function AssignForm({ organizationId, template, onCancel, onSaved }) {
           </Field>
 
           {form.target_type === 'site' ? (
-            <Field label="Site">
+            <Field label="Centre">
               <Select
                 value={form.target_id}
                 onChange={(event) => setField('target_id', event.target.value)}
                 disabled={busy}
               >
-                <option value="">Select a site…</option>
+                <option value="">Select a centre…</option>
                 {sites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}

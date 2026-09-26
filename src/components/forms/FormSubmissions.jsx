@@ -120,10 +120,10 @@ export function FormSubmissions({ organizationId }) {
             setSiteId(event.target.value)
             setPage(1)
           }}
-          aria-label="Filter by site"
+          aria-label="Filter by centre"
           className="sm:w-52"
         >
-          <option value="">All sites</option>
+          <option value="">All centres</option>
           {sites.map((site) => (
             <option key={site.id} value={site.id}>
               {site.name}
@@ -171,7 +171,7 @@ export function FormSubmissions({ organizationId }) {
                         ? submission.missed_reason || 'Marked missed'
                         : submission.signoff.name || 'No name yet'}
                       {' · '}
-                      {submission.site_name || 'No site'}
+                      {submission.site_name || 'No centre'}
                       {submission.room ? ` · ${submission.room}` : ''}
                       {submission.for_date ? ` · covers ${formatDate(submission.for_date)}` : ''}
                       {' · '}

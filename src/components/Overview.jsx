@@ -62,7 +62,7 @@ function missingOwnersHint(staffOwners, siteOwners) {
     parts.push(countLabel(staffOwners, 'person', 'people'))
   }
   if (siteOwners > 0) {
-    parts.push(countLabel(siteOwners, 'site', 'sites'))
+    parts.push(countLabel(siteOwners, 'centre', 'centres'))
   }
   return `Across ${parts.join(' and ')}`
 }
@@ -633,7 +633,7 @@ export function Overview() {
                                 </span>
                                 <span className="text-muted-foreground">
                                   {' '}
-                                  · {row.kind === 'staff' ? 'Staff' : 'Site'}
+                                  · {row.kind === 'staff' ? 'Staff' : 'Centre'}
                                 </span>
                               </span>
                               <GapCategories
@@ -652,15 +652,15 @@ export function Overview() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>By site</CardTitle>
+                  <CardTitle>By centre</CardTitle>
                   <CardDescription>
-                    Valid and in date, of all required items at that site.
+                    Valid and in date, of all required items at that centre.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {dashboard.siteRows.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No sites yet.
+                      No centres yet.
                     </p>
                   ) : (
                     <ul className="space-y-4">
@@ -739,7 +739,7 @@ export function Overview() {
                   <CardHeader>
                     <CardTitle>Forms due today</CardTitle>
                     <CardDescription>
-                      Scheduled forms for the current period, by site.
+                      Scheduled forms for the current period, by centre.
                     </CardDescription>
                     {dueSites.length > 0 ? (
                       <CardAction>

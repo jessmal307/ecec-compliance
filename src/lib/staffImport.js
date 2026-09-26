@@ -505,7 +505,7 @@ export function plainIssue(issue) {
     return 'This name is already on file.'
   }
   if (issue?.code === 'site') {
-    const unknown = message.match(/^Unknown site "(.+)"/)
+    const unknown = message.match(/^Unknown centre "(.+)"/)
     if (unknown) return `“${unknown[1]}” isn’t one of your centres.`
     if (message.includes('more than one')) {
       return 'That centre name matches more than one of your centres.'
@@ -709,7 +709,7 @@ export function certificateFromCells({
 function matchSites(value, sites) {
   const names = splitSiteNames(value)
   if (names.length === 0) {
-    return { errors: [{ code: 'site', message: 'Missing site.' }], sites: [] }
+    return { errors: [{ code: 'site', message: 'Missing centre.' }], sites: [] }
   }
 
   const errors = []
@@ -720,9 +720,9 @@ function matchSites(value, sites) {
       (site) => cellText(site.name).toLowerCase() === name.toLowerCase(),
     )
     if (hits.length === 0) {
-      pushMessage(errors, 'site', `Unknown site "${name}".`)
+      pushMessage(errors, 'site', `Unknown centre "${name}".`)
     } else if (hits.length > 1) {
-      pushMessage(errors, 'site', `Site name "${name}" matches more than one site.`)
+      pushMessage(errors, 'site', `Centre name "${name}" matches more than one centre.`)
     } else if (!seen.has(hits[0].id)) {
       seen.add(hits[0].id)
       matched.push(hits[0])
@@ -807,7 +807,7 @@ export function validateStaffImport({
     let siteNames = []
     if (siteMode === 'column') {
       if (!siteColumn) {
-        pushMessage(errors, 'site', 'Choose the site column.')
+        pushMessage(errors, 'site', 'Choose the centre column.')
       } else {
         const matched = matchSites(mappedValue(record, siteColumn), sites)
         errors.push(...matched.errors)
@@ -815,7 +815,7 @@ export function validateStaffImport({
         siteNames = matched.sites.map((site) => site.name)
       }
     } else if (!selectedSite) {
-      pushMessage(errors, 'site', 'Select a site.')
+      pushMessage(errors, 'site', 'Select a centre.')
     } else {
       siteIds = [selectedSite.id]
       siteNames = [selectedSite.name]

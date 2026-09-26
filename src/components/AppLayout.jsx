@@ -57,7 +57,7 @@ const pages = [
   { to: paths.forms, label: 'Forms', icon: FileText },
   { to: paths.actions, label: 'Actions', icon: ListChecks },
   { to: paths.staff, label: 'Staff', icon: Users },
-  { to: paths.sites, label: 'Sites', icon: Building2 },
+  { to: paths.sites, label: 'Centres', icon: Building2 },
   { to: paths.settings, label: 'Settings', icon: Settings },
 ]
 
@@ -73,8 +73,8 @@ function pageTitle(pathname, search = '') {
   if (pathname === paths.newStaff) return 'New staff'
   if (pathname === paths.importStaff) return 'Import staff'
   if (pathname.startsWith(`${paths.staff}/`)) return 'Staff profile'
-  if (pathname === paths.sites) return 'Sites'
-  if (pathname.startsWith(`${paths.sites}/`)) return 'Site profile'
+  if (pathname === paths.sites) return 'Centres'
+  if (pathname.startsWith(`${paths.sites}/`)) return 'Centre'
   if (pathname === paths.requirements) return 'Settings'
   if (pathname === paths.gaps) return 'Compliance gaps'
   if (pathname === paths.attention) {
@@ -316,7 +316,7 @@ function BottomTabBar({
           className={tabClassName(isSitesPath(pathname))}
         >
           <Building2 className="size-5" />
-          Sites
+          Centres
         </NavLink>
         <button
           type="button"

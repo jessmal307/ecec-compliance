@@ -95,12 +95,12 @@ export function ListFilters({
         <Select
           value={siteId}
           onChange={(event) => onSiteChange(event.target.value)}
-          aria-label="Filter by site"
+          aria-label="Filter by centre"
           className="sm:w-44"
         >
-          <option value="">All sites</option>
+          <option value="">All centres</option>
           {includeUnassigned ? (
-            <option value="unassigned">No site assigned</option>
+            <option value="unassigned">No centre assigned</option>
           ) : null}
           {sites.map((site) => (
             <option key={site.id} value={site.id}>

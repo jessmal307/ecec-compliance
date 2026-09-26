@@ -275,7 +275,7 @@ export function NewStaff() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="New staff"
-        description="Add a person, assign sites, and record their current certificates or checks."
+        description="Add a person, assign centres, and record their current certificates or checks."
         actions={
           <Button asChild variant="outline" size="sm">
             <Link to={paths.staff}>Back to staff</Link>
@@ -290,7 +290,7 @@ export function NewStaff() {
           <CardHeader>
             <CardTitle>Staff details</CardTitle>
             <CardDescription>
-              Name, role, employment, contact, and site assignment.
+              Name, role, employment, contact, and centre assignment.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -389,12 +389,12 @@ export function NewStaff() {
               </FieldGrid>
             </FormSection>
 
-            <FormSection title="Sites they work at">
+            <FormSection title="Centres they work at">
               {loading ? (
-                <p className="text-sm text-muted-foreground">Loading sites…</p>
+                <p className="text-sm text-muted-foreground">Loading centres…</p>
               ) : sites.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No sites yet. Add a site first, or save without a site
+                  No centres yet. Add a centre first, or save without a centre
                   assignment.
                 </p>
               ) : (

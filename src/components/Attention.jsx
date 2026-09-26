@@ -295,8 +295,8 @@ export function Attention() {
             </CardTitle>
             <CardDescription>
               {expiredOnly || expiringOnly || recheckOnly
-                ? 'Click an item to open it on the staff or site profile.'
-                : 'Staff-level and site-level records that are expired, overdue for recheck, or coming due.'}
+                ? 'Click an item to open it on the staff or centre profile.'
+                : 'Staff-level and centre-level records that are expired, overdue for recheck, or coming due.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -318,7 +318,7 @@ export function Attention() {
                   </span>
                 </TabsTrigger>
                 <TabsTrigger value="sites" className="px-2 py-2">
-                  Site-level
+                  Centre-level
                   <span className="ml-1.5 tabular-nums text-muted-foreground">
                     {siteItems.length}
                   </span>
@@ -346,11 +346,11 @@ export function Attention() {
                   kind="sites"
                   emptyMessage={
                     expiredOnly
-                      ? 'No site items are expired.'
+                      ? 'No centre items are expired.'
                       : expiringOnly
-                        ? 'No site items expire in the next 30 days.'
+                        ? 'No centre items expire in the next 30 days.'
                         : recheckOnly
-                          ? 'No site items are due for recheck.'
+                          ? 'No centre items are due for recheck.'
                           : undefined
                   }
                   {...listProps}

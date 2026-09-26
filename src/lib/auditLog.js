@@ -9,7 +9,7 @@ const AUDIT_FIELDS =
 export const AUDIT_ENTITIES = [
   { value: '', label: 'All records' },
   { value: 'staff', label: 'Staff' },
-  { value: 'sites', label: 'Sites' },
+  { value: 'sites', label: 'Centres' },
   { value: 'requirement_types', label: 'Requirement types' },
   { value: 'compliance_items', label: 'Compliance items' },
 ]
@@ -41,7 +41,7 @@ function recordName(row, fallback = 'record') {
 
 function ownerName(row, names) {
   if (row?.staff_id) return names.staff[row.staff_id] || 'staff'
-  if (row?.site_id) return names.sites[row.site_id] || 'site'
+  if (row?.site_id) return names.sites[row.site_id] || 'centre'
   return 'record'
 }
 
@@ -105,8 +105,8 @@ export function formatAuditSentence(entry, names = { staff: {}, sites: {}, types
   if (entry.entity === 'form_site_due_times') {
     const form = names.templates?.[snapshot.template_id] || 'a form'
     const where = snapshot.site_id
-      ? `at ${names.sites[snapshot.site_id] || 'a site'}`
-      : 'for all sites'
+      ? `at ${names.sites[snapshot.site_id] || 'a centre'}`
+      : 'for all centres'
     const time = (row) => formatTimeOfDay(row?.due_by) || 'no time'
     if (entry.action === 'insert') return `${actor} set ${form} due by ${time(after)} ${where}`
     if (entry.action === 'delete') return `${actor} removed the ${form} due-by time ${where}`
@@ -114,21 +114,21 @@ export function formatAuditSentence(entry, names = { staff: {}, sites: {}, types
   }
 
   if (entry.entity === 'sites') {
-    const name = recordName(snapshot, 'site')
-    if (entry.action === 'insert') return `${actor} added site ${name}`
-    if (entry.action === 'delete') return `${actor} deleted site ${name}`
+    const name = recordName(snapshot, 'centre')
+    if (entry.action === 'insert') return `${actor} added centre ${name}`
+    if (entry.action === 'delete') return `${actor} deleted centre ${name}`
     if (!before.archived_at && after.archived_at) {
-      return `${actor} archived site ${name}`
+      return `${actor} archived centre ${name}`
     }
     if (before.archived_at && !after.archived_at) {
-      return `${actor} restored site ${name}`
+      return `${actor} restored centre ${name}`
     }
     if (onlyFieldChanged(before, after, 'alert_email')) {
       return after.alert_email
         ? `${actor} set the alert email for ${name}`
         : `${actor} cleared the alert email for ${name}`
     }
-    return `${actor} updated site ${name}`
+    return `${actor} updated centre ${name}`
   }
 
   if (entry.entity === 'requirement_types') {
