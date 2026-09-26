@@ -3,11 +3,9 @@ import { selectInBatches } from '../_shared/batch.ts'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
 import { dueByFor, dueStatusAt, templateTakesDueBy } from '../_shared/formDueTimes.js'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
-import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
+import { isSiteOpenOn } from '../_shared/siteOpen.js'
 import {
   formatTimeOfDay,
-  isoWeekday,
-  normalizeTimeOfDay,
   sydneyMinutesOfDay,
   sydneyToday,
 } from '../_shared/sydneyTime.js'
@@ -139,18 +137,12 @@ Deno.serve(async (req) => {
   }
 
   const now = new Date()
-  const today = sydneyToday()
-  const debug: Record<string, unknown> = {
-    fn: 'send-form-overdue-alerts',
-    today,
-    sydney_minutes: sydneyMinutesOfDay(now),
-    weekday: today ? isoWeekday(today) : null,
-  }
   if (!insideAlertHours(now)) {
-    return json({ skipped: 'outside_hours', debug })
+    return json({ skipped: 'outside_hours' })
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey)
+  const today = sydneyToday()
   if (!today) return json({ error: 'Could not resolve today’s date.' }, 500)
 
   const summary = {
@@ -159,7 +151,6 @@ Deno.serve(async (req) => {
     already_sent: [] as string[],
     stale_claims_cleared: [] as StaleClaim[],
     errors: [] as string[],
-    debug,
   }
 
   const stale = await clearStaleClaims(supabase)
@@ -178,12 +169,7 @@ Deno.serve(async (req) => {
     return json({ error: orgsResult.error.message ?? 'Failed to load organisations' }, 500)
   }
   const orgs = orgsResult.data ?? []
-  debug.plus_orgs = orgs.length
-  debug.org_plans = orgs.map((org) => org.plan)
-  if (!orgs.length) {
-    debug.exit = 'no_plus_orgs'
-    return json(summary)
-  }
+  if (!orgs.length) return json(summary)
 
   const orgIds = orgs.map((org) => org.id as string)
   const orgById = new Map(orgs.map((org) => [org.id as string, org]))
@@ -218,23 +204,8 @@ Deno.serve(async (req) => {
   }
 
   const sites = sitesResult.data ?? []
-  const templatesRaw = templatesResult.data ?? []
-  const templates = templatesRaw.filter(templateTakesDueBy)
-  debug.sites = sites.length
-  debug.templates_raw = templatesRaw.length
-  debug.templates = templates.length
-  debug.template_rows = templatesRaw.map((template) => ({
-    name: template.name,
-    cadence: template.cadence,
-    scope: template.scope,
-    default_due_by: template.default_due_by,
-    parsed: normalizeTimeOfDay(template.default_due_by),
-    takes_due_by: templateTakesDueBy(template),
-  }))
-  if (!sites.length || !templates.length) {
-    debug.exit = !sites.length ? 'no_sites' : 'no_templates'
-    return json(summary)
-  }
+  const templates = (templatesResult.data ?? []).filter(templateTakesDueBy)
+  if (!sites.length || !templates.length) return json(summary)
 
   const siteIds = sites.map((site) => site.id as string)
   const templateIds = templates.map((template) => template.id as string)
@@ -317,16 +288,6 @@ Deno.serve(async (req) => {
     (claimsResult.data ?? []).map((row) => `${row.site_id}:${row.template_id}`),
   )
   const dueTimes = dueTimesResult.data ?? []
-  debug.exclusions = exclusions.length
-  debug.closures_today = closures.length
-  debug.done_today = doneToday.size
-  debug.claims_today = alreadyClaimed.size
-  debug.due_time_rows = dueTimes.length
-  debug.due_time_shapes = dueTimes.map((row) => ({
-    has_site: row.site_id != null,
-    due_by: row.due_by,
-    parsed: normalizeTimeOfDay(row.due_by),
-  }))
 
   type OverdueItem = {
     orgId: string
@@ -338,37 +299,10 @@ Deno.serve(async (req) => {
     to: string
   }
 
-  const drops = {
-    no_org: 0,
-    not_open: 0,
-    excluded: 0,
-    done: 0,
-    claimed: 0,
-    no_due_by: 0,
-    not_overdue: 0,
-    no_recipient: 0,
-    queued: 0,
-  }
-  debug.site_open = sites.map((site) => ({
-    name: String(site.name || 'Site'),
-    operating_days: site.operating_days,
-    operating_is_array: Array.isArray(site.operating_days),
-    operating_used: normalizeOperatingDays(site.operating_days),
-    open: isSiteOpenOn({
-      operatingDays: site.operating_days,
-      closures,
-      siteId: site.id as string,
-      day: today,
-    }),
-  }))
-
   const bySite = new Map<string, OverdueItem[]>()
   for (const site of sites) {
     const org = orgById.get(site.org_id as string)
-    if (!org) {
-      drops.no_org += 1
-      continue
-    }
+    if (!org) continue
     if (
       !isSiteOpenOn({
         operatingDays: site.operating_days,
@@ -377,7 +311,6 @@ Deno.serve(async (req) => {
         day: today,
       })
     ) {
-      drops.not_open += 1
       continue
     }
 
@@ -391,36 +324,18 @@ Deno.serve(async (req) => {
             sameId(row.site_id, site.id) && sameId(row.template_id, template.id),
         )
       ) {
-        drops.excluded += 1
         continue
       }
       const key = `${site.id}:${template.id}`
-      if (doneToday.has(key)) {
-        drops.done += 1
-        continue
-      }
-      if (alreadyClaimed.has(key)) {
-        drops.claimed += 1
-        continue
-      }
-      const resolved = dueByFor(template, site.id, orgDueTimes)
-      const dueBy = resolved.dueBy
-      if (!dueBy) {
-        drops.no_due_by += 1
-        continue
-      }
-      const status = dueStatusAt({ status: 'due', dueBy, forDate: today, now })
-      if (status !== 'overdue') {
-        drops.not_overdue += 1
-        continue
-      }
+      if (doneToday.has(key) || alreadyClaimed.has(key)) continue
+      const dueBy = dueByFor(template, site.id, orgDueTimes).dueBy
+      if (!dueBy) continue
+      if (dueStatusAt({ status: 'due', dueBy, forDate: today, now }) !== 'overdue') continue
       if (!to) {
-        drops.no_recipient += 1
         summary.skipped += 1
         summary.errors.push(`No alert email for site ${site.id}`)
         continue
       }
-      drops.queued += 1
       const list = bySite.get(site.id as string) ?? []
       list.push({
         orgId: site.org_id as string,
@@ -434,8 +349,6 @@ Deno.serve(async (req) => {
       bySite.set(site.id as string, list)
     }
   }
-  debug.drops = drops
-  debug.exit = 'loop'
 
   for (const items of bySite.values()) {
     const claimed: { id: string; item: OverdueItem }[] = []
