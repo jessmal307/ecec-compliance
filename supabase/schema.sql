@@ -3379,3 +3379,40 @@ begin
   return new;
 end;
 $$;
+
+-- Same-day centre alerts. sites.alert_email is the first recipient; the
+-- organisation alert email is the fallback. Existing site audit trigger
+-- records changes. form_overdue_alerts is the claim-before-send ledger
+-- (one row per site + template + day).
+alter table public.sites
+  add column if not exists alert_email text;
+
+create table if not exists public.form_overdue_alerts (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid not null references public.sites (id) on delete cascade,
+  template_id uuid not null references public.form_templates (id) on delete cascade,
+  for_date date not null,
+  status text not null default 'sending',
+  created_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+
+alter table public.form_overdue_alerts
+  drop constraint if exists form_overdue_alerts_site_template_date_key;
+alter table public.form_overdue_alerts
+  add constraint form_overdue_alerts_site_template_date_key
+  unique (site_id, template_id, for_date);
+
+alter table public.form_overdue_alerts drop constraint if exists form_overdue_alerts_status_check;
+alter table public.form_overdue_alerts add constraint form_overdue_alerts_status_check
+  check (status in ('sending', 'sent'));
+
+create index if not exists form_overdue_alerts_status_created_at_idx
+  on public.form_overdue_alerts (status, created_at);
+
+alter table public.form_overdue_alerts enable row level security;
+
+revoke all on table public.form_overdue_alerts from public;
+revoke all on table public.form_overdue_alerts from anon;
+revoke all on table public.form_overdue_alerts from authenticated;
