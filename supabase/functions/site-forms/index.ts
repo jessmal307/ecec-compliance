@@ -675,12 +675,15 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
           .from('form_site_due_times')
           .select('site_id, template_id, due_by')
           .eq('org_id', context.orgId)
+          .or(`site_id.eq.${context.siteId},site_id.is.null`)
       : Promise.resolve({ data: [], error: null }),
   ])
   if (closuresResult.error) throw closuresResult.error
   if (submissionsResult.error) throw submissionsResult.error
   if (dueTimesResult.error) throw dueTimesResult.error
-  const dueTimes = dueTimesResult.data ?? []
+  const dueTimes = (dueTimesResult.data ?? []).filter(
+    (row) => row.site_id == null || sameId(row.site_id, context.siteId),
+  )
 
   const closures = (closuresResult.data ?? []).map((row) => ({
     closure_date: String(row.closure_date).slice(0, 10),
