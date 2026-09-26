@@ -1,11 +1,12 @@
 import { supabase } from './supabase'
 import { withArchiveScope } from './archive'
+import { DEFAULT_OPERATING_DAYS, normalizeOperatingDays } from './siteOpen'
 import { sydneyToday } from './sydneyTime'
 
 const SITE_FIELDS =
   'id, name, address, service_approval_number, phone, nominated_supervisor, alert_email, operating_days, org_id, created_at, archived_at'
 
-export const DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
+export { DEFAULT_OPERATING_DAYS }
 
 export const EMPTY_OPERATING_DAYS_MESSAGE =
   'Select at least one operating day. To pause this site temporarily, add closure dates; to stop it entirely, archive the site.'
@@ -21,8 +22,7 @@ export const WEEKDAY_OPTIONS = [
 ]
 
 function mapOperatingDays(value) {
-  if (!Array.isArray(value) || value.length === 0) return [...DEFAULT_OPERATING_DAYS]
-  return value.map(Number).filter((day) => day >= 1 && day <= 7)
+  return normalizeOperatingDays(value)
 }
 
 export const SITES_CHANGED_EVENT = 'ecec:sites-changed'

@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { dueByFor, dueStatusAt } from '../_shared/formDueTimes.js'
+import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
 import { sydneyToday } from '../_shared/sydneyTime.js'
 
 const TIME_ZONE = 'Australia/Sydney'
@@ -8,7 +9,6 @@ const SIGNED_UPLOAD_SECONDS = 600
 const TOKEN_WINDOW_MAX = 60
 const IP_WINDOW_MAX = 30
 const WINDOW_SECONDS = 60
-const DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
 const ALREADY_COMPLETED_MESSAGE = 'Already completed for this period'
 const COMPLETED_BY_SOMEONE_ELSE_MESSAGE =
   'This was just completed by someone else.'
@@ -165,17 +165,6 @@ function notBeforeIso(siteCreatedAt: string | null, templateCreatedAt: string | 
   return dates.length
     ? dates.reduce((latest, date) => (date > latest ? date : latest))
     : null
-}
-
-function isSiteOpenOn(
-  operatingDays: number[],
-  closures: { closure_date: string }[],
-  day: string,
-) {
-  const weekday = isoWeekday(day)
-  const operating = operatingDays.length ? operatingDays : DEFAULT_OPERATING_DAYS
-  if (weekday == null || !operating.includes(weekday)) return false
-  return !closures.some((row) => row.closure_date === day)
 }
 
 function forDateInPeriod(forDate: string | null | undefined, bounds: { start: string | null; end: string | null } | null) {
@@ -604,10 +593,7 @@ async function resolveToken(supabase: Supabase, rawToken: string) {
       orgName: org?.name || 'Organisation',
       siteId: data.site_id as string,
       siteName: site?.name || 'Site',
-      operatingDays:
-        Array.isArray(site?.operating_days) && site.operating_days.length
-          ? site.operating_days.map(Number)
-          : DEFAULT_OPERATING_DAYS,
+      operatingDays: normalizeOperatingDays(site?.operating_days),
       siteCreatedAt: site?.created_at ?? null,
     } satisfies TokenContext,
     error: null,
@@ -710,7 +696,15 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
       continue
     }
 
-    if (template.cadence === 'daily' && !isSiteOpenOn(context.operatingDays, closures, today)) {
+    if (
+      template.cadence === 'daily' &&
+      !isSiteOpenOn({
+        operatingDays: context.operatingDays,
+        closures,
+        siteId: context.siteId,
+        day: today,
+      })
+    ) {
       continue
     }
 
@@ -828,7 +822,14 @@ async function handlePost(
       const closed = (closures ?? []).map((row) => ({
         closure_date: String(row.closure_date).slice(0, 10),
       }))
-      if (!isSiteOpenOn(context.operatingDays, closed, today)) {
+      if (
+        !isSiteOpenOn({
+          operatingDays: context.operatingDays,
+          closures: closed,
+          siteId: context.siteId,
+          day: today,
+        })
+      ) {
         return json({ error: 'This form is not available for this site.' }, 403)
       }
     }

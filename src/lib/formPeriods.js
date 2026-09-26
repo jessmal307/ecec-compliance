@@ -7,10 +7,9 @@ import {
   sydneyIsoDate,
 } from './sydneyTime'
 import { isLateForDueBy } from './formDueTimes'
+import { DEFAULT_OPERATING_DAYS, isSiteOpenOn as siteIsOpenOn } from './siteOpen'
 
-export { addDaysIso, daysInMonth, formatIso, isoWeekday }
-
-export const DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
+export { addDaysIso, daysInMonth, formatIso, isoWeekday, DEFAULT_OPERATING_DAYS }
 
 function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value ?? '')
@@ -72,14 +71,12 @@ function sameId(left, right) {
 }
 
 export function isSiteOpenOn(site, closures, day) {
-  const weekday = isoWeekday(day)
-  const operating = site.operating_days?.length
-    ? site.operating_days
-    : DEFAULT_OPERATING_DAYS
-  if (!operating.includes(weekday)) return false
-  return !closures.some(
-    (row) => sameId(row.site_id, site.id) && row.closure_date === day,
-  )
+  return siteIsOpenOn({
+    operatingDays: site?.operating_days,
+    closures,
+    siteId: site?.id,
+    day,
+  })
 }
 
 export function coverageDate(row) {
