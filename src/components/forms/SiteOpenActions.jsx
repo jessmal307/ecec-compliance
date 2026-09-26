@@ -87,9 +87,9 @@ export function SiteOpenActions({ organizationId, siteId }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Open actions</CardTitle>
+        <CardTitle>To do</CardTitle>
         <p className="text-sm text-muted-foreground">
-          {actionCountLabel(counts) || 'No open actions.'}{' '}
+          {actionCountLabel(counts) || 'Nothing to do.'}{' '}
           <Link to={`${paths.actions}?site=${siteId}`} className="underline underline-offset-2">
             All actions
           </Link>
@@ -137,7 +137,7 @@ export function SiteOpenActions({ organizationId, siteId }) {
                 }
                 disabled={saving}
               >
-                <option value="">Unassigned</option>
+                <option value="">No one assigned</option>
                 {staff.map((member) => (
                   <option key={member.id} value={member.id}>
                     {member.name}

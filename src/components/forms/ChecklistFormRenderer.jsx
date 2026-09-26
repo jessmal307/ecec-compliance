@@ -75,7 +75,7 @@ function YesNoNaItem({
                   }
                   disabled={readOnly}
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">No one assigned</option>
                   {(staff ?? []).map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name}

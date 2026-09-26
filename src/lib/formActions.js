@@ -32,14 +32,13 @@ function mapAction(row) {
 export function actionOwnerLabel(action) {
   if (action.owner_staff_name) return action.owner_staff_name
   if (String(action.owner_name || '').trim()) return action.owner_name.trim()
-  return 'Unassigned'
+  return 'No one assigned'
 }
 
 export function actionCountLabel(counts) {
   const open = counts?.open ?? 0
   if (!open) return ''
-  const noun = open === 1 ? 'action' : 'actions'
-  return `${open} open ${noun}, ${counts.overdue} overdue, ${counts.unassigned} unassigned`
+  return `${open} to do, ${counts.overdue} overdue, ${counts.unassigned} with no one assigned`
 }
 
 export function summarizeOpenActions(actions, today) {

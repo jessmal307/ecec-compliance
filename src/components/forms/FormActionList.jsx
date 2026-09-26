@@ -45,7 +45,7 @@ export function FormActionList({
 
   async function close(id) {
     if (!note.trim()) {
-      onError?.('Enter a note to close this action.')
+      onError?.('Enter what was done.')
       return
     }
     setSavingId(id)
@@ -74,9 +74,11 @@ export function FormActionList({
           <li key={action.id} className="space-y-3 rounded-lg border border-border p-3">
             <div className="flex flex-wrap items-center gap-2">
               <p className="font-medium text-card-foreground">{action.description}</p>
-              {action.status === 'closed' ? <Badge variant="outline">Closed</Badge> : null}
+              <Badge variant="outline">{action.status === 'closed' ? 'Done' : 'To do'}</Badge>
               {overdue ? <Badge variant="outline">Overdue</Badge> : null}
-              {unassigned && action.status === 'open' ? <Badge variant="outline">Unassigned</Badge> : null}
+              {unassigned && action.status === 'open' ? (
+                <Badge variant="outline">No one assigned</Badge>
+              ) : null}
               {action.added_to_qip ? <Badge variant="outline">QIP</Badge> : null}
               {action.quality_area ? <Badge variant="outline">QA {action.quality_area}</Badge> : null}
             </div>
@@ -91,7 +93,7 @@ export function FormActionList({
               <p className="text-sm whitespace-pre-wrap">{action.action_required}</p>
             ) : null}
             {action.status === 'closed' && action.closed_note ? (
-              <p className="text-sm text-muted-foreground">Closed: {action.closed_note}</p>
+              <p className="text-sm text-muted-foreground">What was done: {action.closed_note}</p>
             ) : null}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Owner">
@@ -105,7 +107,7 @@ export function FormActionList({
                     })
                   }
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">No one assigned</option>
                   {staff.map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name}
@@ -140,9 +142,10 @@ export function FormActionList({
             {action.status === 'open' ? (
               closingId === action.id ? (
                 <div className="space-y-2">
-                  <Field label="Note to close">
+                  <Field label="What was done?">
                     <Textarea
                       value={note}
+                      placeholder="e.g. Latch replaced by maintenance"
                       onChange={(event) => setNote(event.target.value)}
                       disabled={savingId === action.id}
                     />
@@ -154,7 +157,7 @@ export function FormActionList({
                       disabled={savingId === action.id}
                       onClick={() => close(action.id)}
                     >
-                      Close action
+                      Mark as done
                     </Button>
                     <Button
                       type="button"
@@ -179,7 +182,7 @@ export function FormActionList({
                     setNote('')
                   }}
                 >
-                  Close
+                  Mark as done
                 </Button>
               )
             ) : null}

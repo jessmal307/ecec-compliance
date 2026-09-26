@@ -87,7 +87,7 @@ export function Actions() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title="Actions"
-        description="Open follow-up actions across centres. Close one with a note, or change its owner and due date."
+        description="Follow-up actions to do across centres. Mark one as done with a note, or change its owner and due date."
       />
       <PageError>{error}</PageError>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -137,7 +137,7 @@ export function Actions() {
           variant={unassignedOnly ? 'default' : 'outline'}
           onClick={() => setFilter('unassigned', unassignedOnly ? '' : '1')}
         >
-          Unassigned
+          No one assigned
         </Button>
         <Button
           type="button"
