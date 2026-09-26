@@ -3,8 +3,12 @@ import test from 'node:test'
 import * as XLSX from 'xlsx'
 import {
   buildStaffImportPreview,
+  centreColumnFromValues,
+  detectConfidentHeader,
   parseImportDate,
+  plainIssue,
   sheetToRows,
+  workbookFromPaste,
 } from './staffImport.js'
 
 function workbookWithSheet(sheet, name = 'Data') {
@@ -64,4 +68,76 @@ test('a sheet that cannot be parsed returns an error instead of throwing', () =>
   const preview = buildStaffImportPreview(workbookWithSheet(sheet), 'Data', 0)
   assert.equal(preview.error, "Couldn't read this file")
   assert.deepEqual(preview.records, [])
+})
+
+test('picks a column-name row when at least three cells match, and asks when unsure', () => {
+  const types = [{ id: 'wwcc', name: 'WWCC' }]
+  const sure = detectConfidentHeader(
+    [
+      ['Staff list export'],
+      ['Given name', 'Surname', 'Email', 'WWCC expiry'],
+      ['Ada', 'Lovelace', 'ada@example.com', '1/2/26'],
+    ],
+    types,
+  )
+  assert.equal(sure.confident, true)
+  assert.equal(sure.index, 1)
+
+  const tie = detectConfidentHeader(
+    [
+      ['Given name', 'Surname', 'Email', 'Phone'],
+      ['First name', 'Last name', 'Email address', 'Mobile'],
+    ],
+    types,
+  )
+  assert.equal(tie.confident, false)
+
+  const weak = detectConfidentHeader([['Notes'], ['Hello', 'There']], types)
+  assert.equal(weak.confident, false)
+})
+
+test('uses a column as centres when at least half the values match', () => {
+  const sites = [{ id: '1', name: 'Bondi' }, { id: '2', name: 'Parramatta' }]
+  const records = [
+    { Name: 'Ada', Place: 'Bondi' },
+    { Name: 'Bea', Place: 'parramatta' },
+    { Name: 'Cam', Place: 'Bondi; Parramatta' },
+    { Name: 'Dee', Place: 'No such centre' },
+  ]
+  assert.equal(
+    centreColumnFromValues(records, ['Name', 'Place'], sites, ['Name']),
+    'Place',
+  )
+  assert.equal(
+    centreColumnFromValues(
+      [
+        { Place: 'Bondi' },
+        { Place: 'Nope' },
+        { Place: 'Also nope' },
+      ],
+      ['Place'],
+      sites,
+      [],
+    ),
+    '',
+  )
+})
+
+test('plain reasons and pasted rows', () => {
+  assert.equal(
+    plainIssue({ code: 'site', message: 'Unknown site "West".' }),
+    '“West” isn’t one of your centres.',
+  )
+  const pasted = workbookFromPaste(
+    'Given name\tSurname\tEmail\nAda\tLovelace\tada@example.com',
+  )
+  assert.equal(pasted.error, null)
+  const preview = buildStaffImportPreview(
+    pasted.data.workbook,
+    pasted.data.sheetNames[0],
+    0,
+  )
+  assert.equal(preview.error, null)
+  assert.equal(preview.records[0]['Given name'], 'Ada')
+  assert.equal(preview.records[0].Email, 'ada@example.com')
 })

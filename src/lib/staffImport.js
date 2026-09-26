@@ -382,6 +382,189 @@ export function guessStaffImportColumns(columns, requirementTypes) {
   return { mapping, siteColumn, certificates }
 }
 
+function cellMatchesKnownHeader(cell, requirementTypes) {
+  const header = normHeader(cell)
+  if (!header) return false
+  for (const aliases of Object.values(FIELD_ALIASES)) {
+    for (const alias of aliases) {
+      if (header === alias) return true
+      if (alias.includes(' ') && header.includes(alias)) return true
+    }
+  }
+  for (const type of requirementTypes ?? []) {
+    const name = normHeader(type.name)
+    if (name && header.includes(name)) return true
+  }
+  return false
+}
+
+export function detectConfidentHeader(rows, requirementTypes) {
+  const limit = Math.min(rows?.length ?? 0, 10)
+  const scores = []
+  for (let index = 0; index < limit; index += 1) {
+    const seen = new Set()
+    let score = 0
+    for (const cell of rows[index] ?? []) {
+      const header = normHeader(cell)
+      if (!header || seen.has(header)) continue
+      if (!cellMatchesKnownHeader(cell, requirementTypes)) continue
+      seen.add(header)
+      score += 1
+    }
+    scores.push({ index, score })
+  }
+  const ranked = [...scores].sort(
+    (left, right) => right.score - left.score || left.index - right.index,
+  )
+  const best = ranked[0] ?? { index: detectHeaderRowIndex(rows), score: 0 }
+  const second = ranked[1]
+  const confident = best.score >= 3 && (!second || second.score < best.score)
+  return {
+    index: best.score >= 3 ? best.index : detectHeaderRowIndex(rows),
+    confident,
+  }
+}
+
+const FIELD_PLAIN = Object.fromEntries(
+  STAFF_IMPORT_FIELDS.map((field) => [field.key, field.label]),
+)
+
+export function columnMatchList({
+  columns,
+  mapping,
+  siteColumn,
+  certificates,
+  requirementTypes,
+}) {
+  const labels = new Map()
+  for (const [key, column] of Object.entries(mapping ?? {})) {
+    if (column && FIELD_PLAIN[key]) labels.set(column, FIELD_PLAIN[key])
+  }
+  if (siteColumn) labels.set(siteColumn, 'Centre')
+  for (const type of requirementTypes ?? []) {
+    const picked = certificates?.[type.id] ?? {}
+    if (picked.expiry) labels.set(picked.expiry, `${type.name} expiry date`)
+    if (picked.issued) labels.set(picked.issued, `${type.name} date completed`)
+    if (picked.number) labels.set(picked.number, `${type.name} number`)
+  }
+  const matched = []
+  const unmatched = []
+  for (const column of columns ?? []) {
+    if (labels.has(column)) matched.push({ column, label: labels.get(column) })
+    else unmatched.push(column)
+  }
+  return { matched, unmatched }
+}
+
+export function centreColumnFromValues(records, columns, sites, reserved = []) {
+  const names = new Set(
+    (sites ?? []).map((site) => cellText(site.name).toLowerCase()).filter(Boolean),
+  )
+  if (!names.size) return ''
+  const reservedColumns = new Set(reserved)
+  let bestColumn = ''
+  let bestRatio = 0
+  for (const column of columns ?? []) {
+    if (!column || reservedColumns.has(column)) continue
+    let filled = 0
+    let matched = 0
+    for (const record of records ?? []) {
+      const parts = splitSiteNames(record[column])
+      if (!parts.length) continue
+      filled += 1
+      if (parts.every((part) => names.has(part.toLowerCase()))) matched += 1
+    }
+    if (!filled || !matched) continue
+    const ratio = matched / filled
+    if (ratio >= 0.5 && ratio > bestRatio) {
+      bestColumn = column
+      bestRatio = ratio
+    }
+  }
+  return bestColumn
+}
+
+export function plainIssue(issue) {
+  const message = issue?.message ?? ''
+  if (issue?.code === 'name') return 'Enter a name.'
+  if (issue?.code === 'role') return 'No role given, so we’ll use Staff.'
+  if (issue?.code === 'employment') {
+    return 'We didn’t recognise that employment status, so we’ll use Active.'
+  }
+  if (issue?.code === 'duplicate') {
+    if (message.includes('archived')) {
+      return 'This person is already on file, and their record is archived.'
+    }
+    if (message.includes('earlier row') && message.includes('email')) {
+      return 'Another row in this file has the same email.'
+    }
+    if (message.includes('earlier row')) {
+      return 'Another row in this file has the same name.'
+    }
+    if (message.includes('email')) return 'This email is already on file.'
+    return 'This name is already on file.'
+  }
+  if (issue?.code === 'site') {
+    const unknown = message.match(/^Unknown site "(.+)"/)
+    if (unknown) return `“${unknown[1]}” isn’t one of your centres.`
+    if (message.includes('more than one')) {
+      return 'That centre name matches more than one of your centres.'
+    }
+    return 'Choose a centre.'
+  }
+  if (issue?.code === 'date') {
+    if (message.includes('more than 15 years')) {
+      return 'That start date is more than 15 years ahead.'
+    }
+    if (message.includes('in the future')) {
+      const label = message.replace(/ issued date is in the future\./, '')
+      return `The ${label} date completed is in the future.`
+    }
+    if (message.includes('after expiry')) {
+      const label = message.replace(/ issued date is after expiry\./, '')
+      return `The ${label} date completed is after the expiry date.`
+    }
+    if (message.includes('no validity period')) {
+      const label = message.replace(/ has an issued date but no validity period.*$/, '')
+      return `${label} has a date completed, but we can’t work out an expiry date for it.`
+    }
+    if (message.startsWith('Start date:')) {
+      return 'The start date isn’t one we can read. Use a day/month/year date.'
+    }
+    const expiry = message.match(/^(.+) expiry:/)
+    if (expiry) {
+      return `The ${expiry[1]} expiry date isn’t one we can read. Use a day/month/year date.`
+    }
+    const issued = message.match(/^(.+) issued date:/)
+    if (issued) {
+      return `The ${issued[1]} date completed isn’t one we can read. Use a day/month/year date.`
+    }
+    return 'This date isn’t one we can read. Use a day/month/year date.'
+  }
+  if (issue?.code === 'certificate') {
+    return message.replace(
+      'number ignored because there is no expiry or issued date.',
+      'number was left out because there is no expiry date or date completed.',
+    )
+  }
+  return message
+}
+
+export function workbookFromPaste(text) {
+  const trimmed = String(text ?? '').replace(/^\uFEFF/, '').trim()
+  if (!trimmed) return { data: null, error: 'Paste the rows from Excel first.' }
+  try {
+    const workbook = XLSX.read(trimmed, { type: 'string', cellDates: false })
+    const sheetNames = workbook.SheetNames ?? []
+    if (!sheetNames.length) {
+      return { data: null, error: "Couldn't read this file" }
+    }
+    return { data: { workbook, sheetNames }, error: null }
+  } catch {
+    return { data: null, error: "Couldn't read this file" }
+  }
+}
+
 export function parseImportDate(value) {
   let text = cellText(value).replace(/\s+\d{1,2}:\d{2}(?::\d{2})?\s*$/, '')
   if (!text) return { empty: true }
@@ -737,7 +920,7 @@ export function staffImportTemplateCsv(requirementTypes) {
     'Role',
     'Employment status',
     'Start date',
-    'Site',
+    'Centre',
   ]
   for (const type of requirementTypes ?? []) {
     headers.push(`${type.name} expiry`, `${type.name} issued`, `${type.name} number`)
