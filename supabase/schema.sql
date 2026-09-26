@@ -2491,3 +2491,156 @@ alter table public.site_access_rate_limits enable row level security;
 revoke all on table public.site_access_rate_limits from public;
 revoke all on table public.site_access_rate_limits from anon;
 revoke all on table public.site_access_rate_limits from authenticated;
+
+-- Monthly compliance snapshots, written by send-monthly-compliance-report.
+-- site_id null = whole-org row. Captured for every org regardless of plan.
+create table if not exists public.compliance_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid references public.sites (id) on delete cascade,
+  period date not null,
+  compliant integer not null default 0,
+  expiring integer not null default 0,
+  expired integer not null default 0,
+  missing integer not null default 0,
+  recheck_due integer not null default 0,
+  total_required integer not null default 0,
+  percent integer,
+  created_at timestamptz not null default now()
+);
+
+alter table public.compliance_snapshots drop constraint if exists compliance_snapshots_counts_check;
+alter table public.compliance_snapshots add constraint compliance_snapshots_counts_check
+  check (
+    compliant >= 0
+    and expiring >= 0
+    and expired >= 0
+    and missing >= 0
+    and recheck_due >= 0
+    and total_required >= 0
+  );
+
+alter table public.compliance_snapshots drop constraint if exists compliance_snapshots_percent_check;
+alter table public.compliance_snapshots add constraint compliance_snapshots_percent_check
+  check (percent is null or percent between 0 and 100);
+
+alter table public.compliance_snapshots drop constraint if exists compliance_snapshots_period_check;
+alter table public.compliance_snapshots add constraint compliance_snapshots_period_check
+  check (extract(day from period) = 1);
+
+create unique index if not exists compliance_snapshots_org_period_key
+  on public.compliance_snapshots (org_id, period)
+  where site_id is null;
+
+create unique index if not exists compliance_snapshots_org_site_period_key
+  on public.compliance_snapshots (org_id, site_id, period)
+  where site_id is not null;
+
+alter table public.compliance_snapshots enable row level security;
+
+revoke all on table public.compliance_snapshots from public;
+revoke all on table public.compliance_snapshots from anon;
+revoke all on table public.compliance_snapshots from authenticated;
+grant select on table public.compliance_snapshots to authenticated;
+
+drop policy if exists "Users can view compliance snapshots in their organization"
+  on public.compliance_snapshots;
+create policy "Users can view compliance snapshots in their organization"
+  on public.compliance_snapshots
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_org_ids()
+    )
+  );
+
+-- One org's rows for one month, in one transaction. Re-runs overwrite.
+-- p_rows: [{ site_id, compliant, expiring, expired, missing, recheck_due, total_required, percent }]
+create or replace function public.upsert_compliance_snapshots(
+  p_org_id uuid,
+  p_period date,
+  p_rows jsonb
+)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  org_count integer := 0;
+  site_count integer := 0;
+begin
+  insert into public.compliance_snapshots as snap (
+    org_id, site_id, period,
+    compliant, expiring, expired, missing, recheck_due, total_required, percent
+  )
+  select
+    p_org_id, null, p_period,
+    r.compliant, r.expiring, r.expired, r.missing,
+    r.recheck_due, r.total_required, r.percent
+  from jsonb_to_recordset(coalesce(p_rows, '[]'::jsonb)) as r (
+    site_id uuid,
+    compliant integer,
+    expiring integer,
+    expired integer,
+    missing integer,
+    recheck_due integer,
+    total_required integer,
+    percent integer
+  )
+  where r.site_id is null
+  on conflict (org_id, period) where site_id is null
+  do update set
+    compliant = excluded.compliant,
+    expiring = excluded.expiring,
+    expired = excluded.expired,
+    missing = excluded.missing,
+    recheck_due = excluded.recheck_due,
+    total_required = excluded.total_required,
+    percent = excluded.percent,
+    created_at = now();
+  get diagnostics org_count = row_count;
+
+  insert into public.compliance_snapshots as snap (
+    org_id, site_id, period,
+    compliant, expiring, expired, missing, recheck_due, total_required, percent
+  )
+  select
+    p_org_id, r.site_id, p_period,
+    r.compliant, r.expiring, r.expired, r.missing,
+    r.recheck_due, r.total_required, r.percent
+  from jsonb_to_recordset(coalesce(p_rows, '[]'::jsonb)) as r (
+    site_id uuid,
+    compliant integer,
+    expiring integer,
+    expired integer,
+    missing integer,
+    recheck_due integer,
+    total_required integer,
+    percent integer
+  )
+  join public.sites as sites
+    on sites.id = r.site_id
+   and sites.org_id = p_org_id
+  where r.site_id is not null
+  on conflict (org_id, site_id, period) where site_id is not null
+  do update set
+    compliant = excluded.compliant,
+    expiring = excluded.expiring,
+    expired = excluded.expired,
+    missing = excluded.missing,
+    recheck_due = excluded.recheck_due,
+    total_required = excluded.total_required,
+    percent = excluded.percent,
+    created_at = now();
+  get diagnostics site_count = row_count;
+
+  return org_count + site_count;
+end;
+$$;
+
+revoke all on function public.upsert_compliance_snapshots(uuid, date, jsonb) from public;
+revoke all on function public.upsert_compliance_snapshots(uuid, date, jsonb) from anon;
+revoke all on function public.upsert_compliance_snapshots(uuid, date, jsonb) from authenticated;
+grant execute on function public.upsert_compliance_snapshots(uuid, date, jsonb) to service_role;

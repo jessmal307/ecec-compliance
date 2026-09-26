@@ -1,10 +1,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { buildProviderComplianceReport } from '../_shared/dashboardCompliance.js'
+import { hasServiceRoleAuth } from '../_shared/serviceRoleAuth.ts'
 
-// Cron (UTC): 0 14 1 * *
-// That's 00:00 on the 1st in AEST (UTC+10) / 01:00 AEDT (UTC+11) — Australia/Sydney.
-// Dashboard → Edge Functions → send-monthly-compliance-report → Schedules
-// or run supabase/cron_monthly_compliance_report.sql
+// Scheduled by supabase/cron_jobs.sql (rtc-monthly-report).
 
 const TIME_ZONE = 'Australia/Sydney'
 
@@ -50,6 +48,16 @@ function todaySydney(): string {
 function monthLabel(isoDate: string): string {
   const date = new Date(`${isoDate}T00:00:00.000Z`)
   return date.toLocaleDateString('en-AU', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+function asAtLabel(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00.000Z`)
+  return date.toLocaleDateString('en-AU', {
+    day: 'numeric',
     month: 'long',
     year: 'numeric',
     timeZone: 'UTC',
@@ -182,7 +190,56 @@ function reportHtml(
   `
 }
 
-Deno.serve(async () => {
+async function requestMode(req: Request) {
+  const fromQuery = new URL(req.url).searchParams.get('mode')
+  if (fromQuery) return fromQuery
+  if (req.method !== 'POST') return ''
+  const body = await req.json().catch(() => null)
+  return body && typeof body === 'object' && typeof body.mode === 'string' ? body.mode : ''
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message)
+  }
+  return String(error)
+}
+
+function monthPeriod(todayIso: string) {
+  return `${todayIso.slice(0, 7)}-01`
+}
+
+function snapshotRow(
+  siteId: string | null,
+  section: {
+    requiredCount: number
+    compliantCount: number
+    expiringCount: number
+    expiredCount: number
+    missingCount: number
+    percent: number | null
+  },
+) {
+  return {
+    site_id: siteId,
+    compliant: section.compliantCount,
+    expiring: section.expiringCount,
+    expired: section.expiredCount,
+    missing: section.missingCount,
+    // Every slot is Valid, Expiring soon, Expired, Missing, or Recheck due.
+    recheck_due:
+      section.requiredCount -
+      section.compliantCount -
+      section.expiringCount -
+      section.expiredCount -
+      section.missingCount,
+    total_required: section.requiredCount,
+    percent: section.percent,
+  }
+}
+
+Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
@@ -193,19 +250,35 @@ Deno.serve(async () => {
     return json({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500)
   }
 
-  if (!resendApiKey) {
+  if (!hasServiceRoleAuth(req, serviceRoleKey)) {
+    return json({ error: 'Unauthorized' }, 401)
+  }
+
+  const mode = await requestMode(req)
+  if (mode && mode !== 'snapshot_only') {
+    return json({ error: `Unknown mode: ${mode}` }, 400)
+  }
+  const snapshotOnly = mode === 'snapshot_only'
+
+  if (!snapshotOnly && !resendApiKey) {
     return json({ error: 'Missing RESEND_API_KEY' }, 500)
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey)
   const todayIso = todaySydney()
   const month = monthLabel(todayIso)
+  const asAt = asAtLabel(todayIso)
+  const period = monthPeriod(todayIso)
   const ownerEmailCache = new Map<string, string | null>()
 
   const summary = {
+    mode: snapshotOnly ? 'snapshot_only' : 'report',
+    period,
     sent: 0,
     skipped: 0,
+    snapshots: 0,
     errors: [] as string[],
+    snapshot_errors: [] as string[],
   }
 
   async function ownerEmail(ownerId: string): Promise<string | null> {
@@ -385,39 +458,71 @@ Deno.serve(async () => {
   }
 
   for (const org of organizations) {
-    const to =
-      org.alert_email?.trim() ||
-      (org.owner_id ? await ownerEmail(org.owner_id) : null)
-    if (!to) {
-      summary.skipped += 1
-      summary.errors.push(`No alert email for org ${org.id}`)
+    let report: ReturnType<typeof buildProviderComplianceReport>
+    try {
+      report = buildProviderComplianceReport({
+        staff: staffByOrg.get(org.id) ?? [],
+        sites: sitesByOrg.get(org.id) ?? [],
+        items: itemsByOrg.get(org.id) ?? [],
+        requirementTypes: typesByOrg.get(org.id) ?? [],
+        exclusions: staffExclusionsByOrg.get(org.id) ?? [],
+        siteExclusions: siteExclusionsByOrg.get(org.id) ?? [],
+        todayIso,
+      })
+    } catch (error) {
+      const message = errorMessage(error)
+      summary.errors.push(`Failed to build report for org ${org.id}: ${message}`)
+      summary.snapshot_errors.push(`Failed to build report for org ${org.id}: ${message}`)
       continue
     }
 
-    const report = buildProviderComplianceReport({
-      staff: staffByOrg.get(org.id) ?? [],
-      sites: sitesByOrg.get(org.id) ?? [],
-      items: itemsByOrg.get(org.id) ?? [],
-      requirementTypes: typesByOrg.get(org.id) ?? [],
-      exclusions: staffExclusionsByOrg.get(org.id) ?? [],
-      siteExclusions: siteExclusionsByOrg.get(org.id) ?? [],
-      todayIso,
-    })
-
-    const { error: sendError } = await sendResendEmail({
-      apiKey: resendApiKey,
-      from: fromEmail,
-      to,
-      subject: `Monthly compliance report — ${org.name} — ${month}`,
-      html: reportHtml(org.name, month, report),
-    })
-
-    if (sendError) {
-      summary.errors.push(`Failed to email ${org.name}: ${sendError.message}`)
-      continue
+    try {
+      const rows = [
+        snapshotRow(null, report.org),
+        ...report.sites.map((section) => snapshotRow(section.id, section)),
+      ]
+      const { error: snapshotError } = await supabase.rpc('upsert_compliance_snapshots', {
+        p_org_id: org.id,
+        p_period: period,
+        p_rows: rows,
+      })
+      if (snapshotError) throw snapshotError
+      summary.snapshots += 1
+    } catch (error) {
+      const message = errorMessage(error)
+      summary.snapshot_errors.push(`Failed to snapshot org ${org.id}: ${message}`)
     }
 
-    summary.sent += 1
+    if (snapshotOnly) continue
+
+    try {
+      const to =
+        org.alert_email?.trim() ||
+        (org.owner_id ? await ownerEmail(org.owner_id) : null)
+      if (!to) {
+        summary.skipped += 1
+        summary.errors.push(`No alert email for org ${org.id}`)
+        continue
+      }
+
+      const { error: sendError } = await sendResendEmail({
+        apiKey: resendApiKey as string,
+        from: fromEmail,
+        to,
+        subject: `Monthly compliance report — ${org.name} — as at ${asAt}`,
+        html: reportHtml(org.name, month, report),
+      })
+
+      if (sendError) {
+        summary.errors.push(`Failed to email ${org.name}: ${sendError.message}`)
+        continue
+      }
+
+      summary.sent += 1
+    } catch (error) {
+      const message = errorMessage(error)
+      summary.errors.push(`Failed to email ${org.name}: ${message}`)
+    }
   }
 
   return json(summary)

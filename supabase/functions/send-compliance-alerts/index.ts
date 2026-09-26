@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { hasServiceRoleAuth } from '../_shared/serviceRoleAuth.ts'
 
 const ALERT_TIME_ZONE = 'Australia/Sydney'
 const EXPIRY_KINDS = ['renewal', 'expired'] as const
@@ -1444,7 +1445,7 @@ async function sendResendEmail({
   return { error: null }
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
@@ -1453,6 +1454,10 @@ Deno.serve(async () => {
 
   if (!supabaseUrl || !serviceRoleKey) {
     return json({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500)
+  }
+
+  if (!hasServiceRoleAuth(req, serviceRoleKey)) {
+    return json({ error: 'Unauthorized' }, 401)
   }
 
   if (!resendApiKey) {
