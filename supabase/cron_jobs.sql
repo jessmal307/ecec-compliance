@@ -12,6 +12,8 @@
 -- pg_cron runs in UTC. Sydney is UTC+10 (AEST) or UTC+11 (AEDT).
 --   rtc-daily-alerts    30 20 * * *  -> 06:30 AEST / 07:30 AEDT, every day
 --   rtc-monthly-report  0 0 1 * *    -> 10:00 AEST / 11:00 AEDT on the 1st
+--   rtc-form-overdue-alerts */15 * * * * -> every 15 minutes UTC; the
+--     function exits outside 05:00–22:00 Sydney (covers AEST and AEDT)
 --   rtc-purge-rate-limits 15 17 * * * -> 03:15 AEST / 04:15 AEDT, every day (SQL only)
 
 create extension if not exists pg_cron;
@@ -24,6 +26,7 @@ where jobname in (
   'rtc-daily-alerts',
   'rtc-monthly-report',
   'rtc-purge-rate-limits',
+  'rtc-form-overdue-alerts',
   'send-monthly-compliance-report'
 );
 
@@ -65,6 +68,25 @@ select cron.schedule(
   $$
 );
 
+select cron.schedule(
+  'rtc-form-overdue-alerts',
+  '*/15 * * * *',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+      || '/functions/v1/send-form-overdue-alerts',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'apikey', (
+        select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret_key'
+      )
+    ),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 120000
+  );
+  $$
+);
+
 -- Rate limit windows are at most an hour and floor sessions last 15 minutes;
 -- a day of history is plenty.
 select cron.schedule(
@@ -78,8 +100,8 @@ select cron.schedule(
   $$
 );
 
--- Verify (run separately): expect exactly three rows. The two rtc-* email
--- jobs: reads_vault and uses_cron_key true. All three: key_or_ref_visible false.
+-- Verify (run separately): expect exactly four rows. The three rtc-* HTTP
+-- jobs: reads_vault and uses_cron_key true. All four: key_or_ref_visible false.
 -- select jobname, schedule, active,
 --        command like '%vault.decrypted_secrets%' as reads_vault,
 --        command like '%cron_secret_key%' as uses_cron_key,

@@ -13,3 +13,7 @@ verify_jwt = false
 [functions.site-forms]
 enabled = true
 verify_jwt = false
+
+[functions.send-form-overdue-alerts]
+enabled = true
+verify_jwt = false
