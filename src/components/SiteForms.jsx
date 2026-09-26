@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useMinuteClock } from '../hooks/useMinuteClock'
+import { dueStatusAt } from '../lib/formDueTimes'
+import { formatTimeOfDay } from '../lib/sydneyTime'
 import {
   addFloorAppHead,
   clearStoredFloorToken,
@@ -32,11 +35,12 @@ function statusLabel(status) {
   if (status === 'done') return 'Done'
   if (status === 'missed') return 'Missed'
   if (status === 'available') return 'Available'
+  if (status === 'overdue') return 'Overdue'
   return 'Due'
 }
 
 function canComplete(status) {
-  return status === 'due' || status === 'available'
+  return status === 'due' || status === 'overdue' || status === 'available'
 }
 
 function formatDay(isoDate) {
@@ -110,6 +114,20 @@ export function SiteForms() {
   // Held in memory only: a reload means signing in again.
   const [session, setSession] = useState(null)
   const [signingFor, setSigningFor] = useState(null)
+  const now = useMinuteClock()
+  const listedForms = useMemo(
+    () =>
+      forms.map((form) => ({
+        ...form,
+        status: dueStatusAt({
+          status: form.status,
+          dueBy: form.due_by,
+          forDate: form.for_date,
+          now,
+        }),
+      })),
+    [forms, now],
+  )
 
   async function loadList() {
     setLoading(true)
@@ -464,13 +482,20 @@ export function SiteForms() {
         <PageMuted>No forms to complete today.</PageMuted>
       ) : (
         <ul className="flex flex-col gap-3">
-          {forms.map((form) => (
+          {listedForms.map((form) => (
             <li key={form.template_id}>
               <Card>
                 <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 space-y-1">
                     <p className="text-lg font-medium leading-snug">{form.name}</p>
-                    <Badge variant="outline">{statusLabel(form.status)}</Badge>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant={form.status === 'overdue' ? 'destructive' : 'outline'}>
+                        {statusLabel(form.status)}
+                      </Badge>
+                      {form.status === 'due' && form.due_by ? (
+                        <Badge variant="outline">Due by {formatTimeOfDay(form.due_by)}</Badge>
+                      ) : null}
+                    </div>
                   </div>
                   {canComplete(form.status) ? (
                     <Button

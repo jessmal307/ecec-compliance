@@ -1,4 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { dueByFor, dueStatusAt } from '../_shared/formDueTimes.js'
+import { sydneyToday } from '../_shared/sydneyTime.js'
 
 const TIME_ZONE = 'Australia/Sydney'
 const FORM_UPLOADS_BUCKET = 'form-uploads'
@@ -51,6 +53,7 @@ type TemplateRow = {
   schema: Record<string, unknown>
   cadence: string | null
   scope: string
+  default_due_by: string | null
   created_at: string | null
 }
 
@@ -135,8 +138,8 @@ function dateInTimeZone(date: Date, timeZone: string) {
   return `${year}-${month}-${day}`
 }
 
-function todaySydney() {
-  return dateInTimeZone(new Date(), TIME_ZONE)
+function todaySydney(): string {
+  return sydneyToday() ?? dateInTimeZone(new Date(), TIME_ZONE)
 }
 
 function sameId(left: unknown, right: unknown) {
@@ -615,7 +618,7 @@ async function loadApplicableTemplates(supabase: Supabase, orgId: string, siteId
   const [templatesResult, exclusionsResult] = await Promise.all([
     supabase
       .from('form_templates')
-      .select('id, name, archetype, schema, cadence, scope, archived_at, created_at')
+      .select('id, name, archetype, schema, cadence, scope, default_due_by, archived_at, created_at')
       .is('archived_at', null)
       .or(`org_id.eq.${orgId},org_id.is.null`),
     supabase
@@ -637,6 +640,7 @@ async function loadApplicableTemplates(supabase: Supabase, orgId: string, siteId
       schema: (row.schema && typeof row.schema === 'object' ? row.schema : {}) as Record<string, unknown>,
       cadence: (row.cadence as string | null) ?? null,
       scope: (row.scope as string) || 'on_demand',
+      default_due_by: (row.default_due_by as string | null) ?? null,
       created_at: (row.created_at as string | null) ?? null,
     }))
 
@@ -648,7 +652,7 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
   const templates = await loadApplicableTemplates(supabase, context.orgId, context.siteId)
   const scheduled = templates.filter(isScheduledTemplate)
 
-  const [closuresResult, submissionsResult] = await Promise.all([
+  const [closuresResult, submissionsResult, dueTimesResult] = await Promise.all([
     supabase
       .from('site_closures')
       .select('closure_date')
@@ -666,9 +670,17 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
             scheduled.map((template) => template.id),
           )
       : Promise.resolve({ data: [], error: null }),
+    scheduled.some((template) => template.cadence === 'daily')
+      ? supabase
+          .from('form_site_due_times')
+          .select('site_id, template_id, due_by')
+          .eq('org_id', context.orgId)
+      : Promise.resolve({ data: [], error: null }),
   ])
   if (closuresResult.error) throw closuresResult.error
   if (submissionsResult.error) throw submissionsResult.error
+  if (dueTimesResult.error) throw dueTimesResult.error
+  const dueTimes = dueTimesResult.data ?? []
 
   const closures = (closuresResult.data ?? []).map((row) => ({
     closure_date: String(row.closure_date).slice(0, 10),
@@ -689,6 +701,7 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
         cadence: null,
         schema: template.schema,
         status: 'available',
+        due_by: null,
         for_date: null,
       })
       continue
@@ -706,13 +719,17 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
       submissions.filter((row) => sameId(row.template_id, template.id)),
       bounds,
     )
+    const dueBy: string | null = dueByFor(template, context.siteId, dueTimes).dueBy
     forms.push({
       template_id: template.id,
       name: template.name,
       archetype: template.archetype,
       cadence: template.cadence,
       schema: template.schema,
-      status,
+      status: template.cadence === 'daily'
+        ? dueStatusAt({ status, dueBy, forDate: today })
+        : status,
+      due_by: dueBy,
       for_date: today,
     })
   }

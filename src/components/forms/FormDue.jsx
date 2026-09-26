@@ -34,7 +34,11 @@ export function FormDue({ organizationId }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const rows = useMemo(
-    () => loadedRows.map((row) => ({ ...row, status: dueStatusAt({ ...row, now }) })),
+    () =>
+      loadedRows.map((row) => ({
+        ...row,
+        status: dueStatusAt({ status: row.status, dueBy: row.due_by, forDate: row.for_date, now }),
+      })),
     [loadedRows, now],
   )
 
