@@ -25,11 +25,11 @@ function statusBadgeLabel(status) {
   return 'Due'
 }
 
-export function FormDue({ organizationId }) {
+export function FormDue({ organizationId, siteId = '', outstandingOnly = false }) {
   const today = todayIsoDate()
   const now = useMinuteClock()
   const [searchParams] = useSearchParams()
-  const siteFilter = searchParams.get('site') || ''
+  const siteFilter = siteId || searchParams.get('site') || ''
   const [loadedRows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -38,8 +38,9 @@ export function FormDue({ organizationId }) {
       loadedRows.map((row) => ({
         ...row,
         status: dueStatusAt({ status: row.status, dueBy: row.due_by, forDate: row.for_date, now }),
-      })),
-    [loadedRows, now],
+      }))
+        .filter((row) => !outstandingOnly || row.status === 'due' || row.status === 'overdue'),
+    [loadedRows, now, outstandingOnly],
   )
 
   useEffect(() => {
@@ -90,7 +91,11 @@ export function FormDue({ organizationId }) {
       {loading ? (
         <PageMuted>Loading due forms…</PageMuted>
       ) : groups.length === 0 ? (
-        <PageMuted>Nothing applicable today. Closed days and excluded centres are omitted.</PageMuted>
+        <PageMuted>
+          {outstandingOnly
+            ? 'Nothing outstanding. Completed forms are in History.'
+            : 'Nothing applicable today. Closed days and excluded centres are omitted.'}
+        </PageMuted>
       ) : (
         <ul className="grid grid-cols-1 gap-3">
           {groups.map((group) => (

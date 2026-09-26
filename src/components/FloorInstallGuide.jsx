@@ -33,9 +33,24 @@ function Steps({ title, steps }) {
   )
 }
 
-export function FloorInstallGuide({ siteName }) {
+export function FloorInstallGuide({ siteName, instructions = false }) {
   const [hidden, setHidden] = useState(() => runningFromHomeScreen() || installGuideDismissed())
   const [platform] = useState(floorDevicePlatform)
+
+  if (instructions) {
+    return (
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">Add to Home Screen</p>
+          <p className="text-sm text-muted-foreground">
+            On the centre tablet, open the floor link, then:
+          </p>
+        </div>
+        <Steps title="iPad or iPhone (Safari)" steps={IOS_STEPS} />
+        <Steps title="Android (Chrome)" steps={ANDROID_STEPS} />
+      </div>
+    )
+  }
 
   if (hidden) return null
 

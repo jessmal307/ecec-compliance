@@ -28,6 +28,11 @@ import {
   itemArchiveWarning,
   siteArchiveTitle,
 } from './ConfirmDeleteDialog'
+import { FloorInstallGuide } from './FloorInstallGuide'
+import { useFormsAccess } from './Forms'
+import { CentreFormsSnapshot } from './forms/CentreFormsSnapshot'
+import { FormDue } from './forms/FormDue'
+import { FormSubmissions } from './forms/FormSubmissions'
 import { ProfileComplianceHeader } from './ProfileComplianceHeader'
 import { AlertTimingHint } from './AlertTimingHint'
 import { ProfileSkeleton } from './PageSkeletons'
@@ -84,6 +89,15 @@ import {
 } from '../lib/sites'
 import { isArchived } from '../lib/archive'
 
+const CENTRE_TABS = ['overview', 'staff', 'requirements', 'forms', 'actions', 'floor', 'details']
+const PLUS_TABS = new Set(['forms', 'actions', 'floor'])
+
+function centreTab(value, formsAllowed) {
+  if (!CENTRE_TABS.includes(value)) return 'overview'
+  if (!formsAllowed && PLUS_TABS.has(value)) return 'overview'
+  return value
+}
+
 function siteInfoFromSite(site) {
   return {
     name: site?.name ?? '',
@@ -100,8 +114,9 @@ export function SiteProfile() {
   const { siteId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { organizationId } = useAuth()
+  const { allowed: formsAllowed, loading: formsAccessLoading } = useFormsAccess()
   const [site, setSite] = useState(null)
   const [info, setInfo] = useState(siteInfoFromSite(null))
   const [requirementTypes, setRequirementTypes] = useState([])
@@ -125,17 +140,13 @@ export function SiteProfile() {
   const [restoring, setRestoring] = useState(false)
   const [pendingSiteArchive, setPendingSiteArchive] = useState(false)
   const [pendingItemArchive, setPendingItemArchive] = useState(null)
-  const deepLinkTab =
-    searchParams.get('tab') === 'requirements' ? 'requirements' : null
-  const deepLinkKey = deepLinkTab
-    ? `${siteId}:${deepLinkTab}:${location.hash}`
-    : `${siteId}:none`
-  const [profileTab, setProfileTab] = useState(deepLinkTab ?? 'details')
-  const [appliedDeepLink, setAppliedDeepLink] = useState(deepLinkKey)
+  const profileTab = centreTab(searchParams.get('tab') || 'overview', formsAllowed)
 
-  if (appliedDeepLink !== deepLinkKey) {
-    setAppliedDeepLink(deepLinkKey)
-    setProfileTab(deepLinkTab ?? 'details')
+  function selectTab(next) {
+    const params = new URLSearchParams(searchParams)
+    if (!next || next === 'overview') params.delete('tab')
+    else params.set('tab', next)
+    setSearchParams(params, { replace: true })
   }
 
   useEffect(() => {
@@ -610,55 +621,115 @@ export function SiteProfile() {
 
       <PageError>{error}</PageError>
 
-      {loading ? (
+      {loading || formsAccessLoading ? (
         <ProfileSkeleton showStaff />
       ) : (
         <div className="flex flex-col gap-4">
-          {siteArchived ? null : (
-          <ProfileComplianceHeader
-            summary={complianceSummary}
-            onReviewUrgent={() => {
-              const urgent = complianceSummary.mostUrgent
-              if (!urgent) return
-              setProfileTab('requirements')
-              if (urgent.item) startEdit(urgent.item)
-              else startFillIn(urgent.requirementType)
-              window.setTimeout(() => {
-                document
-                  .getElementById(`requirement-${urgent.requirementType.id}`)
-                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-              }, 50)
-            }}
-          />
-          )}
-          <SiteHoursSettings
-            organizationId={organizationId}
-            siteId={siteId}
-            operatingDays={info.operatingDays ?? DEFAULT_OPERATING_DAYS}
-            onOperatingDaysChange={handleOperatingDaysChange}
-            disabled={infoBusy}
-          />
-          <SiteOpenActions organizationId={organizationId} siteId={siteId} />
-          <Tabs value={profileTab} onValueChange={setProfileTab}>
+          <Tabs value={profileTab} onValueChange={selectTab}>
             <TabsList>
-              <TabsTrigger value="details">Centre information</TabsTrigger>
-              <TabsTrigger value="requirements">
-                Requirements
-                <span className="ml-1.5 tabular-nums text-muted-foreground">
-                  {rows.length}
-                </span>
-              </TabsTrigger>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="staff">
                 Staff
                 <span className="ml-1.5 tabular-nums text-muted-foreground">
                   {siteStaff.length}
                 </span>
               </TabsTrigger>
+              <TabsTrigger value="requirements">
+                Requirements
+                <span className="ml-1.5 tabular-nums text-muted-foreground">
+                  {rows.length}
+                </span>
+              </TabsTrigger>
+              {formsAllowed ? <TabsTrigger value="forms">Forms & audits</TabsTrigger> : null}
+              {formsAllowed ? <TabsTrigger value="actions">Actions</TabsTrigger> : null}
+              {formsAllowed ? <TabsTrigger value="floor">Floor</TabsTrigger> : null}
+              <TabsTrigger value="details">Details</TabsTrigger>
             </TabsList>
+            <TabsContent value="overview">
+              <div className="flex flex-col gap-4">
+                {formsAllowed ? (
+                  <CentreFormsSnapshot
+                    organizationId={organizationId}
+                    site={site}
+                    requirementPercent={complianceSummary.percent}
+                    onOpenRequirements={() => selectTab('requirements')}
+                    onOpenForms={() => selectTab('forms')}
+                    onOpenActions={() => selectTab('actions')}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="w-fit rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-left"
+                    onClick={() => selectTab('requirements')}
+                  >
+                    <p className="text-xs text-muted-foreground">Requirements</p>
+                    <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight">
+                      {complianceSummary.percent}%
+                    </p>
+                  </button>
+                )}
+                {siteArchived ? null : (
+                  <ProfileComplianceHeader
+                    summary={complianceSummary}
+                    onReviewUrgent={() => {
+                      const urgent = complianceSummary.mostUrgent
+                      if (!urgent) return
+                      selectTab('requirements')
+                      if (urgent.item) startEdit(urgent.item)
+                      else startFillIn(urgent.requirementType)
+                      window.setTimeout(() => {
+                        document
+                          .getElementById(`requirement-${urgent.requirementType.id}`)
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }, 50)
+                    }}
+                  />
+                )}
+              </div>
+            </TabsContent>
+            {formsAllowed ? (
+            <>
+            <TabsContent value="forms">
+              <div className="flex flex-col gap-8">
+                <section className="flex flex-col gap-3">
+                  <h2 className="text-lg font-semibold">To do</h2>
+                  <FormDue organizationId={organizationId} siteId={siteId} outstandingOnly />
+                </section>
+                <section className="flex flex-col gap-3">
+                  <h2 className="text-lg font-semibold">History</h2>
+                  <FormSubmissions organizationId={organizationId} siteId={siteId} />
+                </section>
+              </div>
+            </TabsContent>
+            <TabsContent value="actions">
+              <SiteOpenActions organizationId={organizationId} siteId={siteId} />
+            </TabsContent>
+            <TabsContent value="floor">
+              <Card>
+                <CardContent className="space-y-6">
+                  <SiteHoursSettings
+                    organizationId={organizationId}
+                    siteId={siteId}
+                    operatingDays={info.operatingDays ?? DEFAULT_OPERATING_DAYS}
+                    onOperatingDaysChange={handleOperatingDaysChange}
+                    disabled={infoBusy || siteArchived}
+                  />
+                  <SiteFloorLinks
+                    organizationId={organizationId}
+                    siteId={siteId}
+                    siteName={site?.name ?? ''}
+                    disabled={infoBusy || siteArchived}
+                  />
+                  <FloorInstallGuide siteName={site?.name ?? ''} instructions />
+                </CardContent>
+              </Card>
+            </TabsContent>
+            </>
+            ) : null}
             <TabsContent value="details">
           <Card>
             <CardHeader>
-              <CardTitle>Centre information</CardTitle>
+              <CardTitle>Details</CardTitle>
               <CardDescription>Service details and contact.</CardDescription>
             </CardHeader>
             <CardContent>
@@ -753,12 +824,6 @@ export function SiteProfile() {
                   </Button>
                 </FormActions>
               </form>
-              <SiteFloorLinks
-                organizationId={organizationId}
-                siteId={siteId}
-                siteName={site?.name ?? ''}
-                disabled={infoBusy || siteArchived}
-              />
             </CardContent>
           </Card>
             </TabsContent>

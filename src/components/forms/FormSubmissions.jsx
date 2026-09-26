@@ -19,7 +19,7 @@ import { firstError } from '../../lib/query'
 import { listSites } from '../../lib/sites'
 import { paths } from '../../lib/paths'
 
-export function FormSubmissions({ organizationId }) {
+export function FormSubmissions({ organizationId, siteId: lockedSiteId = '' }) {
   const [submissions, setSubmissions] = useState([])
   const [templates, setTemplates] = useState([])
   const [sites, setSites] = useState([])
@@ -38,7 +38,7 @@ export function FormSubmissions({ organizationId }) {
     async function loadFilters() {
       const [templatesResult, sitesResult] = await Promise.all([
         listFormTemplates(),
-        listSites(organizationId),
+        lockedSiteId ? Promise.resolve({ data: [], error: null }) : listSites(organizationId),
       ])
       if (cancelled) return
       const loadError = firstError(templatesResult, sitesResult)
@@ -55,7 +55,7 @@ export function FormSubmissions({ organizationId }) {
     return () => {
       cancelled = true
     }
-  }, [organizationId])
+  }, [organizationId, lockedSiteId])
 
   useEffect(() => {
     if (!organizationId) return
@@ -67,7 +67,7 @@ export function FormSubmissions({ organizationId }) {
       setError('')
       const { data, count: total, error: loadError } = await listFormSubmissions(organizationId, {
         templateId,
-        siteId,
+        siteId: lockedSiteId || siteId,
         page,
         pageSize: LIST_PAGE_SIZE,
       })
@@ -89,7 +89,7 @@ export function FormSubmissions({ organizationId }) {
     return () => {
       cancelled = true
     }
-  }, [organizationId, templateId, siteId, page])
+  }, [organizationId, templateId, siteId, lockedSiteId, page])
 
   const pageCount = Math.max(1, Math.ceil(count / LIST_PAGE_SIZE) || 1)
   const from = count === 0 ? 0 : (page - 1) * LIST_PAGE_SIZE + 1
@@ -114,22 +114,24 @@ export function FormSubmissions({ organizationId }) {
             </option>
           ))}
         </Select>
-        <Select
-          value={siteId}
-          onChange={(event) => {
-            setSiteId(event.target.value)
-            setPage(1)
-          }}
-          aria-label="Filter by centre"
-          className="sm:w-52"
-        >
-          <option value="">All centres</option>
-          {sites.map((site) => (
-            <option key={site.id} value={site.id}>
-              {site.name}
-            </option>
-          ))}
-        </Select>
+        {lockedSiteId ? null : (
+          <Select
+            value={siteId}
+            onChange={(event) => {
+              setSiteId(event.target.value)
+              setPage(1)
+            }}
+            aria-label="Filter by centre"
+            className="sm:w-52"
+          >
+            <option value="">All centres</option>
+            {sites.map((site) => (
+              <option key={site.id} value={site.id}>
+                {site.name}
+              </option>
+            ))}
+          </Select>
+        )}
       </div>
 
       <PageError>{error}</PageError>
