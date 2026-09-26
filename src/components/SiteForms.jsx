@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
+  addFloorAppHead,
   clearStoredFloorToken,
   readStoredFloorToken,
   resolveFloorToken,
@@ -10,6 +11,7 @@ import { paths } from '../lib/paths'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { FloorInstallGuide } from './FloorInstallGuide'
 import { FloorSignIn } from './FloorSignIn'
 import { FormRenderer } from './forms/FormRenderer'
 import { emptyHazardRow } from './forms/RiskMatrixFormRenderer'
@@ -144,6 +146,8 @@ export function SiteForms() {
     }
     setInactive('inactive')
   }
+
+  useEffect(() => addFloorAppHead(), [])
 
   useEffect(() => {
     if (!token) {
@@ -449,6 +453,7 @@ export function SiteForms() {
         <p className="text-base text-muted-foreground">{formatDay(today)}</p>
         {signedInLine}
       </header>
+      <FloorInstallGuide siteName={siteName} />
       <PageError>{error}</PageError>
       <PageSuccess>{saved}</PageSuccess>
       {error ? (

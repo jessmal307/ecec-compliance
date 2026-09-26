@@ -1,0 +1,13 @@
+{
+  "name": "RoadToComply",
+  "short_name": "RoadToComply",
+  "display": "standalone",
+  "scope": "/floor",
+  "theme_color": "#14303f",
+  "background_color": "#14303f",
+  "icons": [
+    { "src": "/floor-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/floor-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/floor-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

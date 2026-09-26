@@ -26,6 +26,62 @@ export function clearStoredFloorToken() {
   }
 }
 
+const GUIDE_DISMISSED_KEY = 'rtc-floor-install-dismissed'
+
+export function installGuideDismissed() {
+  try {
+    return window.localStorage.getItem(GUIDE_DISMISSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function dismissInstallGuide() {
+  try {
+    window.localStorage.setItem(GUIDE_DISMISSED_KEY, '1')
+  } catch {
+    // Hidden until the next reload.
+  }
+}
+
+export function runningFromHomeScreen() {
+  try {
+    return (
+      window.navigator.standalone === true ||
+      window.matchMedia('(display-mode: standalone)').matches
+    )
+  } catch {
+    return false
+  }
+}
+
+export function floorDevicePlatform() {
+  const ua = window.navigator.userAgent || ''
+  // iPadOS reports itself as a Mac; touch points give it away.
+  if (/iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && window.navigator.maxTouchPoints > 1)) {
+    return 'ios'
+  }
+  if (/Android/i.test(ua)) return 'android'
+  return 'other'
+}
+
+// Only the floor page is installable, so these tags live only while it's shown.
+export function addFloorAppHead() {
+  const tags = [
+    ['link', { rel: 'manifest', href: '/floor.webmanifest' }],
+    ['link', { rel: 'apple-touch-icon', href: '/floor-icon-180.png' }],
+    ['meta', { name: 'apple-mobile-web-app-capable', content: 'yes' }],
+    ['meta', { name: 'apple-mobile-web-app-title', content: 'RoadToComply' }],
+    ['meta', { name: 'theme-color', content: '#14303f' }],
+  ].map(([tag, attributes]) => {
+    const element = document.createElement(tag)
+    for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value)
+    document.head.appendChild(element)
+    return element
+  })
+  return () => tags.forEach((element) => element.remove())
+}
+
 function decode(value) {
   try {
     return decodeURIComponent(value)
