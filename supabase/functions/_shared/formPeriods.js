@@ -1,6 +1,6 @@
 // Anchored-month periods shared by the app and the digest.
 // half_yearly / annually are whole calendar months. `annual` is not this.
-import { daysInMonth, formatIso } from './sydneyTime.js'
+import { daysInMonth, formatIso, sydneyIsoDate } from './sydneyTime.js'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -61,23 +61,27 @@ export function previousAnchoredPeriodBounds(months, today) {
   return null
 }
 
-// Later of the org's audit tracking date and the centre's created date.
-// A missing tracking date does not owe a month (callers pass it for month-long
-// periods). The period is owed only when it starts on or after this boundary.
-export function monthTrackingBoundary(trackingStart, siteCreatedIso) {
-  const tracking = ISO_DATE.test(String(trackingStart ?? '').slice(0, 10))
-    ? String(trackingStart).slice(0, 10)
-    : null
-  const site = ISO_DATE.test(String(siteCreatedIso ?? '').slice(0, 10))
-    ? String(siteCreatedIso).slice(0, 10)
-    : null
-  if (!tracking) return null
-  if (!site) return tracking
-  return tracking > site ? tracking : site
+function localIsoDate(value) {
+  if (value == null || value === '') return null
+  const text = String(value)
+  if (ISO_DATE.test(text)) return text
+  return sydneyIsoDate(value)
 }
 
-// Owed when the period starts on or after notBefore. Month-long callers pass
-// monthTrackingBoundary; with no boundary a month is not owed. Other cadences
+// A month is owed when it starts on or after the org tracking date and ends
+// on or after the centre's Sydney created date. A centre added on 20 Nov owes
+// November and does not owe October. A missing tracking date or centre date
+// does not owe the month.
+export function monthPeriodIsOwed(bounds, trackingStart, siteCreated) {
+  if (!bounds?.start || !bounds?.end) return false
+  const tracking = localIsoDate(trackingStart)
+  const created = localIsoDate(siteCreated)
+  if (!tracking || !created) return false
+  return bounds.start >= tracking && bounds.end >= created
+}
+
+// Owed when the period starts on or after notBefore. Month-long periods use
+// monthPeriodIsOwed. With no boundary a month is not owed. Other cadences
 // with no boundary stay owed.
 export function periodIsOwed(bounds, notBefore, monthLong) {
   if (!bounds?.start || !bounds?.end) return false

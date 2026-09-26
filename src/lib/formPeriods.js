@@ -12,7 +12,7 @@ import {
   anchoredPeriodBounds,
   isAnchoredCadence,
   isMonthLongCadence,
-  monthTrackingBoundary,
+  monthPeriodIsOwed,
   normalizeCadenceMonths,
   periodIsOwed,
   previousAnchoredPeriodBounds,
@@ -21,7 +21,7 @@ import {
 export {
   isAnchoredCadence,
   isMonthLongCadence,
-  monthTrackingBoundary,
+  monthPeriodIsOwed,
   normalizeCadenceMonths,
   periodIsOwed,
 }
@@ -282,11 +282,13 @@ export function findOverdueForms({
         bounds = previousPeriodBounds(template.cadence, today, template.cadence_months)
         if (!bounds?.start) continue
         const monthLong = isMonthLongCadence(template.cadence)
-        const boundary = monthLong
-          ? monthTrackingBoundary(trackingStart, createdIso(site.created_at))
-          : notBefore
-        if (!periodIsOwed(bounds, boundary, monthLong)) continue
-        if (!monthLong && !periodHasOpenDay(site, closures, bounds)) continue
+        if (monthLong) {
+          if (!monthPeriodIsOwed(bounds, trackingStart, site.created_at)) continue
+        } else if (!periodIsOwed(bounds, notBefore, false)) {
+          continue
+        } else if (!periodHasOpenDay(site, closures, bounds)) {
+          continue
+        }
       }
 
       if (

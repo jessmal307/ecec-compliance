@@ -12,12 +12,10 @@ import {
   isMonthLongCadence,
   isSiteOpenOn,
   isSubmissionLate,
-  monthTrackingBoundary,
+  monthPeriodIsOwed,
   periodBounds,
-  periodIsOwed,
   periodStatus,
   previousPeriodBounds,
-  submissionLocalDate,
 } from './formPeriods'
 import { dueByFor, dueStatusAt, templateTakesDueBy } from './formDueTimes'
 import { effectiveCadenceMonths, scheduleEnabled } from './formSchedule'
@@ -494,9 +492,9 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
 
 function pushMonthLongDueRows(rows, { site, template, submissions, today, trackingStart }) {
   const months = template.cadence_months
-  const boundary = monthTrackingBoundary(trackingStart, submissionLocalDate(site.created_at))
+  const created = site.created_at
   const current = periodBounds(template.cadence, today, months)
-  if (current?.start && periodIsOwed(current, boundary, true)) {
+  if (current?.start && monthPeriodIsOwed(current, trackingStart, created)) {
     rows.push({
       site_id: site.id,
       site_name: site.name,
@@ -512,7 +510,7 @@ function pushMonthLongDueRows(rows, { site, template, submissions, today, tracki
 
   const previous = previousPeriodBounds(template.cadence, today, months)
   if (!previous?.start) return
-  if (!periodIsOwed(previous, boundary, true)) return
+  if (!monthPeriodIsOwed(previous, trackingStart, created)) return
   if (periodStatus(submissions, site.id, template.id, previous) !== 'due') return
   rows.push({
     site_id: site.id,

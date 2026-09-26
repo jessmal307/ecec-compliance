@@ -6,7 +6,7 @@ import { templateTakesDueBy } from '../_shared/formDueTimes.js'
 import {
   isAnchoredCadence,
   isMonthLongCadence,
-  monthTrackingBoundary,
+  monthPeriodIsOwed,
   periodIsOwed,
   previousAnchoredPeriodBounds,
 } from '../_shared/formPeriods.js'
@@ -1336,11 +1336,13 @@ function findOverdueForms({
           : formPreviousPeriodBounds(template.cadence, today)
         if (!bounds?.start) continue
         const monthLong = isMonthLongCadence(template.cadence)
-        const boundary = monthLong
-          ? monthTrackingBoundary(trackingStart, formSubmissionDate(site.created_at))
-          : notBefore
-        if (!periodIsOwed(bounds, boundary, monthLong)) continue
-        if (!monthLong && !formPeriodHasOpenDay(site, closures, bounds)) continue
+        if (monthLong) {
+          if (!monthPeriodIsOwed(bounds, trackingStart, site.created_at)) continue
+        } else if (!periodIsOwed(bounds, notBefore, false)) {
+          continue
+        } else if (!formPeriodHasOpenDay(site, closures, bounds)) {
+          continue
+        }
       }
 
       if (

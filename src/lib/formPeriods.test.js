@@ -9,7 +9,7 @@ import {
 import {
   anchoredPeriodBounds,
   calendarMonthBounds,
-  monthTrackingBoundary,
+  monthPeriodIsOwed,
   periodIsOwed,
   previousAnchoredPeriodBounds,
 } from '../../supabase/functions/_shared/formPeriods.js'
@@ -107,17 +107,37 @@ test('February keeps the last valid day', () => {
   assert.equal(calendarMonthBounds(2026, 2).end, '2026-02-28')
 })
 
-test('a month-long period is owed only when it starts on or after tracking', () => {
+test('a month is owed from tracking start through the centre created date', () => {
   const september = { start: '2026-09-01', end: '2026-09-30' }
-  assert.equal(periodIsOwed(september, '2026-09-26', true), false)
-  assert.equal(periodIsOwed(september, '2026-09-01', true), true)
-  assert.equal(periodIsOwed(september, '2026-10-01', true), false)
-  assert.equal(periodIsOwed(september, null, true), false)
+  const october = { start: '2026-10-01', end: '2026-10-31' }
+  const november = { start: '2026-11-01', end: '2026-11-30' }
+  assert.equal(monthPeriodIsOwed(november, '2026-09-01', '2026-11-20'), true)
+  assert.equal(monthPeriodIsOwed(october, '2026-09-01', '2026-11-20'), false)
+  assert.equal(monthPeriodIsOwed(september, '2026-09-01', '2026-09-26'), true)
+  assert.equal(monthPeriodIsOwed(september, '2026-09-26', '2020-01-01'), false)
+  assert.equal(monthPeriodIsOwed(september, null, '2020-01-01'), false)
+  assert.equal(monthPeriodIsOwed(september, '2026-09-01', null), false)
+  assert.equal(monthPeriodIsOwed(november, '2026-09-01', '2026-11-19T13:00:00Z'), true)
+  assert.equal(monthPeriodIsOwed(october, '2026-09-01', '2026-11-19T13:00:00Z'), false)
   assert.equal(periodIsOwed({ start: '2026-09-25', end: '2026-09-25' }, '2026-09-26', false), false)
   assert.equal(periodIsOwed({ start: '2026-09-26', end: '2026-09-26' }, null, false), true)
-  assert.equal(monthTrackingBoundary('2026-09-26', '2020-01-01'), '2026-09-26')
-  assert.equal(monthTrackingBoundary('2026-09-01', '2026-10-01'), '2026-10-01')
-  assert.equal(monthTrackingBoundary(null, '2020-01-01'), null)
+
+  const duringNovember = overdue({
+    cadence: 'monthly',
+    today: '2026-11-20',
+    created: '2026-11-20',
+    trackingStart: '2026-09-01',
+  })
+  assert.equal(duringNovember.length, 0)
+
+  const afterNovember = overdue({
+    cadence: 'monthly',
+    today: '2026-12-01',
+    created: '2026-11-20',
+    trackingStart: '2026-09-01',
+  })
+  assert.equal(afterNovember.length, 1)
+  assert.equal(afterNovember[0].period_start, '2026-11-01')
 })
 
 test('overdue is only the most recently ended month, even if the centre was shut', () => {
@@ -168,14 +188,14 @@ test('tracking from 26 Sep owes nothing for September; 1 Sep owes it from Octobe
   assert.equal(backdated[0].period_start, '2026-09-01')
   assert.equal(backdated[0].label, 'missed September 2026')
 
-  const siteOpenedLater = overdue({
+  const centreRowAddedLater = overdue({
     cadence: 'annually',
     months: [9],
     today: '2026-10-01',
     created: '2026-10-01',
     trackingStart: '2026-09-01',
   })
-  assert.equal(siteOpenedLater.length, 0)
+  assert.equal(centreRowAddedLater.length, 0)
 
   assert.equal(
     overdue({ cadence: 'monthly', today: '2026-09-01', trackingStart: null }).length,
