@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { FloorSignIn } from './FloorSignIn'
 import { FormRenderer } from './forms/FormRenderer'
 import { emptyHazardRow } from './forms/RiskMatrixFormRenderer'
 import { PageError, PageMuted, PageSuccess } from './ui/page'
@@ -48,6 +49,7 @@ function startState(archetype) {
 }
 
 const UPLOAD_FAILED_MESSAGE = 'Could not upload the signature. Try again.'
+const SIGN_IN_AGAIN_NOTICE = 'Your sign-in has ended. Sign in again, then tap Save or Submit.'
 
 // Matches the server's field source in site-forms.
 function signatureFieldIds(schema, archetype) {
@@ -89,6 +91,9 @@ export function SiteForms() {
   const [draftIds, setDraftIds] = useState({})
   const [saving, setSaving] = useState(false)
   const [rendererKey, setRendererKey] = useState(0)
+  // Held in memory only: a reload means signing in again.
+  const [session, setSession] = useState(null)
+  const [signingFor, setSigningFor] = useState(null)
 
   async function loadList() {
     setLoading(true)
@@ -134,10 +139,41 @@ export function SiteForms() {
       setSaved('')
       return
     }
+    if (!sessionValid()) {
+      setError('')
+      setSaved('')
+      setSigningFor({ form, resume: false, notice: '' })
+      return
+    }
+    startForm(form)
+  }
+
+  function startForm(form) {
     setError('')
     setSaved('')
     setActive(form)
     setFormState(startState(form.archetype))
+  }
+
+  function sessionValid() {
+    return Boolean(session?.token) && Date.parse(session.expiresAt) > Date.now()
+  }
+
+  function requireSignIn(notice) {
+    setSession(null)
+    setSigningFor({ form: active, resume: true, notice })
+  }
+
+  function handleSignedIn(next) {
+    const pending = signingFor
+    setSession(next)
+    setSigningFor(null)
+    if (pending && !pending.resume) startForm(pending.form)
+  }
+
+  function signOut() {
+    setSession(null)
+    closeForm()
   }
 
   function closeForm() {
@@ -168,18 +204,32 @@ export function SiteForms() {
       }
     }
 
+    if (!sessionValid()) {
+      requireSignIn(SIGN_IN_AGAIN_NOTICE)
+      return
+    }
+
     setSaving(true)
     let nextState = formState
-    const draft = await saveSiteForm(token, {
-      template_id: active.template_id,
-      status: 'draft',
-      for_date: active.for_date || null,
-      submission_id: draftIds[active.template_id] || undefined,
-      data: buildPublicSubmissionData(nextState),
-    })
+    const draft = await saveSiteForm(
+      token,
+      {
+        template_id: active.template_id,
+        status: 'draft',
+        for_date: active.for_date || null,
+        submission_id: draftIds[active.template_id] || undefined,
+        data: buildPublicSubmissionData(nextState),
+      },
+      session.token,
+    )
     if (draft.error) {
       if (draft.error.status === 401) {
         setInactive(true)
+        setSaving(false)
+        return
+      }
+      if (draft.data?.session === 'required') {
+        requireSignIn(SIGN_IN_AGAIN_NOTICE)
         setSaving(false)
         return
       }
@@ -227,16 +277,25 @@ export function SiteForms() {
       return
     }
 
-    const completed = await saveSiteForm(token, {
-      template_id: active.template_id,
-      status: 'complete',
-      for_date: active.for_date || null,
-      submission_id: submissionId,
-      data: buildPublicSubmissionData(nextState),
-    })
+    const completed = await saveSiteForm(
+      token,
+      {
+        template_id: active.template_id,
+        status: 'complete',
+        for_date: active.for_date || null,
+        submission_id: submissionId,
+        data: buildPublicSubmissionData(nextState),
+      },
+      session.token,
+    )
     if (completed.error) {
       if (completed.error.status === 401) {
         setInactive(true)
+        setSaving(false)
+        return
+      }
+      if (completed.data?.session === 'required') {
+        requireSignIn(SIGN_IN_AGAIN_NOTICE)
         setSaving(false)
         return
       }
@@ -248,6 +307,7 @@ export function SiteForms() {
 
     setSaved('Form submitted.')
     setSaving(false)
+    setSession(null)
     setActive(null)
     setDraftIds((current) => {
       const next = { ...current }
@@ -274,12 +334,39 @@ export function SiteForms() {
     )
   }
 
+  if (signingFor) {
+    return (
+      <FloorSignIn
+        token={token}
+        siteName={siteName}
+        formName={signingFor.form?.name || ''}
+        notice={signingFor.notice}
+        onSignedIn={handleSignedIn}
+        onCancel={() => setSigningFor(null)}
+        onInactive={() => {
+          setSigningFor(null)
+          setInactive(true)
+        }}
+      />
+    )
+  }
+
+  const signedInLine = sessionValid() ? (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-base text-muted-foreground md:text-sm">
+      <span>Signed in as {session.name}</span>
+      <Button type="button" variant="link" className="h-auto p-0" disabled={saving} onClick={signOut}>
+        Sign out
+      </Button>
+    </div>
+  ) : null
+
   if (active) {
     return (
       <section className="flex w-full max-w-2xl flex-col gap-5">
         <header className="space-y-1">
           <p className="text-sm text-muted-foreground">{siteName}</p>
           <h1 className="text-2xl font-semibold tracking-tight">{active.name}</h1>
+          {signedInLine}
         </header>
         <PageError>{error}</PageError>
         <PageSuccess>{saved}</PageSuccess>
@@ -331,6 +418,7 @@ export function SiteForms() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">{siteName || 'Forms'}</h1>
         <p className="text-base text-muted-foreground">{formatDay(today)}</p>
+        {signedInLine}
       </header>
       <PageError>{error}</PageError>
       <PageSuccess>{saved}</PageSuccess>

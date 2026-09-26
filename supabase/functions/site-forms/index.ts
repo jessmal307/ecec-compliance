@@ -12,11 +12,22 @@ const COMPLETED_BY_SOMEONE_ELSE_MESSAGE =
   'This was just completed by someone else.'
 const SIGNATURE_AGAIN_MESSAGE = 'Draw the sign-off signature again.'
 const GENERIC_ERROR_MESSAGE = 'Something went wrong. Try again.'
+const SESSION_SECONDS = 15 * 60
+const PIN_STAFF_FAIL_MAX = 5
+const PIN_STAFF_WINDOW_SECONDS = 15 * 60
+const PIN_LINK_FAIL_MAX = 20
+const PIN_LINK_WINDOW_SECONDS = 60 * 60
+const SESSION_REQUIRED_MESSAGE = 'Sign in with your name and PIN.'
+const PIN_FORMAT_MESSAGE = 'Enter your 4-digit PIN.'
+const PIN_WRONG_MESSAGE = 'That PIN didn’t work. Try again.'
+const PIN_LOCKED_MESSAGE = 'Too many wrong PINs. Try again later.'
+const NO_PIN_MESSAGE = 'Ask your director to set your PIN.'
+const PICK_AGAIN_MESSAGE = 'Pick your name again.'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-site-token',
+    'authorization, x-client-info, apikey, content-type, x-site-token, x-floor-session',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
 }
@@ -227,17 +238,219 @@ function clientIp(req: Request) {
   return null
 }
 
+async function hitRate(supabase: Supabase, bucketKey: string, windowSeconds: number) {
+  const { data, error } = await supabase.rpc('hit_rate_limit', {
+    p_bucket: bucketKey,
+    p_window_seconds: windowSeconds,
+  })
+  if (error) throw error
+  return Number(data)
+}
+
 async function allowRate(
   supabase: Supabase,
   bucketKey: string,
   maxHits: number,
 ) {
-  const { data, error } = await supabase.rpc('hit_rate_limit', {
-    p_bucket: bucketKey,
-    p_window_seconds: WINDOW_SECONDS,
-  })
+  return (await hitRate(supabase, bucketKey, WINDOW_SECONDS)) <= maxHits
+}
+
+// A lock bucket is hit once when its limit trips, so its window starts then.
+async function isLocked(supabase: Supabase, bucketKey: string, windowSeconds: number) {
+  const { data, error } = await supabase
+    .from('site_access_rate_limits')
+    .select('window_start')
+    .eq('bucket_key', bucketKey)
+    .maybeSingle()
   if (error) throw error
-  return Number(data) <= maxHits
+  if (!data?.window_start) return false
+  return new Date(data.window_start as string).getTime() > Date.now() - windowSeconds * 1000
+}
+
+function toHex(bytes: ArrayBuffer | Uint8Array) {
+  return [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+function hexToBytes(hex: string) {
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  return bytes
+}
+
+// Must match src/lib/staffPins.js: PBKDF2-SHA256, raw salt bytes, 256 bits, lowercase hex.
+async function pinHash(pin: string, saltHex: string, iterations: number) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(pin),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  )
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: hexToBytes(saltHex), iterations },
+    key,
+    256,
+  )
+  return toHex(bits)
+}
+
+function sameHex(a: string, b: string) {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
+function randomSessionToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
+function staffDisplayName(name: unknown) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return 'Staff member'
+  if (parts.length === 1) return parts[0]
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`
+}
+
+type StaffRow = { id: string; name: string }
+
+// Active, unarchived staff of this org assigned to this site.
+async function signableStaff(supabase: Supabase, context: TokenContext, staffId?: string) {
+  let links = supabase.from('staff_sites').select('staff_id').eq('site_id', context.siteId)
+  if (staffId) links = links.eq('staff_id', staffId)
+  const { data: linkRows, error: linkError } = await links
+  if (linkError) throw linkError
+  const ids = (linkRows ?? []).map((row) => row.staff_id as string)
+  if (!ids.length) return [] as StaffRow[]
+
+  const { data, error } = await supabase
+    .from('staff')
+    .select('id, name')
+    .in('id', ids)
+    .eq('org_id', context.orgId)
+    .eq('employment_status', 'active')
+    .is('archived_at', null)
+  if (error) throw error
+  return (data ?? []) as StaffRow[]
+}
+
+async function loadPin(supabase: Supabase, staffId: string) {
+  const { data, error } = await supabase
+    .from('staff_pins')
+    .select('salt, pin_hash, iterations')
+    .eq('staff_id', staffId)
+    .maybeSingle()
+  if (error) throw error
+  return data as { salt: string; pin_hash: string; iterations: number } | null
+}
+
+type FloorSession = { id: string; staffId: string }
+
+// Re-checked on every save: expired, other link/site, turnover, or no PIN all fail.
+async function loadSession(supabase: Supabase, context: TokenContext, rawSession: string) {
+  if (!rawSession) return null
+  const { data, error } = await supabase
+    .from('floor_sessions')
+    .select('id, staff_id, site_id, site_access_token_id, expires_at')
+    .eq('token_hash', await sha256Hex(rawSession))
+    .maybeSingle()
+  if (error) throw error
+  if (
+    !data ||
+    !sameId(data.site_access_token_id, context.tokenId) ||
+    !sameId(data.site_id, context.siteId) ||
+    new Date(data.expires_at as string).getTime() <= Date.now()
+  ) {
+    return null
+  }
+  const staffId = data.staff_id as string
+  const [staff] = await signableStaff(supabase, context, staffId)
+  if (!staff || !(await loadPin(supabase, staffId))) return null
+  return { id: data.id as string, staffId } satisfies FloorSession
+}
+
+async function handleStaffList(supabase: Supabase, context: TokenContext) {
+  const staff = (await signableStaff(supabase, context))
+    .map((row) => ({ id: row.id, name: staffDisplayName(row.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  return json({ staff })
+}
+
+async function handleVerifyPin(supabase: Supabase, context: TokenContext, body: Record<string, unknown>) {
+  const staffId = String(body.staff_id || '').trim()
+  const pin = String(body.pin ?? '')
+  if (!staffId || !/^\d{4}$/.test(pin)) return json({ error: PIN_FORMAT_MESSAGE }, 400)
+
+  const linkFailKey = `pin-fail:link:${context.tokenId}`
+  const linkLockKey = `pin-lock:link:${context.tokenId}`
+  const staffFailKey = `pin-fail:staff:${staffId}`
+  const staffLockKey = `pin-lock:staff:${staffId}`
+
+  if (
+    (await isLocked(supabase, linkLockKey, PIN_LINK_WINDOW_SECONDS)) ||
+    (await isLocked(supabase, staffLockKey, PIN_STAFF_WINDOW_SECONDS))
+  ) {
+    return json({ error: PIN_LOCKED_MESSAGE }, 423)
+  }
+
+  const [staff] = await signableStaff(supabase, context, staffId)
+  if (!staff) {
+    if ((await hitRate(supabase, linkFailKey, PIN_LINK_WINDOW_SECONDS)) > PIN_LINK_FAIL_MAX) {
+      await hitRate(supabase, linkLockKey, PIN_LINK_WINDOW_SECONDS)
+    }
+    return json({ error: PICK_AGAIN_MESSAGE, pick_again: true }, 403)
+  }
+
+  const stored = await loadPin(supabase, staffId)
+  if (!stored) return json({ error: NO_PIN_MESSAGE, no_pin: true }, 400)
+
+  const hash = await pinHash(pin, stored.salt, stored.iterations)
+  if (!sameHex(hash, stored.pin_hash)) {
+    const staffFails = await hitRate(supabase, staffFailKey, PIN_STAFF_WINDOW_SECONDS)
+    const linkFails = await hitRate(supabase, linkFailKey, PIN_LINK_WINDOW_SECONDS)
+    let locked = false
+    if (staffFails >= PIN_STAFF_FAIL_MAX) {
+      await hitRate(supabase, staffLockKey, PIN_STAFF_WINDOW_SECONDS)
+      locked = true
+    }
+    if (linkFails > PIN_LINK_FAIL_MAX) {
+      await hitRate(supabase, linkLockKey, PIN_LINK_WINDOW_SECONDS)
+      locked = true
+    }
+    return locked
+      ? json({ error: PIN_LOCKED_MESSAGE }, 423)
+      : json({ error: PIN_WRONG_MESSAGE }, 400)
+  }
+
+  const { error: resetError } = await supabase
+    .from('site_access_rate_limits')
+    .delete()
+    .eq('bucket_key', staffFailKey)
+  if (resetError) throw resetError
+
+  const session = randomSessionToken()
+  const expiresAt = new Date(Date.now() + SESSION_SECONDS * 1000).toISOString()
+  const { error: insertError } = await supabase.from('floor_sessions').insert({
+    org_id: context.orgId,
+    site_id: context.siteId,
+    site_access_token_id: context.tokenId,
+    staff_id: staffId,
+    token_hash: await sha256Hex(session),
+    expires_at: expiresAt,
+  })
+  if (insertError) throw insertError
+
+  return json({
+    session,
+    expires_at: expiresAt,
+    staff: { id: staffId, name: staffDisplayName(staff.name) },
+  })
 }
 
 function fieldFilled(field: { type?: string }, value: unknown) {
@@ -565,7 +778,12 @@ async function findCompleteForDate(
   return data
 }
 
-async function handlePost(supabase: Supabase, context: TokenContext, body: Record<string, unknown>) {
+async function handlePost(
+  supabase: Supabase,
+  context: TokenContext,
+  body: Record<string, unknown>,
+  session: FloorSession,
+) {
   const today = todaySydney()
   const templateId = String(body.template_id || '').trim()
   const status = String(body.status || 'draft')
@@ -723,6 +941,7 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
         status: 'complete',
         submitted_by: null,
         signed_off_by: null,
+        signed_by_staff_id: session.staffId,
         signed_off_at: now,
         submitted_at: now,
       })
@@ -738,6 +957,12 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
     if (!completed) {
       return json({ error: 'This submission is locked.' }, 409)
     }
+
+    const { error: endError } = await supabase
+      .from('floor_sessions')
+      .delete()
+      .eq('id', session.id)
+    if (endError) console.error('[site-forms] could not end floor session', endError)
 
     return json({ submission_id: rowId, status: 'complete', upload: null })
   }
@@ -813,7 +1038,18 @@ Deno.serve(async (req) => {
 
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null
     if (!body || typeof body !== 'object') return json({ error: 'Invalid request.' }, 400)
-    return await handlePost(supabase, resolved.context, body)
+    if (body.action === 'staff') return await handleStaffList(supabase, resolved.context)
+    if (body.action === 'verify_pin') {
+      return await handleVerifyPin(supabase, resolved.context, body)
+    }
+
+    const session = await loadSession(
+      supabase,
+      resolved.context,
+      req.headers.get('x-floor-session')?.trim() || '',
+    )
+    if (!session) return json({ error: SESSION_REQUIRED_MESSAGE, session: 'required' }, 403)
+    return await handlePost(supabase, resolved.context, body, session)
   } catch (error) {
     console.error('[site-forms] request failed', error)
     return json({ error: GENERIC_ERROR_MESSAGE }, 500)

@@ -112,7 +112,7 @@ function friendlyGatewayError(status, payload) {
     return message || 'Already completed for this period.'
   }
   if (status === 429) return 'Too many tries. Wait a minute and try again.'
-  if (status === 403) return 'This form is not available on this link.'
+  if (status === 403) return String(payload?.error || 'This form is not available on this link.')
   if (status === 400) return String(payload?.error || 'Check the form and try again.')
   if (payload?.error) return String(payload.error)
   return 'Something went wrong. Try again.'
@@ -120,7 +120,7 @@ function friendlyGatewayError(status, payload) {
 
 const REQUEST_TIMEOUT_MS = 15000
 
-async function siteFormsRequest(token, { method, body } = {}) {
+async function siteFormsRequest(token, { method, body, session } = {}) {
   const url = siteFormsUrl()
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
   if (!url || !anonKey || !token) {
@@ -137,6 +137,7 @@ async function siteFormsRequest(token, { method, body } = {}) {
         apikey: anonKey,
         Authorization: `Bearer ${anonKey}`,
         'x-site-token': token,
+        ...(session ? { 'x-floor-session': session } : {}),
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -174,8 +175,19 @@ export async function getSiteForms(token) {
   return siteFormsRequest(token, { method: 'GET' })
 }
 
-export async function saveSiteForm(token, body) {
-  return siteFormsRequest(token, { method: 'POST', body })
+export async function saveSiteForm(token, body, session) {
+  return siteFormsRequest(token, { method: 'POST', body, session })
+}
+
+export async function listSiteStaff(token) {
+  return siteFormsRequest(token, { method: 'POST', body: { action: 'staff' } })
+}
+
+export async function verifyStaffPin(token, staffId, pin) {
+  return siteFormsRequest(token, {
+    method: 'POST',
+    body: { action: 'verify_pin', staff_id: staffId, pin },
+  })
 }
 
 const UPLOAD_FAILED_MESSAGE = 'Could not upload the signature. Try again.'
