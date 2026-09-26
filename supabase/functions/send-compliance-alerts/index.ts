@@ -1,5 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { selectInBatches } from '../_shared/batch.ts'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
+import { claimSend, clearStaleClaims, markSent, releaseClaim, type StaleClaim } from '../_shared/emailSends.ts'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
 
 const ALERT_TIME_ZONE = 'Australia/Sydney'
@@ -38,7 +40,7 @@ type ComplianceItemRow = {
 type OrganizationRow = {
   id: string
   name: string
-  owner_id: string
+  owner_id: string | null
   alert_email: string | null
   plan: string | null
 }
@@ -1027,8 +1029,8 @@ function buildOrgDigest({
   }
 }
 
-function alertKey(itemId: string, kind: AlertKind) {
-  return `${itemId}:${kind}`
+function expiryAlertKey(itemId: string, kind: AlertKind, expiryDate: string | null | undefined) {
+  return `${itemId}:${kind}:${String(expiryDate ?? '').slice(0, 10)}`
 }
 
 // Copied from src/lib/formPeriods.js so this function deploys as a single
@@ -1381,28 +1383,24 @@ async function loadOverdueFormsForOrg(
   if (!sites.length || !templates.length) return new Map()
 
   const [closuresResult, submissionsResult] = await Promise.all([
-    retryOnJwtSkew(
-      () =>
+    selectInBatches(
+      sites.map((site) => site.id),
+      (batch) =>
         supabase
           .from('site_closures')
           .select('site_id, closure_date')
-          .in(
-            'site_id',
-            sites.map((site) => site.id),
-          ),
+          .in('site_id', batch),
       'overdue site_closures',
     ),
-    retryOnJwtSkew(
-      () =>
+    selectInBatches(
+      templates.map((template) => template.id as string),
+      (batch) =>
         supabase
           .from('form_submissions')
           .select('site_id, template_id, status, for_date')
           .eq('org_id', orgId)
           .in('status', ['complete', 'missed'])
-          .in(
-            'template_id',
-            templates.map((template) => template.id),
-          ),
+          .in('template_id', batch),
       'overdue form_submissions',
     ),
   ])
@@ -1478,8 +1476,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
-  const fromEmail =
-    Deno.env.get('RESEND_FROM_EMAIL') ?? 'ECEC Alerts <onboarding@resend.dev>'
+  const fromEmail = Deno.env.get('RESEND_FROM_EMAIL')
 
   if (!supabaseUrl || !serviceRoleKey) {
     return json({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500)
@@ -1493,6 +1490,10 @@ Deno.serve(async (req) => {
     return json({ error: 'Missing RESEND_API_KEY' }, 500)
   }
 
+  if (!fromEmail) {
+    return json({ error: 'Missing RESEND_FROM_EMAIL' }, 500)
+  }
+
   const supabase = createClient(supabaseUrl, serviceRoleKey)
   const today = todaySydney()
   const ownerEmailCache = new Map<string, string | null>()
@@ -1500,7 +1501,15 @@ Deno.serve(async (req) => {
   const summary = {
     sent: 0,
     skipped: 0,
+    already_sent: [] as string[],
+    stale_claims_cleared: [] as StaleClaim[],
     errors: [] as string[],
+  }
+
+  const staleClaims = await clearStaleClaims(supabase, 'alert_digest')
+  summary.stale_claims_cleared = staleClaims.cleared
+  if (staleClaims.error) {
+    summary.errors.push(`Failed to clear stale alert claims: ${staleClaims.error}`)
   }
 
   async function ownerEmail(ownerId: string): Promise<string | null> {
@@ -1569,12 +1578,13 @@ Deno.serve(async (req) => {
 
   if (expiryEligible.length > 0) {
     const expiryItemIds = [...new Set(expiryEligible.map((entry) => entry.item.id))]
-    const { data: existingExpiryAlerts, error: expiryAlertsError } = await retryOnJwtSkew(
-      () =>
+    const { data: existingExpiryAlerts, error: expiryAlertsError } = await selectInBatches(
+      expiryItemIds,
+      (batch) =>
         supabase
           .from('alerts')
-          .select('compliance_item_id, threshold')
-          .in('compliance_item_id', expiryItemIds)
+          .select('compliance_item_id, threshold, expiry_date')
+          .in('compliance_item_id', batch)
           .in('threshold', EXPIRY_KINDS),
       'expiry alerts',
     )
@@ -1584,15 +1594,14 @@ Deno.serve(async (req) => {
     }
 
     const alreadySentExpiry = new Set(
-      (existingExpiryAlerts ?? []).map(
-        (row: { compliance_item_id: string; threshold: AlertKind }) =>
-          alertKey(row.compliance_item_id, row.threshold),
-      ),
+      (existingExpiryAlerts as { compliance_item_id: string; threshold: AlertKind; expiry_date: string | null }[])
+        .filter((row) => row.expiry_date)
+        .map((row) => expiryAlertKey(row.compliance_item_id, row.threshold, row.expiry_date)),
     )
 
     for (const entry of expiryEligible) {
       for (const kind of entry.kinds) {
-        if (alreadySentExpiry.has(alertKey(entry.item.id, kind))) {
+        if (alreadySentExpiry.has(expiryAlertKey(entry.item.id, kind, entry.item.expiry_date))) {
           summary.skipped += 1
           continue
         }
@@ -1611,12 +1620,13 @@ Deno.serve(async (req) => {
 
   if (recheckEligible.length > 0) {
     const recheckItemIds = [...new Set(recheckEligible.map((entry) => entry.item.id))]
-    const { data: existingRecheckAlerts, error: recheckAlertsError } = await retryOnJwtSkew(
-      () =>
+    const { data: existingRecheckAlerts, error: recheckAlertsError } = await selectInBatches(
+      recheckItemIds,
+      (batch) =>
         supabase
           .from('alerts')
           .select('compliance_item_id, threshold, sent_at')
-          .in('compliance_item_id', recheckItemIds)
+          .in('compliance_item_id', batch)
           .eq('threshold', 'recheck'),
       'recheck alerts',
     )
@@ -1656,26 +1666,29 @@ Deno.serve(async (req) => {
     staffExclusionsResult,
     siteExclusionsResult,
   ] = await Promise.all([
-    retryOnJwtSkew(
-      () =>
+    selectInBatches(
+      orgIds,
+      (batch) =>
         supabase
           .from('organizations')
           .select('id, name, owner_id, alert_email, plan')
-          .in('id', orgIds),
+          .in('id', batch),
       'organizations',
     ),
-    retryOnJwtSkew(
-      () =>
+    selectInBatches(
+      orgIds,
+      (batch) =>
         supabase
           .from('sites')
           .select('id, name, org_id, archived_at')
-          .in('org_id', orgIds)
+          .in('org_id', batch)
           .is('archived_at', null)
           .order('name', { ascending: true }),
       'sites',
     ),
-    retryOnJwtSkew(
-      () =>
+    selectInBatches(
+      orgIds,
+      (batch) =>
         supabase
           .from('staff')
           .select(
@@ -1687,18 +1700,19 @@ Deno.serve(async (req) => {
         )
       `,
           )
-          .in('org_id', orgIds)
+          .in('org_id', batch)
           .is('archived_at', null),
       'staff',
     ),
-    retryOnJwtSkew(
-      () =>
+    selectInBatches(
+      orgIds,
+      (batch) =>
         supabase
           .from('requirement_types')
           .select(
             'id, name, org_id, mandatory, applies_to, perpetual, recheck_interval_days, renewal_lead_days, archived_at',
           )
-          .in('org_id', orgIds)
+          .in('org_id', batch)
           .is('archived_at', null),
       'requirement_types',
     ),
@@ -1836,13 +1850,13 @@ Deno.serve(async (req) => {
 
   for (const [orgId, entries] of pendingByOrg) {
     const org = orgById.get(orgId)
-    if (!org?.owner_id) {
-      summary.errors.push(`No organization owner for org ${orgId}`)
+    if (!org) {
+      summary.errors.push(`No organization found for org ${orgId}`)
       continue
     }
 
     const configuredAlertEmail = org.alert_email?.trim()
-    const to = configuredAlertEmail || (await ownerEmail(org.owner_id))
+    const to = configuredAlertEmail || (org.owner_id ? await ownerEmail(org.owner_id) : null)
     if (!to) {
       summary.errors.push(`No alert email for org ${orgId}`)
       continue
@@ -1868,16 +1882,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { error: sendError } = await sendResendEmail({
-      apiKey: resendApiKey,
-      from: fromEmail,
-      to,
-      subject,
-      html: digestHtml(org.name, digest, overdueBySite),
+    const claim = await claimSend(supabase, {
+      orgId,
+      kind: 'alert_digest',
+      period: today,
+      itemCount: entries.length,
     })
-
-    if (sendError) {
-      summary.errors.push(`Failed to email digest for org ${orgId}: ${sendError.message}`)
+    if (claim.alreadyClaimed) {
+      summary.already_sent.push(orgId)
+      continue
+    }
+    if (!claim.id) {
+      summary.errors.push(`Failed to claim digest for org ${orgId}: ${claim.error}`)
       continue
     }
 
@@ -1886,15 +1902,46 @@ Deno.serve(async (req) => {
       entries.map((entry) => ({
         compliance_item_id: entry.item.id,
         threshold: entry.kind,
+        expiry_date: entry.kind === 'recheck' ? null : entry.item.expiry_date,
         sent_at: sentAt,
+        email_send_id: claim.id,
       })),
     )
 
     if (insertError) {
+      const releaseError = await releaseClaim(supabase, claim.id)
       summary.errors.push(
-        `Sent digest but failed to record alerts for org ${orgId}: ${insertError.message}`,
+        `Failed to record alerts for org ${orgId}, digest not sent: ${insertError.message}` +
+          (releaseError ? ` (release failed: ${releaseError})` : ''),
       )
       continue
+    }
+
+    let sendError: Error | null
+    try {
+      ;({ error: sendError } = await sendResendEmail({
+        apiKey: resendApiKey,
+        from: fromEmail,
+        to,
+        subject,
+        html: digestHtml(org.name, digest, overdueBySite),
+      }))
+    } catch (error) {
+      sendError = new Error(errorMessage(error))
+    }
+
+    if (sendError) {
+      const releaseError = await releaseClaim(supabase, claim.id)
+      summary.errors.push(
+        `Failed to email digest for org ${orgId}: ${sendError.message}` +
+          (releaseError ? ` (release failed: ${releaseError})` : ''),
+      )
+      continue
+    }
+
+    const markError = await markSent(supabase, claim.id)
+    if (markError) {
+      summary.errors.push(`Sent digest but failed to mark it sent for org ${orgId}: ${markError}`)
     }
 
     summary.sent += 1

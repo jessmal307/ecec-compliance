@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { buildProviderComplianceReport } from '../_shared/dashboardCompliance.js'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
+import { claimSend, clearStaleClaims, markSent, releaseClaim, type StaleClaim } from '../_shared/emailSends.ts'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
 
 // Scheduled by supabase/cron_jobs.sql (rtc-monthly-report).
@@ -244,8 +245,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
-  const fromEmail =
-    Deno.env.get('RESEND_FROM_EMAIL') ?? 'ECEC Alerts <onboarding@resend.dev>'
+  const fromEmail = Deno.env.get('RESEND_FROM_EMAIL')
 
   if (!supabaseUrl || !serviceRoleKey) {
     return json({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }, 500)
@@ -265,6 +265,10 @@ Deno.serve(async (req) => {
     return json({ error: 'Missing RESEND_API_KEY' }, 500)
   }
 
+  if (!snapshotOnly && !fromEmail) {
+    return json({ error: 'Missing RESEND_FROM_EMAIL' }, 500)
+  }
+
   const supabase = createClient(supabaseUrl, serviceRoleKey)
   const todayIso = todaySydney()
   const month = monthLabel(todayIso)
@@ -278,8 +282,18 @@ Deno.serve(async (req) => {
     sent: 0,
     skipped: 0,
     snapshots: 0,
+    already_sent: [] as string[],
+    stale_claims_cleared: [] as StaleClaim[],
     errors: [] as string[],
     snapshot_errors: [] as string[],
+  }
+
+  if (!snapshotOnly) {
+    const staleClaims = await clearStaleClaims(supabase, 'monthly_report')
+    summary.stale_claims_cleared = staleClaims.cleared
+    if (staleClaims.error) {
+      summary.errors.push(`Failed to clear stale report claims: ${staleClaims.error}`)
+    }
   }
 
   async function ownerEmail(ownerId: string): Promise<string | null> {
@@ -524,6 +538,7 @@ Deno.serve(async (req) => {
 
     if (snapshotOnly) continue
 
+    let claimId: string | null = null
     try {
       const to =
         org.alert_email?.trim() ||
@@ -534,23 +549,50 @@ Deno.serve(async (req) => {
         continue
       }
 
+      const claim = await claimSend(supabase, { orgId: org.id, kind: 'monthly_report', period })
+      if (claim.alreadyClaimed) {
+        summary.already_sent.push(org.id)
+        continue
+      }
+      if (!claim.id) {
+        summary.errors.push(`Failed to claim report for ${org.name}: ${claim.error}`)
+        continue
+      }
+      claimId = claim.id
+
       const { error: sendError } = await sendResendEmail({
         apiKey: resendApiKey as string,
-        from: fromEmail,
+        from: fromEmail as string,
         to,
         subject: `Monthly compliance report — ${org.name} — as at ${asAt}`,
         html: reportHtml(org.name, month, report),
       })
 
       if (sendError) {
-        summary.errors.push(`Failed to email ${org.name}: ${sendError.message}`)
+        const releaseError = await releaseClaim(supabase, claimId)
+        claimId = null
+        summary.errors.push(
+          `Failed to email ${org.name}: ${sendError.message}` +
+            (releaseError ? ` (release failed: ${releaseError})` : ''),
+        )
         continue
+      }
+
+      const sentClaimId = claimId
+      claimId = null
+      const markError = await markSent(supabase, sentClaimId)
+      if (markError) {
+        summary.errors.push(`Sent report but failed to mark it sent for ${org.name}: ${markError}`)
       }
 
       summary.sent += 1
     } catch (error) {
       const message = errorMessage(error)
-      summary.errors.push(`Failed to email ${org.name}: ${message}`)
+      const releaseError = claimId ? await releaseClaim(supabase, claimId) : null
+      summary.errors.push(
+        `Failed to email ${org.name}: ${message}` +
+          (releaseError ? ` (release failed: ${releaseError})` : ''),
+      )
     }
   }
 

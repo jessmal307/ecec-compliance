@@ -1338,6 +1338,7 @@ create table if not exists public.alerts (
   id uuid primary key default gen_random_uuid(),
   compliance_item_id uuid not null references public.compliance_items (id) on delete cascade,
   threshold text not null,
+  expiry_date date,
   sent_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   constraint alerts_threshold_check check (threshold in ('renewal', 'expired', 'recheck'))
@@ -1384,14 +1385,6 @@ where threshold in ('0', '7', '30');
 delete from public.alerts
 where threshold not in ('renewal', 'expired', 'recheck');
 
--- recheck alerts repeat by design; only renewal/expired are once-per-item.
-delete from public.alerts a
-using public.alerts b
-where a.ctid > b.ctid
-  and a.compliance_item_id = b.compliance_item_id
-  and a.threshold = b.threshold
-  and a.threshold in ('renewal', 'expired');
-
 alter table public.alerts
   add column if not exists created_at timestamptz not null default now();
 
@@ -1407,6 +1400,61 @@ alter table public.alerts
 
 alter table public.alerts
   alter column sent_at set not null;
+
+-- expiry_date = the expiry a renewal/expired alert was sent for (null for
+-- recheck). One-time backfill when the column is first added: an alert still
+-- matching the certificate's current expiry cycle keeps it (stays suppressed);
+-- one whose certificate was renewed in place since stays null (re-arms).
+do $$
+declare
+  today date := (now() at time zone 'Australia/Sydney')::date;
+begin
+  if not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'alerts'
+      and column_name = 'expiry_date'
+  ) then
+    alter table public.alerts add column expiry_date date;
+
+    update public.alerts as a
+    set expiry_date = items.expiry_date
+    from public.compliance_items as items
+    left join public.requirement_types as types
+      on types.id = items.requirement_type_id
+    where items.id = a.compliance_item_id
+      and a.threshold in ('renewal', 'expired')
+      and items.expiry_date is not null
+      and not exists (
+        select 1
+        from public.audit_log as log
+        where log.entity = 'compliance_items'
+          and log.entity_id = a.compliance_item_id
+          and log.action = 'update'
+          and log.created_at > a.sent_at
+          and (log.before->>'expiry_date') is distinct from (log.after->>'expiry_date')
+      )
+      and (
+        (a.threshold = 'expired' and items.expiry_date <= today)
+        or (
+          a.threshold = 'renewal'
+          and items.expiry_date <= today + coalesce(types.renewal_lead_days, 0)
+        )
+      );
+  end if;
+end
+$$;
+
+-- recheck alerts repeat by design; renewal/expired are once per expiry cycle.
+delete from public.alerts a
+using public.alerts b
+where a.ctid > b.ctid
+  and a.compliance_item_id = b.compliance_item_id
+  and a.threshold = b.threshold
+  and a.expiry_date is not distinct from b.expiry_date
+  and a.expiry_date is not null
+  and a.threshold in ('renewal', 'expired');
 
 alter table public.alerts drop constraint if exists alerts_threshold_check;
 alter table public.alerts
@@ -1433,9 +1481,11 @@ begin
 end
 $$;
 
-create unique index if not exists alerts_item_renewal_expired_once_idx
-  on public.alerts (compliance_item_id, threshold)
-  where threshold in ('renewal', 'expired');
+create unique index if not exists alerts_item_threshold_expiry_key
+  on public.alerts (compliance_item_id, threshold, expiry_date)
+  where threshold in ('renewal', 'expired') and expiry_date is not null;
+
+drop index if exists public.alerts_item_renewal_expired_once_idx;
 
 alter table public.alerts enable row level security;
 
@@ -2802,3 +2852,42 @@ revoke all on function public.upsert_compliance_snapshots(uuid, date, jsonb) fro
 revoke all on function public.upsert_compliance_snapshots(uuid, date, jsonb) from anon;
 revoke all on function public.upsert_compliance_snapshots(uuid, date, jsonb) from authenticated;
 grant execute on function public.upsert_compliance_snapshots(uuid, date, jsonb) to service_role;
+
+-- Service-role only. One claim per org per email per period, taken before
+-- sending. Deleting a claim (failed send, or stuck in 'sending') cascades to
+-- the alert rows recorded with it, so the next run re-sends them.
+create table if not exists public.email_sends (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  kind text not null,
+  period date not null,
+  status text not null default 'sending',
+  item_count integer,
+  created_at timestamptz not null default now(),
+  sent_at timestamptz,
+  constraint email_sends_org_kind_period_key unique (org_id, kind, period)
+);
+
+alter table public.email_sends drop constraint if exists email_sends_kind_check;
+alter table public.email_sends add constraint email_sends_kind_check
+  check (kind in ('alert_digest', 'monthly_report'));
+
+alter table public.email_sends drop constraint if exists email_sends_status_check;
+alter table public.email_sends add constraint email_sends_status_check
+  check (status in ('sending', 'sent'));
+
+create index if not exists email_sends_kind_status_created_at_idx
+  on public.email_sends (kind, status, created_at);
+
+alter table public.email_sends enable row level security;
+
+revoke all on table public.email_sends from public;
+revoke all on table public.email_sends from anon;
+revoke all on table public.email_sends from authenticated;
+
+alter table public.alerts
+  add column if not exists email_send_id uuid
+  references public.email_sends (id) on delete cascade;
+
+create index if not exists alerts_email_send_id_idx
+  on public.alerts (email_send_id);

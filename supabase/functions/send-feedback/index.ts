@@ -85,8 +85,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
   const resendApiKey = Deno.env.get('RESEND_API_KEY')
-  const fromEmail =
-    Deno.env.get('RESEND_FROM_EMAIL') ?? 'ECEC Alerts <onboarding@resend.dev>'
+  const fromEmail = Deno.env.get('RESEND_FROM_EMAIL')
   const toEmail = Deno.env.get('FEEDBACK_TO_EMAIL')?.trim()
 
   if (!supabaseUrl || !anonKey) {
@@ -95,6 +94,10 @@ Deno.serve(async (req) => {
 
   if (!resendApiKey) {
     return json({ error: 'Missing RESEND_API_KEY' }, 500)
+  }
+
+  if (!fromEmail) {
+    return json({ error: 'Missing RESEND_FROM_EMAIL' }, 500)
   }
 
   if (!toEmail) {
