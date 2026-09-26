@@ -1,15 +1,21 @@
 import { todayIsoDate } from './compliance'
 import { isIsoDate } from './dates'
+import { evidenceCompletionErrors } from './evidenceCompletion'
 import {
   addCalendarMonthsIso,
   addDaysIso,
   findOverdueForms,
   forDateInPeriod,
+  isAnchoredCadence,
   isLateInPeriod,
+  isMonthLongCadence,
   isSiteOpenOn,
   isSubmissionLate,
   periodBounds,
+  periodIsOwed,
   periodStatus,
+  previousPeriodBounds,
+  scheduleNotBefore,
 } from './formPeriods'
 import { dueByFor, dueStatusAt, templateTakesDueBy } from './formDueTimes'
 import { isSignatureDataUrl } from './formUploads'
@@ -51,7 +57,13 @@ const ASSIGNMENT_FIELDS =
   'id, org_id, template_id, target_type, target_id, target_role, cadence, next_due, active, created_at'
 
 const TEMPLATE_FIELDS =
-  'id, org_id, name, archetype, schema, reg_ref, description, is_system, cadence, scope, default_due_by, archived_at, created_at'
+  'id, org_id, name, archetype, schema, reg_ref, description, is_system, cadence, cadence_months, scope, default_due_by, archived_at, created_at'
+
+const CADENCE_LABELS = {
+  half_yearly: 'Half-yearly',
+  annually: 'Annually',
+  each_time: 'Each time',
+}
 
 const EXCLUSION_FIELDS = 'id, org_id, site_id, template_id, created_at'
 
@@ -66,6 +78,9 @@ function mapTemplate(row) {
     description: row.description ?? '',
     is_system: Boolean(row.is_system),
     cadence: row.cadence ?? null,
+    cadence_months: Array.isArray(row.cadence_months)
+      ? row.cadence_months.map(Number)
+      : null,
     scope: row.scope || 'on_demand',
     default_due_by: normalizeTimeOfDay(row.default_due_by),
     archived_at: row.archived_at ?? null,
@@ -74,13 +89,18 @@ function mapTemplate(row) {
 }
 
 export function isScheduledAllSitesTemplate(template) {
-  return Boolean(template?.cadence) && template.scope === 'all_sites'
+  return (
+    Boolean(template?.cadence) &&
+    template.cadence !== 'each_time' &&
+    template.scope === 'all_sites'
+  )
 }
 
 export function archetypeLabel(archetype) {
   if (archetype === 'register') return 'Register'
   if (archetype === 'checklist') return 'Checklist'
   if (archetype === 'risk_matrix') return 'Risk matrix'
+  if (archetype === 'evidence') return 'Evidence'
   return 'Form'
 }
 
@@ -118,7 +138,11 @@ export function computeNextDue(cadence, fromDate = todayIsoDate()) {
 }
 
 export function cadenceLabel(cadence) {
-  return FORM_CADENCES.find((item) => item.value === cadence)?.label || cadence
+  return (
+    FORM_CADENCES.find((item) => item.value === cadence)?.label ||
+    CADENCE_LABELS[cadence] ||
+    cadence
+  )
 }
 
 function sameId(left, right) {
@@ -231,10 +255,23 @@ function mapDueSubmission(row) {
 async function listPeriodicDueSubmissions(orgId, templates, today) {
   if (!templates.length) return { data: [], error: null }
 
-  const earliestStart = templates
-    .map((template) => periodBounds(template.cadence, today)?.start)
-    .filter(Boolean)
-    .reduce((earliest, start) => (start < earliest ? start : earliest), today)
+  const starts = []
+  for (const template of templates) {
+    const current = periodBounds(template.cadence, today, template.cadence_months)?.start
+    if (current) starts.push(current)
+    if (isMonthLongCadence(template.cadence)) {
+      const previous = previousPeriodBounds(
+        template.cadence,
+        today,
+        template.cadence_months,
+      )?.start
+      if (previous) starts.push(previous)
+    }
+  }
+  const earliestStart = starts.reduce(
+    (earliest, start) => (start < earliest ? start : earliest),
+    today,
+  )
   const { data, error } = await supabase
     .from('form_submissions')
     .select('site_id, template_id, status, for_date, due_by, submitted_at')
@@ -350,6 +387,10 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
   for (const site of sites) {
     for (const template of templates) {
       if (isFormSiteExcluded(exclusions, site.id, template.id)) continue
+      if (isMonthLongCadence(template.cadence)) {
+        pushMonthLongDueRows(rows, { site, template, submissions, today })
+        continue
+      }
       if (template.cadence === 'daily' && !isSiteOpenOn(site, closures, today)) {
         continue
       }
@@ -377,6 +418,40 @@ export async function computeDueForms(orgId, today = todayIsoDate()) {
   }
 
   return { data: rows, error: null }
+}
+
+function pushMonthLongDueRows(rows, { site, template, submissions, today }) {
+  const months = template.cadence_months
+  const current = periodBounds(template.cadence, today, months)
+  if (current?.start) {
+    rows.push({
+      site_id: site.id,
+      site_name: site.name,
+      template_id: template.id,
+      template_name: template.name,
+      cadence: template.cadence,
+      status: periodStatus(submissions, site.id, template.id, current),
+      due_by: null,
+      for_date: current.start,
+      late: false,
+    })
+  }
+
+  const previous = previousPeriodBounds(template.cadence, today, months)
+  if (!previous?.start) return
+  if (!periodIsOwed(previous, scheduleNotBefore(site, template), true)) return
+  if (periodStatus(submissions, site.id, template.id, previous) !== 'due') return
+  rows.push({
+    site_id: site.id,
+    site_name: site.name,
+    template_id: template.id,
+    template_name: template.name,
+    cadence: template.cadence,
+    status: 'overdue',
+    due_by: null,
+    for_date: previous.start,
+    late: false,
+  })
 }
 
 export async function computeOverdueForms(orgId, today = todayIsoDate()) {
@@ -542,6 +617,7 @@ function mapSubmission(row) {
         ? payload.rows
         : [],
     missed_reason: String(payload.missedReason || '').trim(),
+    completed_on: typeof payload.completed_on === 'string' ? payload.completed_on.slice(0, 10) : '',
     status: row.status,
     signed_off_by: row.signed_off_by,
     signed_off_at: row.signed_off_at,
@@ -593,6 +669,7 @@ function fieldFilled(field, value) {
 }
 
 export function validateFormSubmission(schema, archetype, state) {
+  if (archetype === 'evidence') return evidenceCompletionErrors(state?.fileCount)
   const errors = []
   const fields =
     archetype === 'checklist'
@@ -705,13 +782,15 @@ export async function findCompleteInPeriod({
   cadence,
   forDate,
   excludeId,
+  months,
 }) {
   if (!orgId || !templateId || !siteId) return { data: null, error: null }
   if (cadence && cadence !== 'once' && !isIsoDate(forDate)) {
     return { data: null, error: null }
   }
 
-  const bounds = periodBounds(cadence || 'once', forDate || todayIsoDate())
+  const bounds = periodBounds(cadence || 'once', forDate || todayIsoDate(), months)
+  if (isAnchoredCadence(cadence) && !bounds?.start) return { data: null, error: null }
   let query = supabase
     .from('form_submissions')
     .select(`${SUBMISSION_FIELDS}, form_templates ( id, name ), sites ( id, name )`)

@@ -198,9 +198,17 @@ function isOnDemandTemplate(template: { cadence: string | null; scope: string })
 }
 
 function isApplicableTemplate(
-  template: { cadence: string | null; scope: string; id: string },
+  template: { cadence: string | null; scope: string; id: string; archetype?: string },
   exclusions: { template_id: string }[],
 ) {
+  if (template.archetype === 'evidence') return false
+  if (
+    template.cadence === 'half_yearly' ||
+    template.cadence === 'annually' ||
+    template.cadence === 'each_time'
+  ) {
+    return false
+  }
   if (template.scope === 'all_staff') return false
   if (exclusions.some((row) => sameId(row.template_id, template.id))) return false
   return isScheduledTemplate(template) || isOnDemandTemplate(template)

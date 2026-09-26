@@ -1893,7 +1893,7 @@ create table if not exists public.form_templates (
   archived_at timestamptz,
   created_at timestamptz not null default now(),
   constraint form_templates_archetype_check
-    check (archetype in ('simple', 'register', 'checklist', 'risk_matrix'))
+    check (archetype in ('simple', 'register', 'checklist', 'risk_matrix', 'evidence'))
 );
 
 create index if not exists form_templates_org_id_idx
@@ -1913,7 +1913,10 @@ where scope is null
 update public.form_templates
 set cadence = null
 where cadence is not null
-  and cadence not in ('once', 'daily', 'weekly', 'monthly', 'quarterly', 'annual');
+  and cadence not in (
+    'once', 'daily', 'weekly', 'monthly', 'quarterly', 'annual',
+    'half_yearly', 'annually', 'each_time'
+  );
 
 alter table public.form_templates
   alter column scope set default 'on_demand';
@@ -1923,11 +1926,77 @@ alter table public.form_templates
 
 alter table public.form_templates drop constraint if exists form_templates_cadence_check;
 alter table public.form_templates add constraint form_templates_cadence_check
-  check (cadence is null or cadence in ('once', 'daily', 'weekly', 'monthly', 'quarterly', 'annual'));
+  check (
+    cadence is null
+    or cadence in (
+      'once', 'daily', 'weekly', 'monthly', 'quarterly', 'annual',
+      'half_yearly', 'annually', 'each_time'
+    )
+  );
 
 alter table public.form_templates drop constraint if exists form_templates_scope_check;
 alter table public.form_templates add constraint form_templates_scope_check
   check (scope in ('all_sites', 'all_staff', 'on_demand'));
+
+alter table public.form_templates drop constraint if exists form_templates_archetype_check;
+alter table public.form_templates add constraint form_templates_archetype_check
+  check (archetype in ('simple', 'register', 'checklist', 'risk_matrix', 'evidence'));
+
+-- Anchor months for half_yearly (two months) and annually (one month).
+-- `annual` stays the calendar year and must keep this column null.
+alter table public.form_templates
+  add column if not exists cadence_months smallint[];
+
+update public.form_templates
+set cadence_months = null
+where cadence is distinct from 'half_yearly'
+  and cadence is distinct from 'annually'
+  and cadence_months is not null;
+
+update public.form_templates
+set cadence = null,
+    cadence_months = null
+where cadence in ('half_yearly', 'annually')
+  and not (
+    (
+      cadence = 'half_yearly'
+      and cadence_months is not null
+      and cardinality(cadence_months) = 2
+      and cadence_months[1] between 1 and 12
+      and cadence_months[2] between 1 and 12
+      and cadence_months[1] <> cadence_months[2]
+    )
+    or (
+      cadence = 'annually'
+      and cadence_months is not null
+      and cardinality(cadence_months) = 1
+      and cadence_months[1] between 1 and 12
+    )
+  );
+
+alter table public.form_templates drop constraint if exists form_templates_cadence_months_check;
+alter table public.form_templates add constraint form_templates_cadence_months_check
+  check (
+    (
+      cadence = 'half_yearly'
+      and cadence_months is not null
+      and cardinality(cadence_months) = 2
+      and cadence_months[1] between 1 and 12
+      and cadence_months[2] between 1 and 12
+      and cadence_months[1] <> cadence_months[2]
+    )
+    or (
+      cadence = 'annually'
+      and cadence_months is not null
+      and cardinality(cadence_months) = 1
+      and cadence_months[1] between 1 and 12
+    )
+    or (
+      cadence is distinct from 'half_yearly'
+      and cadence is distinct from 'annually'
+      and cadence_months is null
+    )
+  );
 
 create table if not exists public.form_assignments (
   id uuid primary key default gen_random_uuid(),

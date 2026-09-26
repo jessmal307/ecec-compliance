@@ -116,7 +116,7 @@ export function FormDue({ organizationId }) {
                   <ul className="space-y-2">
                     {group.rows.map((row) => (
                       <li
-                        key={`${row.site_id}-${row.template_id}`}
+                        key={`${row.site_id}-${row.template_id}-${row.for_date}-${row.status}`}
                         className="flex flex-wrap items-center justify-between gap-2"
                       >
                         <div className="flex flex-wrap items-center gap-2">
@@ -142,7 +142,11 @@ export function FormDue({ organizationId }) {
                         </div>
                         {row.status === 'due' || row.status === 'overdue' ? (
                           <Button asChild size="sm">
-                            <Link to={`${paths.formComplete(row.template_id)}?site=${row.site_id}`}>
+                            <Link
+                              to={`${paths.formComplete(row.template_id)}?site=${row.site_id}${
+                                row.for_date ? `&date=${row.for_date}` : ''
+                              }`}
+                            >
                               Complete
                             </Link>
                           </Button>

@@ -7,7 +7,7 @@ import { FormRenderer } from './forms/FormRenderer'
 import { useFormsAccess } from './Forms'
 import { PageError, PageHeader, PageMuted } from './ui/page'
 import { formatDate, formatTimestamp } from '../lib/format'
-import { getFormSubmission, getFormTemplate } from '../lib/forms'
+import { archetypeLabel, getFormSubmission, getFormTemplate } from '../lib/forms'
 import { getFormUploadUrl, isSignatureDataUrl } from '../lib/formUploads'
 import { firstError } from '../lib/query'
 import { formsHref, paths } from '../lib/paths'
@@ -139,13 +139,16 @@ export function FormSubmissionView() {
                 {submission.status === 'missed' ? 'Missed' : 'Complete'}
               </Badge>
               {submission.late ? <Badge variant="outline">Late</Badge> : null}
-              <Badge variant="outline">{template.archetype}</Badge>
+              <Badge variant="outline">{archetypeLabel(template.archetype)}</Badge>
             </div>
             <CardTitle>{submission.template_name}</CardTitle>
             <p className="text-base text-muted-foreground md:text-sm">
               {submission.site_name || 'No site'}
               {submission.room ? ` · ${submission.room}` : ''}
               {submission.for_date ? ` · covers ${formatDate(submission.for_date)}` : ''}
+              {!submission.for_date && submission.completed_on
+                ? ` · completed ${formatDate(submission.completed_on)}`
+                : ''}
               {submission.status === 'missed'
                 ? ''
                 : submission.signer_name
@@ -165,6 +168,10 @@ export function FormSubmissionView() {
               <p className="text-sm text-muted-foreground">
                 This occurrence was recorded as missed. No form was completed.
               </p>
+            ) : template.archetype === 'evidence' ? (
+              submission.notes?.text ? (
+                <p className="text-sm whitespace-pre-wrap">{submission.notes.text}</p>
+              ) : null
             ) : (
             <FormRenderer
               archetype={template.archetype}
@@ -181,7 +188,9 @@ export function FormSubmissionView() {
             )}
             {evidenceUrls.length ? (
               <div className="space-y-2">
-                <h3 className="text-sm font-medium">Photos</h3>
+                <h3 className="text-sm font-medium">
+                  {template.archetype === 'evidence' ? 'Files' : 'Photos'}
+                </h3>
                 <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {evidenceUrls.map((item) => (
                     <li key={item.path}>

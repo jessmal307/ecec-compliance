@@ -3,6 +3,12 @@ import { selectInBatches } from '../_shared/batch.ts'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
 import { claimSend, clearStaleClaims, markSent, releaseClaim, type StaleClaim } from '../_shared/emailSends.ts'
 import { templateTakesDueBy } from '../_shared/formDueTimes.js'
+import {
+  isAnchoredCadence,
+  isMonthLongCadence,
+  periodIsOwed,
+  previousAnchoredPeriodBounds,
+} from '../_shared/formPeriods.js'
 import { retryOnJwtSkew } from '../_shared/retry.ts'
 import { isSiteOpenOn, normalizeOperatingDays } from '../_shared/siteOpen.js'
 import {
@@ -1235,7 +1241,7 @@ function formMissedPeriodLabel(
       : `missed ${formFormatDayLabel(bounds.start)}`
   }
   if (cadence === 'weekly') return `missed week of ${formFormatDayLabel(bounds.start)}`
-  if (cadence === 'monthly') {
+  if (cadence === 'monthly' || cadence === 'half_yearly' || cadence === 'annually') {
     const [year, month] = bounds.start.split('-').map(Number)
     return `missed ${FORM_MONTHS[month - 1]} ${year}`
   }
@@ -1256,7 +1262,14 @@ function findOverdueForms({
   today,
 }: {
   sites: { id: string; name: string; operating_days?: number[]; created_at?: string | null }[]
-  templates: { id: string; name: string; cadence: string | null; scope: string; created_at?: string | null }[]
+  templates: {
+    id: string
+    name: string
+    cadence: string | null
+    cadence_months?: number[] | null
+    scope: string
+    created_at?: string | null
+  }[]
   exclusions: { site_id: string; template_id: string }[]
   closures: { site_id: string; closure_date: string }[]
   submissions: { status: string; site_id: string; template_id: string; for_date?: string | null }[]
@@ -1267,7 +1280,9 @@ function findOverdueForms({
   const rows: OverdueFormRow[] = []
   for (const site of sites) {
     for (const template of templates) {
-      if (template.cadence === 'once' || !template.cadence) continue
+      if (template.cadence === 'once' || template.cadence === 'each_time' || !template.cadence) {
+        continue
+      }
       if (template.scope !== 'all_sites') continue
       if (
         exclusions.some(
@@ -1291,10 +1306,13 @@ function findOverdueForms({
         if (!day) continue
         bounds = { start: day, end: day }
       } else {
-        bounds = formPreviousPeriodBounds(template.cadence, today)
+        bounds = isAnchoredCadence(template.cadence)
+          ? previousAnchoredPeriodBounds(template.cadence_months, today)
+          : formPreviousPeriodBounds(template.cadence, today)
         if (!bounds?.start) continue
-        if (notBefore && bounds.start < notBefore) continue
-        if (!formPeriodHasOpenDay(site, closures, bounds)) continue
+        const monthLong = isMonthLongCadence(template.cadence)
+        if (!periodIsOwed(bounds, notBefore, monthLong)) continue
+        if (!monthLong && !formPeriodHasOpenDay(site, closures, bounds)) continue
       }
 
       if (
@@ -1449,7 +1467,7 @@ async function loadOverdueFormsForOrg(
       () =>
         supabase
           .from('form_templates')
-          .select('id, name, cadence, scope, org_id, archived_at, created_at')
+          .select('id, name, cadence, cadence_months, scope, org_id, archived_at, created_at')
           .is('archived_at', null)
           .or(`org_id.eq.${orgId},org_id.is.null`),
       'overdue form_templates',
@@ -1478,6 +1496,7 @@ async function loadOverdueFormsForOrg(
     (template) =>
       Boolean(template.cadence) &&
       template.cadence !== 'once' &&
+      template.cadence !== 'each_time' &&
       template.scope === 'all_sites',
   )
 
@@ -1515,6 +1534,7 @@ async function loadOverdueFormsForOrg(
       id: string
       name: string
       cadence: string | null
+      cadence_months?: number[] | null
       scope: string
       created_at?: string | null
     }[],

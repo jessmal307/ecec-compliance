@@ -31,6 +31,8 @@ export function FormRenderer({
     setCurrent({ ...current, notes: { ...current.notes, [id]: next } })
   }
 
+  if (archetype === 'evidence') return null
+
   if (archetype === 'checklist') {
     return (
       <ChecklistFormRenderer

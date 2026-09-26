@@ -12,6 +12,7 @@ import { PageError, PageHeader, PageMuted, PageSuccess } from './ui/page'
 import {
   ALREADY_COMPLETED_MESSAGE,
   COMPLETED_BY_SOMEONE_ELSE_MESSAGE,
+  archetypeLabel,
   buildSubmissionData,
   createFormSubmission,
   createMissedSubmission,
@@ -24,7 +25,8 @@ import {
   validateFormSubmission,
 } from '../lib/forms'
 import { todayIsoDate } from '../lib/compliance'
-import { validateIsoDate } from '../lib/dates'
+import { isIsoDate, validateIsoDate } from '../lib/dates'
+import { isAnchoredCadence, isMonthLongCadence, periodBounds } from '../lib/formPeriods'
 import { formatTimestamp } from '../lib/format'
 import {
   dataUrlToFile,
@@ -39,9 +41,15 @@ import { listSites } from '../lib/sites'
 import { paths } from '../lib/paths'
 
 function collectSignatureFieldIds(schema, archetype) {
-  if (archetype === 'checklist') return []
+  if (archetype === 'checklist' || archetype === 'evidence') return []
   const fields = schema?.fields || schema?.items || []
   return fields.filter((field) => field.type === 'signature').map((field) => field.id)
+}
+
+function initialCoverDate(value) {
+  const date = String(value || '').slice(0, 10)
+  if (!isIsoDate(date) || date > todayIsoDate()) return todayIsoDate()
+  return date
 }
 
 export function FormComplete() {
@@ -49,13 +57,16 @@ export function FormComplete() {
   const [searchParams] = useSearchParams()
   const draftParam = searchParams.get('draft')
   const siteParam = searchParams.get('site')
+  const dateParam = searchParams.get('date')
   const navigate = useNavigate()
   const { organizationId, user } = useAuth()
   const { allowed, loading: accessLoading } = useFormsAccess()
   const [template, setTemplate] = useState(null)
   const [sites, setSites] = useState([])
   const [siteId, setSiteId] = useState('')
-  const [forDate, setForDate] = useState(todayIsoDate)
+  const [forDate, setForDate] = useState(() => initialCoverDate(searchParams.get('date')))
+  const [completionDate, setCompletionDate] = useState(todayIsoDate)
+  const [evidenceNote, setEvidenceNote] = useState('')
   const [missedReason, setMissedReason] = useState('')
   const [room, setRoom] = useState('')
   const [formState, setFormState] = useState(() => emptyFormState())
@@ -102,6 +113,10 @@ export function FormComplete() {
         setDraftId(draftResult.data.id)
         setSiteId(draftResult.data.site_id || '')
         setForDate(draftResult.data.for_date || todayIsoDate())
+        setCompletionDate(draftResult.data.completed_on || todayIsoDate())
+        setEvidenceNote(
+          typeof draftResult.data.notes?.text === 'string' ? draftResult.data.notes.text : '',
+        )
         setMissedReason(draftResult.data.missed_reason || '')
         setRoom(draftResult.data.room || '')
         setFormState({
@@ -116,11 +131,14 @@ export function FormComplete() {
           rows: draftResult.data.rows,
         })
         setEvidence(draftResult.data.evidence)
-      } else if (
-        siteParam &&
-        (sitesResult.data ?? []).some((site) => String(site.id) === String(siteParam))
-      ) {
-        setSiteId(siteParam)
+      } else {
+        setForDate(initialCoverDate(dateParam))
+        if (
+          siteParam &&
+          (sitesResult.data ?? []).some((site) => String(site.id) === String(siteParam))
+        ) {
+          setSiteId(siteParam)
+        }
       }
       setLoading(false)
     }
@@ -130,7 +148,7 @@ export function FormComplete() {
     return () => {
       cancelled = true
     }
-  }, [accessLoading, allowed, templateId, organizationId, draftParam, siteParam, navigate])
+  }, [accessLoading, allowed, templateId, organizationId, draftParam, siteParam, dateParam, navigate])
 
   useEffect(() => {
     if (!template) return
@@ -189,6 +207,7 @@ export function FormComplete() {
         siteId,
         cadence: template.cadence,
         forDate,
+        months: template.cadence_months,
         excludeId: draftId,
       })
       if (!cancelled) setExistingComplete(data)
@@ -208,21 +227,39 @@ export function FormComplete() {
       setError('Choose a site.')
       return
     }
+    const isEvidence = template.archetype === 'evidence'
     const coversScheduled = isScheduledAllSitesTemplate(template)
     const dateError = coversScheduled
       ? validateIsoDate(forDate, {
           required: true,
           allowFuture: false,
-          emptyLabel: 'date this covers',
+          emptyLabel: isEvidence ? 'completion date' : 'date this covers',
           invalidLabel: 'date',
         })
-      : null
+      : isEvidence
+        ? validateIsoDate(completionDate, {
+            required: true,
+            allowFuture: false,
+            emptyLabel: 'completion date',
+            invalidLabel: 'date',
+          })
+        : null
     if (dateError) {
       setError(dateError)
       return
     }
+    if (coversScheduled && isAnchoredCadence(template.cadence)) {
+      const bounds = periodBounds(template.cadence, forDate, template.cadence_months)
+      if (!bounds) {
+        setError('Choose a date in the due month.')
+        return
+      }
+    }
     if (status === 'complete') {
-      const issues = validateFormSubmission(template.schema, template.archetype, formState)
+      const issues = validateFormSubmission(template.schema, template.archetype, {
+        ...formState,
+        fileCount: evidence.length + pendingFiles.length,
+      })
       if (issues.length) {
         setError(issues[0])
         return
@@ -234,6 +271,7 @@ export function FormComplete() {
           siteId,
           cadence: template.cadence,
           forDate,
+          months: template.cadence_months,
           excludeId: draftId,
         })
         if (existing.data) {
@@ -316,16 +354,22 @@ export function FormComplete() {
     }
 
     const now = new Date().toISOString()
+    const submissionData = buildSubmissionData({
+      room: isEvidence ? '' : room,
+      values: isEvidence ? {} : nextValues,
+      notes: isEvidence
+        ? evidenceNote.trim()
+          ? { text: evidenceNote.trim() }
+          : {}
+        : formState.notes,
+      signoff: isEvidence ? { name: '', date: '', note: '', signature: '' } : nextSignoff,
+      rows: isEvidence ? [] : formState.rows,
+    })
+    if (isEvidence && !coversScheduled) submissionData.completed_on = completionDate
     const { data, error: saveError } = await updateFormSubmission(submissionId, {
       site_id: siteId,
       for_date: coversScheduled ? forDate : null,
-      data: buildSubmissionData({
-        room,
-        values: nextValues,
-        notes: formState.notes,
-        signoff: nextSignoff,
-        rows: formState.rows,
-      }),
+      data: submissionData,
       evidence: nextEvidence,
       status,
       submitted_by: user?.id ?? null,
@@ -342,6 +386,7 @@ export function FormComplete() {
           siteId,
           cadence: template.cadence,
           forDate,
+          months: template.cadence_months,
           excludeId: submissionId,
         })
         if (existing.data) {
@@ -445,7 +490,11 @@ export function FormComplete() {
     <section className="flex w-full min-w-0 flex-col gap-6 text-left">
       <PageHeader
         title={template?.name || 'Complete form'}
-        description="Choose a site, fill the form, then save a draft or submit. This is the office path. Centre staff use the floor link on the tablet."
+        description={
+          template?.archetype === 'evidence'
+            ? 'Choose a site, add the completion date and at least one file, then submit.'
+            : 'Choose a site, fill the form, then save a draft or submit. This is the office path. Centre staff use the floor link on the tablet.'
+        }
         actions={
           <Button asChild variant="outline">
             <Link to={paths.forms}>Back to forms</Link>
@@ -477,7 +526,7 @@ export function FormComplete() {
       ) : (
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center gap-2">
-            <Badge variant="outline">{template.archetype}</Badge>
+            <Badge variant="outline">{archetypeLabel(template.archetype)}</Badge>
             <CardTitle className="w-full">{template.name}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -497,8 +546,12 @@ export function FormComplete() {
             </Field>
             {isScheduledAllSitesTemplate(template) ? (
               <Field
-                label="Covers"
-                hint="The day this form is for. Choose an earlier day to backfill."
+                label={template.archetype === 'evidence' ? 'Completion date' : 'Covers'}
+                hint={
+                  template.archetype === 'evidence' && isMonthLongCadence(template.cadence)
+                    ? 'A day in the month this covers.'
+                    : 'The day this form is for. Choose an earlier day to backfill.'
+                }
               >
                 <DateInput
                   allowFuture={false}
@@ -508,28 +561,58 @@ export function FormComplete() {
                 />
               </Field>
             ) : null}
-            <Field label="Room or area" hint="Optional">
-              <Input
-                value={room}
-                onChange={(event) => setRoom(event.target.value)}
-                disabled={saving}
+            {template.archetype === 'evidence' && !isScheduledAllSitesTemplate(template) ? (
+              <Field label="Completion date" hint="Required.">
+                <DateInput
+                  allowFuture={false}
+                  value={completionDate}
+                  onChange={(event) => setCompletionDate(event.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+            ) : null}
+            {template.archetype === 'evidence' ? (
+              <Field label="Notes" hint="Optional.">
+                <Textarea
+                  value={evidenceNote}
+                  onChange={(event) => setEvidenceNote(event.target.value)}
+                  disabled={saving}
+                  rows={3}
+                />
+              </Field>
+            ) : (
+              <Field label="Room or area" hint="Optional">
+                <Input
+                  value={room}
+                  onChange={(event) => setRoom(event.target.value)}
+                  disabled={saving}
+                />
+              </Field>
+            )}
+
+            {template.archetype === 'evidence' ? null : (
+              <FormRenderer
+                archetype={template.archetype}
+                schema={template.schema}
+                state={formState}
+                onStateChange={setFormState}
+                signatureUrls={signatureUrls}
               />
-            </Field>
+            )}
 
-            <FormRenderer
-              archetype={template.archetype}
-              schema={template.schema}
-              state={formState}
-              onStateChange={setFormState}
-              signatureUrls={signatureUrls}
-            />
-
-            <Field label="Photos" hint="Optional. Under 10MB each.">
+            <Field
+              label={template.archetype === 'evidence' ? 'Files' : 'Photos'}
+              hint={
+                template.archetype === 'evidence'
+                  ? 'Required to submit. At least one file, under 10MB each.'
+                  : 'Optional. Under 10MB each.'
+              }
+            >
               <FileDropZone
                 accept={FORM_EVIDENCE_ACCEPT}
                 disabled={saving}
                 onFile={handleEvidence}
-                label="Add a photo"
+                label={template.archetype === 'evidence' ? 'Add a file' : 'Add a photo'}
                 hint="JPG, PNG, WebP, or GIF"
                 fileName={
                   pendingFiles.length
@@ -542,7 +625,14 @@ export function FormComplete() {
             </Field>
 
             {isScheduledAllSitesTemplate(template) ? (
-              <Field label="If this day was missed" hint="Required to mark as missed.">
+              <Field
+                label={
+                  template.archetype === 'evidence' && isMonthLongCadence(template.cadence)
+                    ? 'If this period was missed'
+                    : 'If this day was missed'
+                }
+                hint="Required to mark as missed."
+              >
                 <Textarea
                   value={missedReason}
                   onChange={(event) => setMissedReason(event.target.value)}

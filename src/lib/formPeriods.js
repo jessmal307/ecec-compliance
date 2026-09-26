@@ -5,9 +5,18 @@ import {
   formatIso,
   isoWeekday,
   sydneyIsoDate,
-} from './sydneyTime'
-import { isLateForDueBy } from './formDueTimes'
-import { DEFAULT_OPERATING_DAYS, isSiteOpenOn as siteIsOpenOn } from './siteOpen'
+} from './sydneyTime.js'
+import { isLateForDueBy } from './formDueTimes.js'
+import { DEFAULT_OPERATING_DAYS, isSiteOpenOn as siteIsOpenOn } from './siteOpen.js'
+import {
+  anchoredPeriodBounds,
+  isAnchoredCadence,
+  isMonthLongCadence,
+  periodIsOwed,
+  previousAnchoredPeriodBounds,
+} from '../../supabase/functions/_shared/formPeriods.js'
+
+export { isAnchoredCadence, isMonthLongCadence, periodIsOwed }
 
 export { addDaysIso, daysInMonth, formatIso, isoWeekday, DEFAULT_OPERATING_DAYS }
 
@@ -19,8 +28,9 @@ export function addCalendarMonthsIso(isoDate, months) {
   return addMonthsIso(isoDate, months)
 }
 
-export function periodBounds(cadence, today) {
+export function periodBounds(cadence, today, months) {
   if (!isIsoDate(today)) return null
+  if (isAnchoredCadence(cadence)) return anchoredPeriodBounds(months, today)
   const [year, month] = today.split('-').map(Number)
 
   if (cadence === 'daily') return { start: today, end: today }
@@ -50,7 +60,8 @@ export function periodBounds(cadence, today) {
   return null
 }
 
-export function previousPeriodBounds(cadence, today) {
+export function previousPeriodBounds(cadence, today, months) {
+  if (isAnchoredCadence(cadence)) return previousAnchoredPeriodBounds(months, today)
   const current = periodBounds(cadence, today)
   if (!current?.start) return null
   if (cadence === 'daily') {
@@ -179,6 +190,10 @@ function notBeforeIso(site, template) {
   return dates.length ? dates.reduce((latest, date) => (date > latest ? date : latest)) : null
 }
 
+export function scheduleNotBefore(site, template) {
+  return notBeforeIso(site, template)
+}
+
 const MONTHS = [
   'January',
   'February',
@@ -209,7 +224,7 @@ export function missedPeriodLabel(cadence, bounds, today) {
       : `missed ${formatDayLabel(bounds.start)}`
   }
   if (cadence === 'weekly') return `missed week of ${formatDayLabel(bounds.start)}`
-  if (cadence === 'monthly') {
+  if (cadence === 'monthly' || cadence === 'half_yearly' || cadence === 'annually') {
     const [year, month] = bounds.start.split('-').map(Number)
     return `missed ${MONTHS[month - 1]} ${year}`
   }
@@ -234,7 +249,9 @@ export function findOverdueForms({
   const rows = []
   for (const site of sites) {
     for (const template of templates) {
-      if (template.cadence === 'once' || !template.cadence) continue
+      if (template.cadence === 'once' || template.cadence === 'each_time' || !template.cadence) {
+        continue
+      }
       if (template.scope !== 'all_sites') continue
       if (
         exclusions.some(
@@ -253,10 +270,11 @@ export function findOverdueForms({
         if (!day) continue
         bounds = { start: day, end: day }
       } else {
-        bounds = previousPeriodBounds(template.cadence, today)
+        bounds = previousPeriodBounds(template.cadence, today, template.cadence_months)
         if (!bounds?.start) continue
-        if (notBefore && bounds.start < notBefore) continue
-        if (!periodHasOpenDay(site, closures, bounds)) continue
+        const monthLong = isMonthLongCadence(template.cadence)
+        if (!periodIsOwed(bounds, notBefore, monthLong)) continue
+        if (!monthLong && !periodHasOpenDay(site, closures, bounds)) continue
       }
 
       if (
