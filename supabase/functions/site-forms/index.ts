@@ -328,6 +328,26 @@ function signaturePath(orgId: string, siteId: string, submissionId: string) {
   return `${orgId}/${siteId}/${submissionId}/signature.png`
 }
 
+const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+// Same field source as validateSubmission; ids outside FIELD_ID_PATTERN never become paths.
+function signatureFields(schema: Record<string, unknown> | null | undefined, archetype: string) {
+  if (archetype === 'checklist') return []
+  const source = schema?.fields ?? schema?.items
+  if (!Array.isArray(source)) return []
+  return (source as { id?: unknown; label?: unknown; type?: unknown }[])
+    .filter((field) => field?.type === 'signature' && FIELD_ID_PATTERN.test(String(field.id ?? '')))
+    .map((field) => ({ id: String(field.id), label: String(field.label || 'the signature') }))
+}
+
+function fieldSignaturePath(orgId: string, siteId: string, submissionId: string, fieldId: string) {
+  return `${orgId}/${siteId}/${submissionId}/fields/${fieldId}.png`
+}
+
+function fieldAgainMessage(label: string) {
+  return `Draw ${label} again.`
+}
+
 async function resolveToken(supabase: Supabase, rawToken: string) {
   const tokenHash = await sha256Hex(rawToken)
   const { data, error } = await supabase
@@ -494,9 +514,8 @@ async function handleGet(supabase: Supabase, context: TokenContext) {
 
 // Only call for a row just confirmed as a draft. The old file is removed so a
 // no-upsert URL can create the new one; once the submission is complete its
-// signature exists, so no outstanding URL can overwrite it.
-async function signedSignatureUpload(supabase: Supabase, orgId: string, siteId: string, submissionId: string) {
-  const path = signaturePath(orgId, siteId, submissionId)
+// signature files exist, so no outstanding URL can overwrite them.
+async function signedUpload(supabase: Supabase, path: string) {
   const { error: removeError } = await supabase.storage.from(FORM_UPLOADS_BUCKET).remove([path])
   if (removeError) throw removeError
   const { data, error } = await supabase.storage
@@ -511,7 +530,7 @@ async function signedSignatureUpload(supabase: Supabase, orgId: string, siteId: 
   }
 }
 
-async function signatureExists(supabase: Supabase, path: string) {
+async function objectExists(supabase: Supabase, path: string) {
   const slash = path.lastIndexOf('/')
   const folder = path.slice(0, slash)
   const name = path.slice(slash + 1)
@@ -599,7 +618,16 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
 
   const signature = built.data.signoff.signature
   if (signature && !submissionId) {
-    return json({ error: SIGNATURE_AGAIN_MESSAGE }, 400)
+    return json({ error: SIGNATURE_AGAIN_MESSAGE, redraw: true }, 400)
+  }
+  const fieldValues = built.data.values as Record<string, unknown>
+  const fieldSignatures = signatureFields(template.schema, template.archetype).map((field) => ({
+    ...field,
+    value: String(fieldValues[field.id] ?? '').trim(),
+  }))
+  if (!submissionId) {
+    const filled = fieldSignatures.find((field) => field.value)
+    if (filled) return json({ error: fieldAgainMessage(filled.label), redraw: true }, 400)
   }
 
   let rowId = submissionId
@@ -622,7 +650,18 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
       return json({ error: 'This submission is locked.' }, 409)
     }
     if (signature && signature !== signaturePath(context.orgId, context.siteId, rowId)) {
-      return json({ error: SIGNATURE_AGAIN_MESSAGE, submission_id: rowId }, 400)
+      return json({ error: SIGNATURE_AGAIN_MESSAGE, redraw: true, submission_id: rowId }, 400)
+    }
+    const wrongField = fieldSignatures.find(
+      (field) =>
+        field.value &&
+        field.value !== fieldSignaturePath(context.orgId, context.siteId, rowId as string, field.id),
+    )
+    if (wrongField) {
+      return json(
+        { error: fieldAgainMessage(wrongField.label), redraw: true, submission_id: rowId },
+        400,
+      )
     }
   } else {
     const { data: created, error: createError } = await supabase
@@ -647,8 +686,16 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
     const issues = validateSubmission(template.schema, template.archetype, built.data)
     if (issues.length) return json({ error: issues[0], submission_id: rowId }, 400)
 
-    if (signature && !(await signatureExists(supabase, signature))) {
-      return json({ error: SIGNATURE_AGAIN_MESSAGE, submission_id: rowId }, 400)
+    if (signature && !(await objectExists(supabase, signature))) {
+      return json({ error: SIGNATURE_AGAIN_MESSAGE, redraw: true, submission_id: rowId }, 400)
+    }
+    for (const field of fieldSignatures) {
+      if (field.value && !(await objectExists(supabase, field.value))) {
+        return json(
+          { error: fieldAgainMessage(field.label), redraw: true, submission_id: rowId },
+          400,
+        )
+      }
     }
 
     if (forDate) {
@@ -717,8 +764,16 @@ async function handlePost(supabase: Supabase, context: TokenContext, body: Recor
 
   const upload = signature
     ? null
-    : await signedSignatureUpload(supabase, context.orgId, context.siteId, rowId)
-  return json({ submission_id: rowId, status: 'draft', upload })
+    : await signedUpload(supabase, signaturePath(context.orgId, context.siteId, rowId))
+  const fieldUploads: Record<string, Awaited<ReturnType<typeof signedUpload>>> = {}
+  for (const field of fieldSignatures) {
+    if (field.value) continue
+    fieldUploads[field.id] = await signedUpload(
+      supabase,
+      fieldSignaturePath(context.orgId, context.siteId, rowId, field.id),
+    )
+  }
+  return json({ submission_id: rowId, status: 'draft', upload, field_uploads: fieldUploads })
 }
 
 Deno.serve(async (req) => {

@@ -3,8 +3,6 @@ import { sydneyToday } from './sydneyTime'
 
 const FORM_UPLOADS_BUCKET = 'form-uploads'
 
-export const SIGNATURE_AGAIN_MESSAGE = 'Draw the sign-off signature again.'
-
 const INACTIVE_MESSAGE =
   'This link is no longer active — please contact your service.'
 
@@ -77,7 +75,12 @@ export function validateFormSubmission(schema, archetype, state) {
 export function buildPublicSubmissionData(state) {
   const signoff = { ...(state?.signoff || {}) }
   if (isSignatureDataUrl(signoff.signature)) signoff.signature = ''
-  const fields = state?.values || {}
+  const fields = Object.fromEntries(
+    Object.entries(state?.values || {}).map(([id, value]) => [
+      id,
+      isSignatureDataUrl(value) ? '' : value,
+    ]),
+  )
   const rows = state?.rows || []
   return {
     room: '',

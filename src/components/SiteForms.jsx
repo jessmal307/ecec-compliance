@@ -8,7 +8,6 @@ import { emptyHazardRow } from './forms/RiskMatrixFormRenderer'
 import { PageError, PageMuted, PageSuccess } from './ui/page'
 import {
   INACTIVE_MESSAGE,
-  SIGNATURE_AGAIN_MESSAGE,
   buildPublicSubmissionData,
   dataUrlToBlob,
   emptyFormState,
@@ -46,6 +45,28 @@ function startState(archetype) {
   const state = emptyFormState()
   if (archetype === 'risk_matrix') state.rows = [emptyHazardRow()]
   return state
+}
+
+const UPLOAD_FAILED_MESSAGE = 'Could not upload the signature. Try again.'
+
+// Matches the server's field source in site-forms.
+function signatureFieldIds(schema, archetype) {
+  if (archetype === 'checklist') return []
+  const fields = schema?.fields ?? schema?.items
+  if (!Array.isArray(fields)) return []
+  return fields.filter((field) => field?.type === 'signature').map((field) => field.id)
+}
+
+async function uploadDrawnSignature(dataUrl, upload) {
+  if (!upload?.path) return { path: null, error: { message: UPLOAD_FAILED_MESSAGE } }
+  try {
+    const blob = await dataUrlToBlob(dataUrl)
+    const uploaded = await uploadSignature(upload, blob)
+    if (uploaded.error) return { path: null, error: uploaded.error }
+    return { path: upload.path, error: null }
+  } catch {
+    return { path: null, error: { message: UPLOAD_FAILED_MESSAGE } }
+  }
 }
 
 export function SiteForms() {
@@ -125,9 +146,13 @@ export function SiteForms() {
     setSaved('')
   }
 
-  // Remounting the renderer blanks the pad, which only reads its value on mount.
-  function clearSignature(state) {
-    setFormState({ ...state, signoff: { ...state.signoff, signature: '' } })
+  // Remounting the renderer blanks the pads, which only read their value on mount.
+  function clearSignatures(state) {
+    const values = { ...(state.values || {}) }
+    for (const fieldId of signatureFieldIds(active?.schema, active?.archetype)) {
+      if (fieldId in values) values[fieldId] = ''
+    }
+    setFormState({ ...state, values, signoff: { ...state.signoff, signature: '' } })
     setRendererKey((key) => key + 1)
   }
 
@@ -158,7 +183,7 @@ export function SiteForms() {
         setSaving(false)
         return
       }
-      if (draft.error.message === SIGNATURE_AGAIN_MESSAGE) clearSignature(nextState)
+      if (draft.data?.redraw) clearSignatures(nextState)
       setError(draft.error.message)
       setSaving(false)
       return
@@ -168,17 +193,7 @@ export function SiteForms() {
     setDraftIds((current) => ({ ...current, [active.template_id]: submissionId }))
 
     if (isSignatureDataUrl(nextState.signoff?.signature)) {
-      let uploaded
-      if (!draft.data.upload) {
-        uploaded = { error: { message: 'Could not upload the signature. Try again.' } }
-      } else {
-        try {
-          const blob = await dataUrlToBlob(nextState.signoff.signature)
-          uploaded = await uploadSignature(draft.data.upload, blob)
-        } catch {
-          uploaded = { error: { message: 'Could not upload the signature. Try again.' } }
-        }
-      }
+      const uploaded = await uploadDrawnSignature(nextState.signoff.signature, draft.data.upload)
       if (uploaded.error) {
         setError(uploaded.error.message)
         setSaving(false)
@@ -186,7 +201,22 @@ export function SiteForms() {
       }
       nextState = {
         ...nextState,
-        signoff: { ...nextState.signoff, signature: draft.data.upload.path },
+        signoff: { ...nextState.signoff, signature: uploaded.path },
+      }
+      setFormState(nextState)
+    }
+
+    for (const [fieldId, value] of Object.entries(nextState.values || {})) {
+      if (!isSignatureDataUrl(value)) continue
+      const uploaded = await uploadDrawnSignature(value, draft.data.field_uploads?.[fieldId])
+      if (uploaded.error) {
+        setError(uploaded.error.message)
+        setSaving(false)
+        return
+      }
+      nextState = {
+        ...nextState,
+        values: { ...nextState.values, [fieldId]: uploaded.path },
       }
       setFormState(nextState)
     }
@@ -210,7 +240,7 @@ export function SiteForms() {
         setSaving(false)
         return
       }
-      if (completed.error.message === SIGNATURE_AGAIN_MESSAGE) clearSignature(nextState)
+      if (completed.data?.redraw) clearSignatures(nextState)
       setError(completed.error.message)
       setSaving(false)
       return
