@@ -29,6 +29,12 @@ function snapshotOf(entry) {
   return entry?.after || entry?.before || {}
 }
 
+function onlyFieldChanged(before, after, field) {
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})])
+  const changed = [...keys].filter((key) => before?.[key] !== after?.[key])
+  return changed.length === 1 && changed[0] === field
+}
+
 function recordName(row, fallback = 'record') {
   return String(row?.name || row?.label || fallback).trim() || fallback
 }
@@ -116,6 +122,11 @@ export function formatAuditSentence(entry, names = { staff: {}, sites: {}, types
     }
     if (before.archived_at && !after.archived_at) {
       return `${actor} restored site ${name}`
+    }
+    if (onlyFieldChanged(before, after, 'alert_email')) {
+      return after.alert_email
+        ? `${actor} set the alert email for ${name}`
+        : `${actor} cleared the alert email for ${name}`
     }
     return `${actor} updated site ${name}`
   }

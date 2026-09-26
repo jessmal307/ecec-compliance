@@ -94,6 +94,7 @@ function siteInfoFromSite(site) {
     serviceApprovalNumber: site?.service_approval_number ?? '',
     phone: site?.phone ?? '',
     nominatedSupervisor: site?.nominated_supervisor ?? '',
+    alertEmail: site?.alert_email ?? '',
     operatingDays: site?.operating_days ?? DEFAULT_OPERATING_DAYS,
   }
 }
@@ -333,6 +334,7 @@ export function SiteProfile() {
       serviceApprovalNumber: info.serviceApprovalNumber,
       phone: info.phone,
       nominatedSupervisor: info.nominatedSupervisor,
+      alertEmail: info.alertEmail,
       operatingDays: info.operatingDays,
     })
 
@@ -711,6 +713,21 @@ export function SiteProfile() {
                         value={info.nominatedSupervisor}
                         onChange={(event) =>
                           setInfoField('nominatedSupervisor', event.target.value)
+                        }
+                        disabled={infoBusy}
+                      />
+                    </Field>
+                    <Field
+                      label="Alert email"
+                      hint="Overdue form emails go here. If empty, the organisation alert email is used."
+                      className="col-span-full"
+                    >
+                      <Input
+                        type="email"
+                        name="alert_email"
+                        value={info.alertEmail}
+                        onChange={(event) =>
+                          setInfoField('alertEmail', event.target.value)
                         }
                         disabled={infoBusy}
                       />

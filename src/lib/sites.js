@@ -3,7 +3,7 @@ import { withArchiveScope } from './archive'
 import { sydneyToday } from './sydneyTime'
 
 const SITE_FIELDS =
-  'id, name, address, service_approval_number, phone, nominated_supervisor, operating_days, org_id, created_at, archived_at'
+  'id, name, address, service_approval_number, phone, nominated_supervisor, alert_email, operating_days, org_id, created_at, archived_at'
 
 export const DEFAULT_OPERATING_DAYS = [1, 2, 3, 4, 5]
 
@@ -44,6 +44,7 @@ function mapSite(row) {
     service_approval_number: row.service_approval_number ?? '',
     phone: row.phone ?? '',
     nominated_supervisor: row.nominated_supervisor ?? '',
+    alert_email: row.alert_email ?? '',
     operating_days: mapOperatingDays(row.operating_days),
     org_id: row.org_id,
     created_at: row.created_at,
@@ -117,6 +118,7 @@ export async function updateSite(id, {
   serviceApprovalNumber,
   phone,
   nominatedSupervisor,
+  alertEmail,
   operatingDays,
 }) {
   const payload = {
@@ -125,6 +127,7 @@ export async function updateSite(id, {
     service_approval_number: emptyToNull(serviceApprovalNumber),
     phone: emptyToNull(phone),
     nominated_supervisor: emptyToNull(nominatedSupervisor),
+    alert_email: emptyToNull(alertEmail),
   }
   if (operatingDays !== undefined) {
     const days = Array.isArray(operatingDays)
