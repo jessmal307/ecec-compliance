@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
+import { retryOnJwtSkew } from '../_shared/retry.ts'
 
 const ALERT_TIME_ZONE = 'Australia/Sydney'
 const EXPIRY_KINDS = ['renewal', 'expired'] as const
@@ -1321,20 +1322,32 @@ async function loadOverdueFormsForOrg(
   today: string,
 ): Promise<Map<string, OverdueFormRow[]>> {
   const [sitesResult, templatesResult, exclusionsResult] = await Promise.all([
-    supabase
-      .from('sites')
-      .select('id, name, operating_days, created_at, archived_at')
-      .eq('org_id', orgId)
-      .is('archived_at', null),
-    supabase
-      .from('form_templates')
-      .select('id, name, cadence, scope, org_id, archived_at, created_at')
-      .is('archived_at', null)
-      .or(`org_id.eq.${orgId},org_id.is.null`),
-    supabase
-      .from('form_site_exclusions')
-      .select('site_id, template_id')
-      .eq('org_id', orgId),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('sites')
+          .select('id, name, operating_days, created_at, archived_at')
+          .eq('org_id', orgId)
+          .is('archived_at', null),
+      'overdue sites',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('form_templates')
+          .select('id, name, cadence, scope, org_id, archived_at, created_at')
+          .is('archived_at', null)
+          .or(`org_id.eq.${orgId},org_id.is.null`),
+      'overdue form_templates',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('form_site_exclusions')
+          .select('site_id, template_id')
+          .eq('org_id', orgId),
+      'overdue form_site_exclusions',
+    ),
   ])
 
   if (sitesResult.error) throw sitesResult.error
@@ -1360,22 +1373,30 @@ async function loadOverdueFormsForOrg(
   if (!sites.length || !templates.length) return new Map()
 
   const [closuresResult, submissionsResult] = await Promise.all([
-    supabase
-      .from('site_closures')
-      .select('site_id, closure_date')
-      .in(
-        'site_id',
-        sites.map((site) => site.id),
-      ),
-    supabase
-      .from('form_submissions')
-      .select('site_id, template_id, status, for_date')
-      .eq('org_id', orgId)
-      .in('status', ['complete', 'missed'])
-      .in(
-        'template_id',
-        templates.map((template) => template.id),
-      ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('site_closures')
+          .select('site_id, closure_date')
+          .in(
+            'site_id',
+            sites.map((site) => site.id),
+          ),
+      'overdue site_closures',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('form_submissions')
+          .select('site_id, template_id, status, for_date')
+          .eq('org_id', orgId)
+          .in('status', ['complete', 'missed'])
+          .in(
+            'template_id',
+            templates.map((template) => template.id),
+          ),
+      'overdue form_submissions',
+    ),
   ])
 
   if (closuresResult.error) throw closuresResult.error
@@ -1491,10 +1512,12 @@ Deno.serve(async (req) => {
     return email
   }
 
-  const { data: items, error: itemsError } = await supabase
-    .from('compliance_items')
-    .select(
-      `
+  const { data: items, error: itemsError } = await retryOnJwtSkew(
+    () =>
+      supabase
+        .from('compliance_items')
+        .select(
+          `
       id,
       expiry_date,
       last_verified_date,
@@ -1512,8 +1535,10 @@ Deno.serve(async (req) => {
       staff ( name, archived_at, employment_status ),
       sites ( name, archived_at )
     `,
-    )
-    .is('archived_at', null)
+        )
+        .is('archived_at', null),
+    'compliance_items',
+  )
 
   if (itemsError) {
     return json({ error: `Failed to load compliance items: ${itemsError.message}` }, 500)
@@ -1533,11 +1558,15 @@ Deno.serve(async (req) => {
 
   if (expiryEligible.length > 0) {
     const expiryItemIds = [...new Set(expiryEligible.map((entry) => entry.item.id))]
-    const { data: existingExpiryAlerts, error: expiryAlertsError } = await supabase
-      .from('alerts')
-      .select('compliance_item_id, threshold')
-      .in('compliance_item_id', expiryItemIds)
-      .in('threshold', EXPIRY_KINDS)
+    const { data: existingExpiryAlerts, error: expiryAlertsError } = await retryOnJwtSkew(
+      () =>
+        supabase
+          .from('alerts')
+          .select('compliance_item_id, threshold')
+          .in('compliance_item_id', expiryItemIds)
+          .in('threshold', EXPIRY_KINDS),
+      'expiry alerts',
+    )
 
     if (expiryAlertsError) {
       return json({ error: `Failed to load expiry alerts: ${expiryAlertsError.message}` }, 500)
@@ -1571,11 +1600,15 @@ Deno.serve(async (req) => {
 
   if (recheckEligible.length > 0) {
     const recheckItemIds = [...new Set(recheckEligible.map((entry) => entry.item.id))]
-    const { data: existingRecheckAlerts, error: recheckAlertsError } = await supabase
-      .from('alerts')
-      .select('compliance_item_id, threshold, sent_at')
-      .in('compliance_item_id', recheckItemIds)
-      .eq('threshold', 'recheck')
+    const { data: existingRecheckAlerts, error: recheckAlertsError } = await retryOnJwtSkew(
+      () =>
+        supabase
+          .from('alerts')
+          .select('compliance_item_id, threshold, sent_at')
+          .in('compliance_item_id', recheckItemIds)
+          .eq('threshold', 'recheck'),
+      'recheck alerts',
+    )
 
     if (recheckAlertsError) {
       return json({ error: `Failed to load recheck alerts: ${recheckAlertsError.message}` }, 500)
@@ -1612,38 +1645,60 @@ Deno.serve(async (req) => {
     staffExclusionsResult,
     siteExclusionsResult,
   ] = await Promise.all([
-    supabase
-      .from('organizations')
-      .select('id, name, owner_id, alert_email, plan')
-      .in('id', orgIds),
-    supabase
-      .from('sites')
-      .select('id, name, org_id, archived_at')
-      .in('org_id', orgIds)
-      .is('archived_at', null)
-      .order('name', { ascending: true }),
-    supabase
-      .from('staff')
-      .select(
-        `
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('organizations')
+          .select('id, name, owner_id, alert_email, plan')
+          .in('id', orgIds),
+      'organizations',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('sites')
+          .select('id, name, org_id, archived_at')
+          .in('org_id', orgIds)
+          .is('archived_at', null)
+          .order('name', { ascending: true }),
+      'sites',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('staff')
+          .select(
+            `
         id, name, employment_status, org_id, archived_at,
         staff_sites (
           site_id,
           sites ( id, name, archived_at )
         )
       `,
-      )
-      .in('org_id', orgIds)
-      .is('archived_at', null),
-    supabase
-      .from('requirement_types')
-      .select(
-        'id, name, org_id, mandatory, applies_to, perpetual, recheck_interval_days, renewal_lead_days, archived_at',
-      )
-      .in('org_id', orgIds)
-      .is('archived_at', null),
-    supabase.from('staff_requirement_exclusions').select('staff_id, requirement_type_id'),
-    supabase.from('site_requirement_exclusions').select('site_id, requirement_type_id'),
+          )
+          .in('org_id', orgIds)
+          .is('archived_at', null),
+      'staff',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('requirement_types')
+          .select(
+            'id, name, org_id, mandatory, applies_to, perpetual, recheck_interval_days, renewal_lead_days, archived_at',
+          )
+          .in('org_id', orgIds)
+          .is('archived_at', null),
+      'requirement_types',
+    ),
+    retryOnJwtSkew(
+      () => supabase.from('staff_requirement_exclusions').select('staff_id, requirement_type_id'),
+      'staff_requirement_exclusions',
+    ),
+    retryOnJwtSkew(
+      () => supabase.from('site_requirement_exclusions').select('site_id, requirement_type_id'),
+      'site_requirement_exclusions',
+    ),
   ])
 
   for (const [label, result] of [

@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { buildProviderComplianceReport } from '../_shared/dashboardCompliance.js'
 import { hasCronSecretKey } from '../_shared/cronAuth.ts'
+import { retryOnJwtSkew } from '../_shared/retry.ts'
 
 // Scheduled by supabase/cron_jobs.sql (rtc-monthly-report).
 
@@ -307,42 +308,67 @@ Deno.serve(async (req) => {
     staffExclusionsResult,
     siteExclusionsResult,
   ] = await Promise.all([
-    supabase.from('organizations').select('id, name, owner_id, alert_email'),
-    supabase
-      .from('sites')
-      .select('id, name, org_id, archived_at')
-      .is('archived_at', null)
-      .order('name', { ascending: true }),
-    supabase
-      .from('staff')
-      .select(
-        `
+    retryOnJwtSkew(
+      () => supabase.from('organizations').select('id, name, owner_id, alert_email'),
+      'organizations',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('sites')
+          .select('id, name, org_id, archived_at')
+          .is('archived_at', null)
+          .order('name', { ascending: true }),
+      'sites',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('staff')
+          .select(
+            `
         id, name, employment_status, org_id, archived_at,
         staff_sites (
           site_id,
           sites ( id, name, archived_at )
         )
       `,
-      )
-      .is('archived_at', null),
-    supabase
-      .from('requirement_types')
-      .select('id, name, org_id, mandatory, applies_to, perpetual, archived_at')
-      .is('archived_at', null),
-    supabase
-      .from('compliance_items')
-      .select(
-        `
+          )
+          .is('archived_at', null),
+      'staff',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('requirement_types')
+          .select('id, name, org_id, mandatory, applies_to, perpetual, archived_at')
+          .is('archived_at', null),
+      'requirement_types',
+    ),
+    retryOnJwtSkew(
+      () =>
+        supabase
+          .from('compliance_items')
+          .select(
+            `
         id, org_id, staff_id, site_id, requirement_type_id, expiry_date, archived_at,
         document_url, working_towards, last_verified_date, issued_date, created_at,
         requirement_types ( name, archived_at ),
         staff ( name, employment_status, archived_at ),
         sites ( name, archived_at )
       `,
-      )
-      .is('archived_at', null),
-    supabase.from('staff_requirement_exclusions').select('staff_id, requirement_type_id'),
-    supabase.from('site_requirement_exclusions').select('site_id, requirement_type_id'),
+          )
+          .is('archived_at', null),
+      'compliance_items',
+    ),
+    retryOnJwtSkew(
+      () => supabase.from('staff_requirement_exclusions').select('staff_id, requirement_type_id'),
+      'staff_requirement_exclusions',
+    ),
+    retryOnJwtSkew(
+      () => supabase.from('site_requirement_exclusions').select('site_id, requirement_type_id'),
+      'site_requirement_exclusions',
+    ),
   ])
 
   for (const [label, result] of [
