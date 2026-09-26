@@ -3144,3 +3144,238 @@ $$;
 revoke all on function public.staff_pin_status(uuid) from public;
 revoke all on function public.staff_pin_status(uuid) from anon;
 grant execute on function public.staff_pin_status(uuid) to authenticated;
+
+-- Due-by times (Sydney local) for daily scheduled forms.
+-- form_templates.default_due_by is the product default; orgs can't edit
+-- shared templates, so their own times live in form_site_due_times.
+alter table public.form_templates
+  add column if not exists default_due_by time;
+
+update public.form_templates
+set default_due_by = null
+where default_due_by is not null
+  and (
+    cadence is distinct from 'daily'
+    or scope is distinct from 'all_sites'
+    or extract(second from default_due_by) <> 0
+  );
+
+update public.form_templates
+set default_due_by = '09:00'
+where is_system
+  and org_id is null
+  and name = 'Daily Risk Checklist'
+  and default_due_by is null;
+
+alter table public.form_templates
+  drop constraint if exists form_templates_default_due_by_check;
+alter table public.form_templates
+  add constraint form_templates_default_due_by_check
+  check (
+    default_due_by is null
+    or (
+      cadence = 'daily'
+      and scope = 'all_sites'
+      and extract(second from default_due_by) = 0
+    )
+  );
+
+-- site_id null = the org's time for all its sites. A site row wins over it.
+create table if not exists public.form_site_due_times (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations (id) on delete cascade,
+  site_id uuid references public.sites (id) on delete cascade,
+  template_id uuid not null references public.form_templates (id) on delete cascade,
+  due_by time not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.form_site_due_times
+  drop constraint if exists form_site_due_times_org_site_template_key;
+alter table public.form_site_due_times
+  add constraint form_site_due_times_org_site_template_key
+  unique nulls not distinct (org_id, site_id, template_id);
+
+alter table public.form_site_due_times
+  drop constraint if exists form_site_due_times_due_by_check;
+alter table public.form_site_due_times
+  add constraint form_site_due_times_due_by_check
+  check (extract(second from due_by) = 0);
+
+create index if not exists form_site_due_times_template_id_idx
+  on public.form_site_due_times (template_id);
+create index if not exists form_site_due_times_site_id_idx
+  on public.form_site_due_times (site_id);
+
+alter table public.form_site_due_times enable row level security;
+
+drop policy if exists "Plus users can view form due times"
+  on public.form_site_due_times;
+create policy "Plus users can view form due times"
+  on public.form_site_due_times
+  for select
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop policy if exists "Plus users can insert form due times"
+  on public.form_site_due_times;
+create policy "Plus users can insert form due times"
+  on public.form_site_due_times
+  for insert
+  to authenticated
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+    and (
+      site_id is null
+      or site_id in (
+        select site.id from public.sites as site
+        where site.org_id = form_site_due_times.org_id
+      )
+    )
+    and template_id in (
+      select template.id from public.form_templates as template
+      where (template.org_id = form_site_due_times.org_id or template.org_id is null)
+        and template.cadence = 'daily'
+        and template.scope = 'all_sites'
+    )
+  );
+
+drop policy if exists "Plus users can update form due times"
+  on public.form_site_due_times;
+create policy "Plus users can update form due times"
+  on public.form_site_due_times
+  for update
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  )
+  with check (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+    and (
+      site_id is null
+      or site_id in (
+        select site.id from public.sites as site
+        where site.org_id = form_site_due_times.org_id
+      )
+    )
+    and template_id in (
+      select template.id from public.form_templates as template
+      where (template.org_id = form_site_due_times.org_id or template.org_id is null)
+        and template.cadence = 'daily'
+        and template.scope = 'all_sites'
+    )
+  );
+
+drop policy if exists "Plus users can delete form due times"
+  on public.form_site_due_times;
+create policy "Plus users can delete form due times"
+  on public.form_site_due_times
+  for delete
+  to authenticated
+  using (
+    org_id in (
+      select public.user_plus_org_ids()
+    )
+  );
+
+drop trigger if exists audit_form_site_due_times_change on public.form_site_due_times;
+create trigger audit_form_site_due_times_change
+  after insert or update or delete on public.form_site_due_times
+  for each row execute function public.audit_log_change();
+
+-- The due-by a submission was held to, frozen when it's completed, so later
+-- changes to due-by times never change whether an old record was late.
+alter table public.form_submissions
+  add column if not exists due_by time;
+
+-- Site time, else the org's all-sites time, else the template default.
+-- Null for anything but a daily scheduled template the org can use.
+-- App users only get answers for their own Plus orgs; service role has no uid.
+create or replace function public.form_effective_due_by(
+  p_org_id uuid,
+  p_site_id uuid,
+  p_template_id uuid
+)
+returns time
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    (
+      select times.due_by
+      from public.form_site_due_times as times
+      where times.org_id = p_org_id
+        and times.site_id = p_site_id
+        and times.template_id = p_template_id
+    ),
+    (
+      select times.due_by
+      from public.form_site_due_times as times
+      where times.org_id = p_org_id
+        and times.site_id is null
+        and times.template_id = p_template_id
+    ),
+    template.default_due_by
+  )
+  from public.form_templates as template
+  where template.id = p_template_id
+    and template.cadence = 'daily'
+    and template.scope = 'all_sites'
+    and (template.org_id is null or template.org_id = p_org_id)
+    and (
+      auth.uid() is null
+      or p_org_id in (select public.user_plus_org_ids())
+    )
+$$;
+
+revoke all on function public.form_effective_due_by(uuid, uuid, uuid) from public;
+revoke all on function public.form_effective_due_by(uuid, uuid, uuid) from anon;
+grant execute on function public.form_effective_due_by(uuid, uuid, uuid) to authenticated;
+grant execute on function public.form_effective_due_by(uuid, uuid, uuid) to service_role;
+
+-- Same as the earlier definition, plus due_by. A failed lookup leaves due_by
+-- null (the date-only late rule) rather than blocking the completion.
+create or replace function public.stamp_form_submission_completion()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.status = 'complete'
+     and (tg_op = 'INSERT' or old.status is distinct from 'complete') then
+    new.submitted_at := now();
+    new.signed_off_at := now();
+    new.signed_off_by := auth.uid();
+    new.due_by := null;
+    if new.for_date is not null then
+      begin
+        new.due_by := public.form_effective_due_by(
+          new.org_id,
+          new.site_id,
+          new.template_id
+        );
+      exception
+        when others then
+          new.due_by := null;
+      end;
+    end if;
+  elsif tg_op = 'UPDATE' then
+    new.due_by := old.due_by;
+  else
+    new.due_by := null;
+  end if;
+  return new;
+end;
+$$;
