@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "oxlint -A all -D no-undef src && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
