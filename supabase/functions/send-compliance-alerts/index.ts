@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { hasServiceRoleAuth } from '../_shared/serviceRoleAuth.ts'
+import { hasServiceRoleAuth, logAuthMismatch } from '../_shared/serviceRoleAuth.ts'
 
 const ALERT_TIME_ZONE = 'Australia/Sydney'
 const EXPIRY_KINDS = ['renewal', 'expired'] as const
@@ -1457,6 +1457,7 @@ Deno.serve(async (req) => {
   }
 
   if (!hasServiceRoleAuth(req, serviceRoleKey)) {
+    await logAuthMismatch(req, serviceRoleKey) // TEMP-DIAG
     return json({ error: 'Unauthorized' }, 401)
   }
 
